@@ -127,6 +127,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         }
                         return null;
                       },
+                      onFieldSubmitted: (_) {
+                        if (!_isLoading) _login();
+                      },
                     ),
                     const SizedBox(height: 24),
 

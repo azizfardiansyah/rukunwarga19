@@ -126,6 +126,34 @@ lib/
 11. **messages** — Pesan chat (conversation → conversations, sender → users, text, image, created)
 12. **message_reads** — Status baca pesan (message → messages, user → users, read_at)
 13. **announcements** — Pengumuman (author → users, judul, isi, target: all/rt_tertentu)
+
+### Hak Akses Data KK
+* **Admin (pengurus RT/RW):** Hanya bisa display semua data KK dan anggota KK.
+* **Kepala Keluarga:** Bisa mengedit data anggota warga yang terdaftar dalam KK miliknya (validasi: hanya KK sendiri).
+* **Anggota KK:** Hanya bisa mengedit data warga miliknya sendiri.
+
+## Validasi & Flow Data Warga, KK, dan Anggota KK
+- Field user_id pada data warga selalu terisi sesuai user yang login (otomatis saat simpan).
+- Validasi: user_id tidak lagi unik, sehingga user dapat membuat lebih dari satu data warga (misal untuk anggota keluarga lain).
+- Setelah data warga berhasil ditambah atau diupdate, aplikasi otomatis redirect ke dashboard.
+- Jika warga ditambah dari detail KK, field no_kk di warga form otomatis terisi dari argument route (no_kk KK yang sedang dibuka).
+- Setelah warga berhasil dibuat, aplikasi otomatis menambah record anggota_kk (relasi warga ke KK, dengan hubungan dipilih dari dropdown di form warga).
+- Dropdown hubungan (misal: kepala keluarga, istri, anak, dll) muncul di form warga jika akses dari KK detail.
+- Daftar anggota keluarga di detail KK diambil dari collection anggota_kk, menampilkan nama dari warga yang terkait.
+- Tombol "Tambah Anggota KK" di detail KK akan membuka form warga dengan no_kk terisi.
+- Routing: setelah data warga atau KK berhasil dibuat/diupdate, redirect ke dashboard (context.go('/'), dengan Future.microtask untuk reliability).
+
+### Hak Akses & Edit
+- Admin (pengurus RT/RW): hanya bisa display semua data KK dan anggota KK.
+- Kepala Keluarga: bisa mengedit data anggota warga yang terdaftar dalam KK miliknya (validasi: hanya KK sendiri).
+- Anggota KK: hanya bisa mengedit data warga miliknya sendiri.
+
+### PocketBase Collections & Rules
+- Collection anggota_kk: relasi antara KK dan warga, dengan field hubungan.
+- Collection warga: user_id selalu terisi, tidak perlu unik.
+- Collection kartu_keluarga: satu user bisa punya satu atau lebih KK, kepala_keluarga direlasikan ke warga.
+- Pastikan rules di PocketBase sesuai dengan flow dan hak akses di atas.
+
 ## Tahapan Implementasi
 ### Fase 1: Setup & Fondasi
 * Inisialisasi project Flutter
@@ -151,3 +179,37 @@ lib/
 * Responsive design (mobile & web)
 * Error handling & validasi
 * Testing
+
+### Implementasi CRUD Warga, Kartu Keluarga, dan Anggota KK
+
+#### Alur & Validasi
+- **Warga:**
+  - Form warga otomatis mengisi `user_id` sesuai user yang login.
+  - Jika form warga dibuka dari detail KK, field `no_kk` otomatis terisi dari argumen route.
+  - Setelah warga berhasil dibuat, record anggota_kk otomatis ditambah (no_kk, warga, hubungan, status).
+  - Validasi: user_id selalu terisi, user bisa membuat lebih dari satu warga (user_id tidak unik).
+  - Routing: setelah save/update warga, redirect ke dashboard menggunakan `context.go('/')` dengan `Future.microtask` untuk keandalan.
+- **Kartu Keluarga (KK):**
+  - Form KK mengisi user_id kepala keluarga.
+  - Setelah save/update KK, redirect ke dashboard.
+  - Di detail KK, tombol "Tambah Anggota KK" membuka form warga dengan no_kk terisi.
+  - List anggota keluarga di detail KK menampilkan nama dari warga via relasi anggota_kk.
+- **Anggota KK:**
+  - Record anggota_kk dibuat otomatis setelah warga ditambah dari KK.
+  - Dropdown hubungan (ayah, ibu, anak, dll) tersedia di form warga.
+
+#### Routing & Auto-fill
+- Routing setelah save/update selalu menggunakan `context.go('/')` (Future.microtask).
+- Field no_kk di form warga auto-filled dari route argument jika dibuka dari KK detail.
+- Tombol "Tambah Anggota KK" di detail KK membuka form warga dengan no_kk pre-filled.
+
+#### Hak Akses
+- **Admin:** Hanya display semua data KK dan anggota KK.
+- **Kepala Keluarga:** Edit anggota warga dalam KK miliknya.
+- **Anggota KK:** Edit data warga miliknya sendiri.
+
+#### Dokumentasi & Error Handling
+- Semua flow, validasi, dan akses didokumentasikan di README.
+- Error handling dan routing diperbaiki agar konsisten.
+
+---

@@ -7,17 +7,17 @@ class Formatters {
 
   /// Format tanggal: 7 Februari 2026
   static String tanggalLengkap(DateTime date) {
-    return DateFormat('d MMMM yyyy', 'id_ID').format(date);
+    return DateFormat('d MMMM yyyy', 'id').format(date);
   }
 
   /// Format tanggal pendek: 07/02/2026
   static String tanggalPendek(DateTime date) {
-    return DateFormat('dd/MM/yyyy').format(date);
+    return DateFormat('dd/MM/yyyy', 'id').format(date);
   }
 
   /// Format tanggal & waktu: 7 Feb 2026, 10:30
   static String tanggalWaktu(DateTime date) {
-    return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(date);
+    return DateFormat('d MMM yyyy, HH:mm', 'id').format(date);
   }
 
   /// Format waktu saja: 10:30

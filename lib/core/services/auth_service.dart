@@ -16,14 +16,14 @@ class AuthService {
     required String email,
     required String password,
     required String passwordConfirm,
-    required String nama,
+    required String name,
     String role = 'user',
   }) async {
     final record = await pb.collection('users').create(body: {
       'email': email,
       'password': password,
       'passwordConfirm': passwordConfirm,
-      'nama': nama,
+      'name': name,
       'role': role,
     });
     return record;

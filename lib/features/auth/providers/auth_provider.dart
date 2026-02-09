@@ -85,7 +85,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String email,
     required String password,
     required String passwordConfirm,
-    required String nama,
+    required String name,
+    String role = 'user',
   }) async {
     state = state.copyWith(status: AuthStatus.loading, error: null);
     try {
@@ -93,7 +94,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         email: email,
         password: password,
         passwordConfirm: passwordConfirm,
-        nama: nama,
+        name: name,
+        role: role,
       );
       // Auto login setelah register
       await login(email, password);

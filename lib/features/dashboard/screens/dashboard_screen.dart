@@ -1,9 +1,41 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../core/services/pocketbase_service.dart';
+import '../../../core/constants/app_constants.dart';
+
+// Tambahkan provider untuk cek data warga user
+final hasWargaDataProvider = FutureProvider<bool>((ref) async {
+  final auth = ref.watch(authProvider);
+  debugPrint('[DEBUG PROVIDER] hasWargaDataProvider dipanggil, userId: ${auth.user?.id}');
+  if (auth.user == null) return false;
+  final result = await pb.collection(AppConstants.colWarga).getList(
+    page: 1,
+    perPage: 1,
+    filter: 'user_id = "${auth.user!.id}"',
+  );
+  debugPrint('[DEBUG PROVIDER] warga result: ${result.items.length}');
+  return result.items.isNotEmpty;
+});
+
+// Tambahkan provider untuk cek data kartu keluarga user
+final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
+  final auth = ref.watch(authProvider);
+  debugPrint('[DEBUG PROVIDER] hasKartuKeluargaProvider dipanggil, userId: ${auth.user?.id}');
+  if (auth.user == null) return false;
+  final result = await pb.collection(AppConstants.colKartuKeluarga).getList(
+    page: 1,
+    perPage: 1,
+    filter: 'user_id = "${auth.user!.id}"',
+  );
+  debugPrint('[DEBUG PROVIDER] kartu_keluarga result: ${result.items.length}');
+  return result.items.isNotEmpty;
+});
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -13,6 +45,39 @@ class DashboardScreen extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final userName = authState.user?.getStringValue('nama') ?? 'User';
     final role = authState.role;
+    final hasWargaData = ref.watch(hasWargaDataProvider);
+    final hasKartuKeluarga = ref.watch(hasKartuKeluargaProvider);
+
+    debugPrint('[DEBUG BUILD] hasWargaData: $hasWargaData');
+    hasWargaData.when(
+      data: (hasData) {
+        debugPrint('[DEBUG CALLBACK] hasWargaData: $hasData, userId: ${authState.user?.id}');
+        if (!hasData) {
+          Future.microtask(() => context.go(Routes.wargaForm));
+        }
+      },
+      error: (err, stack) {
+        debugPrint('[DEBUG ERROR] hasWargaDataProvider error: $err');
+      },
+      loading: () {
+        debugPrint('[DEBUG LOADING] hasWargaDataProvider loading');
+      },
+    );
+
+    hasKartuKeluarga.when(
+      data: (hasData) {
+        debugPrint('[DEBUG CALLBACK] hasKartuKeluarga: $hasData, userId: ${authState.user?.id}');
+        if (!hasData) {
+          Future.microtask(() => context.go(Routes.kkForm));
+        }
+      },
+      error: (err, stack) {
+        debugPrint('[DEBUG ERROR] hasKartuKeluargaProvider error: $err');
+      },
+      loading: () {
+        debugPrint('[DEBUG LOADING] hasKartuKeluargaProvider loading');
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -128,7 +193,14 @@ class DashboardScreen extends ConsumerWidget {
                 _MenuCard(
                   icon: Icons.family_restroom,
                   label: 'Kartu Keluarga',
-                  onTap: () => context.push(Routes.kartuKeluarga),
+                  onTap: () {
+                    final hasKK = ref.read(hasKartuKeluargaProvider).maybeWhen(data: (hasData) => hasData, orElse: () => false);
+                    if (hasKK) {
+                      context.push(Routes.kartuKeluarga);
+                    } else {
+                      context.go(Routes.kkForm);
+                    }
+                  },
                 ),
                 _MenuCard(
                   icon: Icons.badge,

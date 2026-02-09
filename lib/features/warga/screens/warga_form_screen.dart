@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -18,6 +20,7 @@ class WargaFormScreen extends ConsumerStatefulWidget {
 class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nikCtrl = TextEditingController();
+  final _noKkCtrl = TextEditingController();
   final _namaCtrl = TextEditingController();
   final _tempatLahirCtrl = TextEditingController();
   final _alamatCtrl = TextEditingController();
@@ -30,8 +33,18 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   String _jenisKelamin = 'Laki-laki';
   String _agama = 'Islam';
   String _statusPernikahan = 'Belum Menikah';
+  String _hubungan = 'Anak'; // default
   bool _isLoading = false;
   bool _isEdit = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args != null && args is Map && args['no_kk'] != null) {
+      _noKkCtrl.text = args['no_kk'].toString();
+    }
+  }
 
   @override
   void initState() {
@@ -71,8 +84,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
+      final userId = pb.authStore.record?.id;
+      // Hapus validasi pengecekan user_id
       final body = {
         'nik': _nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'no_kk': _noKkCtrl.text.trim(),
         'nama_lengkap': _namaCtrl.text.trim(),
         'tempat_lahir': _tempatLahirCtrl.text.trim(),
         'tanggal_lahir': _tanggalLahir?.toIso8601String(),
@@ -85,14 +101,32 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         'rw': _rwCtrl.text.trim(),
         'no_hp': _noHpCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
+        'user_id': userId,
       };
 
+      String wargaBaruId;
       if (_isEdit) {
-        await pb
-            .collection(AppConstants.colWarga)
-            .update(widget.wargaId!, body: body);
+        await pb.collection(AppConstants.colWarga).update(widget.wargaId!, body: body);
+        wargaBaruId = widget.wargaId!;
       } else {
-        await pb.collection(AppConstants.colWarga).create(body: body);
+        final wargaRecord = await pb.collection(AppConstants.colWarga).create(body: body);
+        wargaBaruId = wargaRecord.id;
+        // Insert ke anggota_kk
+        // Cari id KK milik user
+        final kkList = await pb.collection(AppConstants.colKartuKeluarga).getList(
+          page: 1,
+          perPage: 1,
+          filter: 'user_id = "$userId"',
+        );
+        if (kkList.items.isNotEmpty) {
+          final kkId = kkList.items.first.id;
+          await pb.collection(AppConstants.colAnggotaKk).create(body: {
+            'no_kk': kkId,
+            'warga': wargaBaruId,
+            'hubungan_': _hubungan,
+            'status': 'Aktif',
+          });
+        }
       }
 
       if (mounted) {
@@ -100,7 +134,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
           context,
           _isEdit ? 'Data warga berhasil diperbarui' : 'Data warga berhasil ditambahkan',
         );
-        context.pop();
+        Future.microtask(() => context.go('/'));
       }
     } catch (e) {
       if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
@@ -112,6 +146,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   @override
   void dispose() {
     _nikCtrl.dispose();
+    _noKkCtrl.dispose();
     _namaCtrl.dispose();
     _tempatLahirCtrl.dispose();
     _alamatCtrl.dispose();
@@ -250,6 +285,21 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                 decoration: const InputDecoration(labelText: 'Email'),
                 keyboardType: TextInputType.emailAddress,
               ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _noKkCtrl,
+                decoration: const InputDecoration(labelText: 'No KK'),
+                readOnly: true,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _hubungan,
+                decoration: const InputDecoration(labelText: 'Hubungan dalam KK'),
+                items: ['Ayah', 'Ibu', 'Anak', 'Kakak', 'Adik']
+                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .toList(),
+                onChanged: (v) => setState(() => _hubungan = v!),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isLoading ? null : _save,
@@ -269,3 +319,5 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     );
   }
 }
+
+

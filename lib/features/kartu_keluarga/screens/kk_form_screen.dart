@@ -1,11 +1,16 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
+import '../../../app/router.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../features/auth/providers/auth_provider.dart';
+import '../../dashboard/screens/dashboard_screen.dart';
 
 class KkFormScreen extends ConsumerStatefulWidget {
   final String? kkId;
@@ -36,24 +41,45 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
+      final auth = ref.read(authProvider);
+      final userId = auth.user?.id;
+      if (userId == null) throw Exception('User belum login');
+      final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+      // Cek duplikasi KK
+      final existing = await pb.collection(AppConstants.colKartuKeluarga).getList(
+        page: 1,
+        perPage: 1,
+        filter: 'no_kk = "$noKk" && user_id = "$userId"',
+      );
+      if (existing.items.isNotEmpty && widget.kkId == null) {
+        if (mounted) {
+          ErrorClassifier.showErrorSnackBar(context, 'KK sudah terdaftar');
+        }
+        setState(() => _isLoading = false);
+        return;
+      }
       final body = {
-        'no_kk': _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'no_kk': noKk,
         'alamat': _alamatCtrl.text.trim(),
         'rt': _rtCtrl.text.trim(),
         'rw': _rwCtrl.text.trim(),
+        'user_id': userId,
       };
-
+      debugPrint('[DEBUG KK FORM] body: $body');
       if (widget.kkId != null) {
         await pb.collection(AppConstants.colKartuKeluarga).update(widget.kkId!, body: body);
       } else {
         await pb.collection(AppConstants.colKartuKeluarga).create(body: body);
       }
-
       if (mounted) {
         ErrorClassifier.showSuccessSnackBar(context, 'Data KK berhasil disimpan');
-        context.pop();
+        ref.invalidate(hasKartuKeluargaProvider);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) context.go(Routes.dashboard);
+        });
       }
     } catch (e) {
+      debugPrint('[DEBUG KK FORM ERROR] $e');
       if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -115,6 +141,18 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 child: _isLoading
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Text('Simpan'),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: _isLoading
+                    ? null
+                    : () {
+                        ref.invalidate(hasKartuKeluargaProvider);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) context.go(Routes.dashboard);
+                        });
+                      },
+                child: const Text('Batal'),
               ),
             ],
           ),

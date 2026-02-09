@@ -40,7 +40,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             email: _emailController.text.trim(),
             password: _passwordController.text,
             passwordConfirm: _confirmPasswordController.text,
-            nama: _namaController.text.trim(),
+            name: _namaController.text.trim(), // simpan ke field name
+            role: 'user', // Set role to 'user' on registration
           );
     } catch (e) {
       if (mounted) {
@@ -71,7 +72,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Nama Lengkap',
                         prefixIcon: Icon(Icons.person_outlined),
-                      ),
+                      ),  
                       validator: (v) =>
                           v == null || v.isEmpty ? 'Nama wajib diisi' : null,
                     ),

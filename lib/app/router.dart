@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +26,8 @@ import '../features/chat/screens/announcement_screen.dart';
 import '../features/notifikasi/screens/notifikasi_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
+import '../core/services/pocketbase_service.dart';
+import '../core/constants/app_constants.dart';
 
 // Route paths
 class Routes {
@@ -96,9 +100,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.warga,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: WargaListScreen(),
-            ),
+            builder: (context, state) {
+              // Cek data warga user, jika kosong redirect ke form
+              return _WargaEntryPoint();
+            },
           ),
           GoRoute(
             path: Routes.chat,
@@ -200,3 +205,34 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+// Tambahkan widget entry point untuk menu Data Warga
+class _WargaEntryPoint extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
+    return FutureBuilder(
+      future: pb.collection(AppConstants.colWarga).getList(
+        page: 1,
+        perPage: 1,
+        filter: 'user_id = "${auth.user?.id ?? ''}"',
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasError) {
+          return Scaffold(body: Center(child: Text('Gagal cek data warga')));
+        }
+        final items = snapshot.data?.items ?? [];
+        if (items.isEmpty) {
+          // Redirect ke form jika data warga tidak ada
+          Future.microtask(() => context.go(Routes.wargaForm));
+          return const SizedBox.shrink();
+        }
+        // Sudah ada data, tampilkan list
+        return WargaListScreen();
+      },
+    );
+  }
+}
