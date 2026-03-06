@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 import '../models/parsed_kk_member.dart';
@@ -15,6 +16,12 @@ class KkOcrService {
   }
 
   ParsedKkData parseKkDataFromText(String rawText) {
+    if (kDebugMode) {
+      debugPrint('[KK OCR] ===== RAW OCR TEXT START =====');
+      _debugPrintLong(rawText);
+      debugPrint('[KK OCR] ===== RAW OCR TEXT END =====');
+    }
+
     final lines = rawText
         .split('\n')
         .map(_normalizeLine)
@@ -31,7 +38,7 @@ class KkOcrService {
     final kabupatenKota = _extractKabupatenKota(lines);
     final provinsi = _extractProvinsi(lines);
 
-    return ParsedKkData(
+    final parsed = ParsedKkData(
       noKk: noKk,
       namaKepalaKeluarga: _toTitleCase(namaKepalaKeluarga),
       alamat: _toTitleCase(alamat),
@@ -43,20 +50,66 @@ class KkOcrService {
       provinsi: _toTitleCase(provinsi),
       members: members,
     );
+
+    if (kDebugMode) {
+      debugPrint(
+        '[KK OCR] HEADER => no_kk=${parsed.noKk}, nama_kk=${parsed.namaKepalaKeluarga}, '
+        'alamat=${parsed.alamat}, rt=${parsed.rt}, rw=${parsed.rw}, '
+        'desa_kel=${parsed.kelurahan}, kec=${parsed.kecamatan}, kab_kota=${parsed.kabupatenKota}, prov=${parsed.provinsi}',
+      );
+      if (parsed.members.isEmpty) {
+        debugPrint('[KK OCR] MEMBER PARSE RESULT => kosong');
+      } else {
+        for (var i = 0; i < parsed.members.length; i++) {
+          final m = parsed.members[i];
+          debugPrint(
+            '[KK OCR] MEMBER[$i] => nama=${m.nama}, nik=${m.nik}, jk=${m.jenisKelamin}, '
+            'tempat=${m.tempatLahir}, tgl=${m.tanggalLahir}, agama=${m.agama}, '
+            'pendidikan=${m.pendidikan}, pekerjaan=${m.jenisPekerjaan}, goldar=${m.golonganDarah}, hubungan=${m.hubungan}',
+          );
+        }
+      }
+    }
+
+    return parsed;
   }
 
   List<ParsedKkMember> _parseMembers(List<String> lines) {
     final members = <ParsedKkMember>[];
     final seenNik = <String>{};
+    var inMemberTable = false;
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
+
+      if (!inMemberTable && _looksLikeMemberTableHeader(line)) {
+        inMemberTable = true;
+        continue;
+      }
+      if (inMemberTable && _isMemberTableEnd(line)) {
+        break;
+      }
+      if (!inMemberTable) {
+        continue;
+      }
+
       final nik = _extractNik(line);
       if (nik == null || seenNik.contains(nik)) {
         continue;
       }
 
-      final detail = _extractMemberDetailFromLine(line);
+      var detailSource = line;
+      if (!_containsDateToken(line) &&
+          i + 1 < lines.length &&
+          !_looksLikeMemberTableHeader(lines[i + 1]) &&
+          !_isMemberTableEnd(lines[i + 1])) {
+        detailSource = '$line ${lines[i + 1]}';
+      }
+
+      final detail = _extractMemberDetailFromLine(
+        detailSource,
+        nikOverride: nik,
+      );
       final nama = detail.nama.isNotEmpty
           ? detail.nama
           : _extractName(line, lines, i);
@@ -91,7 +144,9 @@ class KkOcrService {
     }
 
     // Fallback parser: beberapa OCR KK menggabungkan tabel menjadi satu baris panjang.
-    final flattened = lines.join(' ');
+    final tableEndIdx = lines.indexWhere(_isMemberTableEnd);
+    final tableSlice = tableEndIdx > 0 ? lines.sublist(0, tableEndIdx) : lines;
+    final flattened = tableSlice.join(' ');
     final nikMatches = RegExp(r'(\d[\d\s]{15,22}\d)').allMatches(flattened);
     for (final match in nikMatches) {
       final nik = match.group(0)?.replaceAll(RegExp(r'[^0-9]'), '');
@@ -577,10 +632,19 @@ class KkOcrService {
   }
 
   String? _extractNik(String line) {
-    final match = RegExp(r'(\d[\d\s]{15,22}\d)').firstMatch(line);
-    if (match == null) return null;
-    final candidate = match.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
-    if (candidate.length != 16) return null;
+    final upper = line.toUpperCase();
+    if (upper.contains('NO KK') ||
+        upper.contains('NOMOR KK') ||
+        upper.contains('KARTU KELUARGA') ||
+        upper.contains('NIK') ||
+        upper.contains('STATUS PERKAWINAN') ||
+        upper.contains('DOKUMEN IMIGRASI') ||
+        upper.contains('NAMA ORANG TUA')) {
+      return null;
+    }
+
+    final candidate = _extract16DigitsWithOcrCorrection(upper);
+    if (candidate == null || candidate.length != 16) return null;
     return candidate;
   }
 
@@ -644,8 +708,8 @@ class KkOcrService {
     String jenisPekerjaan,
     String golonganDarah,
   })
-  _extractMemberDetailFromLine(String line) {
-    final nikMatch = RegExp(r'(\d[\d\s]{15,22}\d)').firstMatch(line);
+  _extractMemberDetailFromLine(String line, {String? nikOverride}) {
+    final nikMatch = _findNikTokenMatch(line, nikOverride: nikOverride);
     if (nikMatch == null) {
       return (
         nama: '',
@@ -659,8 +723,8 @@ class KkOcrService {
       );
     }
 
-    final left = line.substring(0, nikMatch.start).trim();
-    var remaining = line.substring(nikMatch.end).trim();
+    final left = line.substring(0, nikMatch.$1).trim();
+    var remaining = line.substring(nikMatch.$2).trim();
 
     final nama = _extractNameBeforeNik(left);
     var jenisKelamin = '';
@@ -672,7 +736,7 @@ class KkOcrService {
     var golonganDarah = '';
 
     final genderMatch = RegExp(
-      r'\b(PEREMPUAN|LAKI[\s\-]*LAKI|LAKI|PR|LK)\b',
+      r'\b(PEREMPUAN|LAKI[\s\-\/]*LAKI|LAKILAKI|LAKI|PR|LK)\b',
     ).firstMatch(remaining);
     if (genderMatch != null) {
       jenisKelamin = _normalizeJenisKelamin(genderMatch.group(1) ?? '');
@@ -682,7 +746,7 @@ class KkOcrService {
     }
 
     final tanggalMatch = RegExp(
-      r'\b([0-3]?\d[-/][0-1]?\d[-/]\d{2,4})\b',
+      r'\b([0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4})\b',
     ).firstMatch(remaining);
     if (tanggalMatch != null) {
       tempatLahir = _cleanMemberDetailValue(
@@ -746,7 +810,7 @@ class KkOcrService {
   }
 
   String _normalizeTanggalFromToken(String input) {
-    final cleaned = input.replaceAll('/', '-').trim();
+    final cleaned = input.replaceAll(RegExp(r'[\/\.]'), '-').trim();
     final match = RegExp(
       r'^(\d{1,2})-(\d{1,2})-(\d{2,4})$',
     ).firstMatch(cleaned);
@@ -822,34 +886,116 @@ class KkOcrService {
     final cleaned = _cleanMemberDetailValue(input);
     if (cleaned.isEmpty) return ('', '');
 
-    final compact = cleaned.replaceAll(RegExp(r'\s*/\s*'), '/');
-    final pendidikanPatterns = <RegExp>[
-      RegExp(r'^TIDAK/BELUM SEKOLAH\b'),
-      RegExp(r'^BELUM TAMAT SD/SEDERAJAT\b'),
-      RegExp(r'^TAMAT SD/SEDERAJAT\b'),
-      RegExp(r'^SLTP/SEDERAJAT\b'),
-      RegExp(r'^SLTA/SEDERAJAT\b'),
-      RegExp(r'^DIPLOMA I/II\b'),
-      RegExp(r'^AKADEMI/DIPLOMA III/S\.?MUDA\b'),
-      RegExp(r'^DIPLOMA IV/STRATA I\b'),
-      RegExp(r'^STRATA II\b'),
-      RegExp(r'^STRATA III\b'),
-      RegExp(r'^TIDAK/BELUM SEKOLAH\b'),
-      RegExp(r'^TIDAK BELUM SEKOLAH\b'),
+    final compact = cleaned
+        .toUpperCase()
+        .replaceAll(RegExp(r'\s*/\s*'), '/')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    const pendidikanPhrases = <String>[
+      'TIDAK/BELUM SEKOLAH',
+      'TIDAK BELUM SEKOLAH',
+      'BELUM TAMAT SD/SEDERAJAT',
+      'TAMAT SD/SEDERAJAT',
+      'SLTP/SEDERAJAT',
+      'SLTA/SEDERAJAT',
+      'DIPLOMA I/II',
+      'AKADEMI/DIPLOMA III/SARJANA MUDA',
+      'AKADEMI/DIPLOMA III/S. MUDA',
+      'DIPLOMA IV/STRATA I',
+      'STRATA II',
+      'STRATA III',
     ];
 
-    for (final pattern in pendidikanPatterns) {
-      final match = pattern.firstMatch(compact);
-      if (match == null) continue;
-      final pendidikan = compact.substring(0, match.end).trim();
-      final pekerjaan = compact.substring(match.end).trim();
-      return (
-        _cleanMemberDetailValue(pendidikan),
-        _cleanMemberDetailValue(pekerjaan),
+    for (final phrase in pendidikanPhrases) {
+      if (!compact.startsWith(phrase)) continue;
+      var pekerjaan = compact.substring(phrase.length).trim();
+      if (pekerjaan.startsWith('/')) {
+        pekerjaan = pekerjaan.substring(1).trim();
+      }
+      return (phrase, _cleanMemberDetailValue(pekerjaan));
+    }
+
+    const pekerjaanKeywords = <String>[
+      'WIRASWASTA',
+      'KARYAWAN SWASTA',
+      'BELUM/TIDAK BEKERJA',
+      'BELUM BEKERJA',
+      'TIDAK BEKERJA',
+      'PELAJAR/MAHASISWA',
+      'PNS',
+      'PETANI',
+      'PEDAGANG',
+      'BURUH',
+      'NELAYAN',
+      'PENSIUNAN',
+      'MENGURUS RUMAH TANGGA',
+    ];
+
+    var splitIndex = -1;
+    for (final keyword in pekerjaanKeywords) {
+      final idx = compact.indexOf(keyword);
+      if (idx <= 0) continue;
+      if (splitIndex < 0 || idx < splitIndex) {
+        splitIndex = idx;
+      }
+    }
+    if (splitIndex > 0) {
+      final pendidikan = _cleanMemberDetailValue(
+        compact.substring(0, splitIndex),
       );
+      final pekerjaan = _cleanMemberDetailValue(compact.substring(splitIndex));
+      return (pendidikan, pekerjaan);
     }
 
     return ('', compact);
+  }
+
+  void _debugPrintLong(String text) {
+    const chunkSize = 700;
+    for (var i = 0; i < text.length; i += chunkSize) {
+      final end = (i + chunkSize < text.length) ? i + chunkSize : text.length;
+      debugPrint(text.substring(i, end));
+    }
+  }
+
+  bool _looksLikeMemberTableHeader(String line) {
+    return line.contains('NAMA LENGKAP') && line.contains('NIK');
+  }
+
+  bool _isMemberTableEnd(String line) {
+    return line.contains('STATUS PERKAWINAN') ||
+        line.contains('DOKUMEN IMIGRASI') ||
+        line.contains('NAMA ORANG TUA');
+  }
+
+  bool _containsDateToken(String line) {
+    return RegExp(r'\b[0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4}\b').hasMatch(line);
+  }
+
+  (int, int)? _findNikTokenMatch(String line, {String? nikOverride}) {
+    final normalized = _normalizeOcrDigits(line.toUpperCase());
+    final matches = RegExp(
+      r'([0-9][0-9\s]{14,30}[0-9])',
+    ).allMatches(normalized);
+    for (final match in matches) {
+      final token = match.group(0) ?? '';
+      final digits = token.replaceAll(RegExp(r'[^0-9]'), '');
+      if (digits.length == 16) {
+        if (nikOverride != null &&
+            nikOverride.isNotEmpty &&
+            digits != nikOverride) {
+          continue;
+        }
+        return (match.start, match.end);
+      }
+      if (digits.length > 16 && nikOverride != null && nikOverride.isNotEmpty) {
+        if (digits.contains(nikOverride)) {
+          return (match.start, match.end);
+        }
+      }
+    }
+    return null;
   }
 
   String _cleanMemberDetailValue(String input) {

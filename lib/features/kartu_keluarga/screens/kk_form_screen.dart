@@ -1030,25 +1030,43 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 ),
               ],
             ),
-            _buildReadonlyField(
-              'Desa/Kelurahan',
-              _kelurahan,
-              isValid: _isKelurahanValid,
+            Row(
+              children: [
+                Expanded(
+                  child: _buildReadonlyField(
+                    'Desa/Kelurahan',
+                    _kelurahan,
+                    isValid: _isKelurahanValid,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildReadonlyField(
+                    'Kecamatan',
+                    _kecamatan,
+                    isValid: _isKecamatanValid,
+                  ),
+                ),
+              ],
             ),
-            _buildReadonlyField(
-              'Kecamatan',
-              _kecamatan,
-              isValid: _isKecamatanValid,
-            ),
-            _buildReadonlyField(
-              'Kabupaten/Kota',
-              _kabupatenKota,
-              isValid: _isKabupatenKotaValid,
-            ),
-            _buildReadonlyField(
-              'Provinsi',
-              _provinsi,
-              isValid: _isProvinsiValid,
+            Row(
+              children: [
+                Expanded(
+                  child: _buildReadonlyField(
+                    'Kabupaten/Kota',
+                    _kabupatenKota,
+                    isValid: _isKabupatenKotaValid,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildReadonlyField(
+                    'Provinsi',
+                    _provinsi,
+                    isValid: _isProvinsiValid,
+                  ),
+                ),
+              ],
             ),
             if (headerIssues.isNotEmpty) ...[
               const SizedBox(height: 6),
