@@ -213,3 +213,46 @@ lib/
 - Error handling dan routing diperbaiki agar konsisten.
 
 ---
+
+## Update Alur & Validasi (MVP Scan KK)
+
+### Alur Onboarding User Baru
+- Setelah register berhasil, user otomatis masuk ke collection `users` (auth collection PocketBase).
+- User baru dianggap sebagai **kepala keluarga** untuk proses input KK pertama.
+- Saat login pertama, jika belum punya data KK (`kartu_keluarga`), app mengarahkan user ke form KK.
+
+### Alur Input KK dengan Scan
+- Menu: `Kartu Keluarga` -> `Tambah KK + Scan Anggota`.
+- APK (Android/iOS): user bisa ambil foto dari kamera atau tambah dari galeri, lalu OCR mem-parsing daftar anggota keluarga.
+- PWA (Web): user tambah gambar KK dari galeri/file picker, lalu tekan tombol **Scan** untuk OCR native browser (Tesseract.js) dan parser data KK.
+- Hasil parser tampil dalam list draft anggota.
+- Jika ada data kurang/keliru, user bisa `Edit` setiap anggota sebelum simpan.
+- Jika parser belum menangkap semua anggota, user bisa `Tambah Manual`.
+
+### Validasi Sebelum Simpan KK
+- Nomor KK wajib 16 digit.
+- Alamat wajib diisi.
+- Setiap anggota wajib memiliki:
+  - `nama_lengkap`
+  - `nik` 16 digit
+  - `hubungan` dalam keluarga
+- Save diblok jika ada anggota yang belum valid.
+
+### Sinkron Data Saat Save
+- Simpan/Update `kartu_keluarga` lebih dulu (termasuk file `scan_kk` jika ada).
+- Untuk setiap anggota hasil parser:
+  - Buat/cek data `warga` berdasarkan `nik`.
+  - Buat relasi `anggota_kk` (`no_kk` relasi ke ID KK, `warga`, `hubungan_`, `status`).
+  - Kepala keluarga dihubungkan ke user yang sedang login.
+
+### Auto-Create User untuk Anggota KK
+- Untuk anggota selain kepala keluarga, sistem membuat akun baru di collection `users` secara otomatis.
+- Format email default: `nama_depan@gmail.com`.
+  - Contoh: `Asep Arno` -> `asep@gmail.com`.
+- Password default: `12345678`.
+- Jika email bentrok, sistem menambahkan suffix angka agar tetap unik.
+
+### Aturan Akses Data Setelah Onboarding
+- Jika user sudah terdaftar dan sudah punya KK, menu KK menampilkan data miliknya dan bisa lanjut CRUD.
+- Menu `Warga` menampilkan data warga sesuai user login.
+- Admin/superuser tetap dapat melihat data lintas user.

@@ -11,7 +11,8 @@ import '../../../core/utils/formatters.dart';
 
 class WargaFormScreen extends ConsumerStatefulWidget {
   final String? wargaId;
-  const WargaFormScreen({super.key, this.wargaId});
+  final String? initialNoKk;
+  const WargaFormScreen({super.key, this.wargaId, this.initialNoKk});
 
   @override
   ConsumerState<WargaFormScreen> createState() => _WargaFormScreenState();
@@ -40,8 +41,12 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if ((widget.initialNoKk ?? '').isNotEmpty) {
+      _noKkCtrl.text = widget.initialNoKk!;
+      return;
+    }
     final args = ModalRoute.of(context)?.settings.arguments;
-    if (args != null && args is Map && args['no_kk'] != null) {
+    if (args is Map && args['no_kk'] != null) {
       _noKkCtrl.text = args['no_kk'].toString();
     }
   }
@@ -116,7 +121,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         final kkList = await pb.collection(AppConstants.colKartuKeluarga).getList(
           page: 1,
           perPage: 1,
-          filter: 'user_id = "$userId"',
+          filter: 'no_kk = "${_noKkCtrl.text.trim()}"',
         );
         if (kkList.items.isNotEmpty) {
           final kkId = kkList.items.first.id;

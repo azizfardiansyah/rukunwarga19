@@ -43,26 +43,13 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
-    final userName = authState.user?.getStringValue('nama') ?? 'User';
+    final userName = authState.user?.getStringValue('name').isNotEmpty == true
+        ? authState.user!.getStringValue('name')
+        : (authState.user?.getStringValue('nama').isNotEmpty == true
+            ? authState.user!.getStringValue('nama')
+            : 'User');
     final role = authState.role;
-    final hasWargaData = ref.watch(hasWargaDataProvider);
     final hasKartuKeluarga = ref.watch(hasKartuKeluargaProvider);
-
-    debugPrint('[DEBUG BUILD] hasWargaData: $hasWargaData');
-    hasWargaData.when(
-      data: (hasData) {
-        debugPrint('[DEBUG CALLBACK] hasWargaData: $hasData, userId: ${authState.user?.id}');
-        if (!hasData) {
-          Future.microtask(() => context.go(Routes.wargaForm));
-        }
-      },
-      error: (err, stack) {
-        debugPrint('[DEBUG ERROR] hasWargaDataProvider error: $err');
-      },
-      loading: () {
-        debugPrint('[DEBUG LOADING] hasWargaDataProvider loading');
-      },
-    );
 
     hasKartuKeluarga.when(
       data: (hasData) {

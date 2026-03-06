@@ -11,10 +11,16 @@ import '../../../features/auth/providers/auth_provider.dart';
 
 final kkListProvider =
     FutureProvider.autoDispose<List<KartuKeluargaModel>>((ref) async {
+  final auth = ref.watch(authProvider);
+  final userId = auth.user?.id;
+  if (userId == null) return [];
+  final isAdmin = auth.role == AppConstants.roleAdmin || auth.role == AppConstants.roleSuperuser;
+
   final result = await pb.collection(AppConstants.colKartuKeluarga).getList(
     page: 1,
     perPage: 100,
     sort: '-created',
+    filter: isAdmin ? '' : 'user_id = "$userId"',
   );
   return result.items.map((r) => KartuKeluargaModel.fromRecord(r)).toList();
 });
@@ -25,7 +31,6 @@ class KkListScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final kkAsync = ref.watch(kkListProvider);
-    final isAdmin = ref.watch(isAdminProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Kartu Keluarga')),
@@ -55,12 +60,10 @@ class KkListScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
       ),
-      floatingActionButton: isAdmin
-          ? FloatingActionButton(
-              onPressed: () => context.push(Routes.kkForm),
-              child: const Icon(Icons.add),
-            )
-          : null,
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push(Routes.kkForm),
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }

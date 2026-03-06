@@ -26,8 +26,6 @@ import '../features/chat/screens/announcement_screen.dart';
 import '../features/notifikasi/screens/notifikasi_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
-import '../core/services/pocketbase_service.dart';
-import '../core/constants/app_constants.dart';
 
 // Route paths
 class Routes {
@@ -101,7 +99,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: Routes.warga,
             builder: (context, state) {
-              // Cek data warga user, jika kosong redirect ke form
               return _WargaEntryPoint();
             },
           ),
@@ -125,7 +122,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.wargaForm,
         builder: (context, state) {
           final wargaId = state.uri.queryParameters['id'];
-          return WargaFormScreen(wargaId: wargaId);
+          final noKk = state.uri.queryParameters['noKk'];
+          return WargaFormScreen(
+            wargaId: wargaId,
+            initialNoKk: noKk,
+          );
         },
       ),
       GoRoute(
@@ -210,29 +211,6 @@ final routerProvider = Provider<GoRouter>((ref) {
 class _WargaEntryPoint extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.watch(authProvider);
-    return FutureBuilder(
-      future: pb.collection(AppConstants.colWarga).getList(
-        page: 1,
-        perPage: 1,
-        filter: 'user_id = "${auth.user?.id ?? ''}"',
-      ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        if (snapshot.hasError) {
-          return Scaffold(body: Center(child: Text('Gagal cek data warga')));
-        }
-        final items = snapshot.data?.items ?? [];
-        if (items.isEmpty) {
-          // Redirect ke form jika data warga tidak ada
-          Future.microtask(() => context.go(Routes.wargaForm));
-          return const SizedBox.shrink();
-        }
-        // Sudah ada data, tampilkan list
-        return WargaListScreen();
-      },
-    );
+    return WargaListScreen();
   }
 }

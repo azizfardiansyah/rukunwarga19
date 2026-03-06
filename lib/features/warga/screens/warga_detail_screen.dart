@@ -8,7 +8,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/warga_model.dart';
-import '../../../features/auth/providers/auth_provider.dart';
 
 class WargaDetailScreen extends ConsumerWidget {
   final String wargaId;
@@ -16,17 +15,14 @@ class WargaDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isAdmin = ref.watch(isAdminProvider);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detail Warga'),
         actions: [
-          if (isAdmin)
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () => context.push('${Routes.wargaForm}?id=$wargaId'),
-            ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: () => context.push('${Routes.wargaForm}?id=$wargaId'),
+          ),
         ],
       ),
       body: FutureBuilder(

@@ -1,22 +1,63 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pocketbase/src/dtos/record_model.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 
-class KkDetailScreen extends StatelessWidget {
+class KkDetailScreen extends ConsumerWidget {
   final String kkId;
   const KkDetailScreen({super.key, required this.kkId});
 
+  Future<void> _deleteKk(BuildContext context) async {
+    final shouldDelete = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Hapus Kartu Keluarga'),
+              content: const Text('Data KK dan relasi anggota akan dihapus. Lanjutkan?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Hapus'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+
+    if (!shouldDelete) return;
+
+    try {
+      await pb.collection(AppConstants.colKartuKeluarga).delete(kkId);
+      if (!context.mounted) return;
+      ErrorClassifier.showSuccessSnackBar(context, 'Data KK berhasil dihapus');
+      context.go(Routes.kartuKeluarga);
+    } catch (e) {
+      if (!context.mounted) return;
+      ErrorClassifier.showErrorSnackBar(context, e);
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final userId = authState.user?.id;
+    final isAdmin = authState.role == AppConstants.roleAdmin || authState.role == AppConstants.roleSuperuser;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Detail Kartu Keluarga')),
       body: FutureBuilder(
@@ -25,10 +66,15 @@ class KkDetailScreen extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
 
-          final kk = KartuKeluargaModel.fromRecord(snapshot.data!);
-          final kepalaKeluargaId = snapshot.data!.getStringValue('user_id');
+          final record = snapshot.data!;
+          final kk = KartuKeluargaModel.fromRecord(record);
+          final kkOwnerId = record.getStringValue('user_id');
+          final canManage = isAdmin || (userId != null && kkOwnerId == userId);
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(AppTheme.paddingMedium),
             child: Column(
@@ -51,23 +97,36 @@ class KkDetailScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                // Cek jika user adalah kepala keluarga
-                if (kepalaKeluargaId.toString() == pb.authStore.model.id.toString()) ...[
-                  ElevatedButton(
-                    onPressed: () {
-                      // Navigasi ke form tambah anggota (warga) dengan GoRouter
-                      context.go(Routes.wargaForm);
-                    },
-                    child: const Text('Tambah Anggota KK'),
+                const SizedBox(height: 12),
+                if (canManage) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => context.push('${Routes.kkForm}?id=${kk.id}'),
+                        icon: const Icon(Icons.edit_outlined),
+                        label: const Text('Edit KK'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => context.push('${Routes.wargaForm}?noKk=${kk.noKk}'),
+                        icon: const Icon(Icons.person_add_alt_1),
+                        label: const Text('Tambah Anggota'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _deleteKk(context),
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Hapus KK'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                 ],
                 Text('Anggota Keluarga', style: AppTheme.heading3),
                 FutureBuilder(
                   future: pb.collection(AppConstants.colAnggotaKk).getList(
                     page: 1,
-                    perPage: 20,
+                    perPage: 100,
                     filter: 'no_kk = "${kk.id}"',
                     expand: 'warga',
                   ),
@@ -84,23 +143,20 @@ class KkDetailScreen extends StatelessWidget {
                     }
                     return ListView.separated(
                       shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
+                      physics: const NeverScrollableScrollPhysics(),
                       itemCount: anggotaList.length,
-                      separatorBuilder: (_, _) => Divider(),
+                      separatorBuilder: (_, _) => const Divider(),
                       itemBuilder: (context, idx) {
                         final anggota = anggotaList[idx];
                         final hubungan = anggota.getStringValue('hubungan_');
                         final status = anggota.getStringValue('status');
-                        final warga = anggota.expand['warga'];
-                        String namaWarga;
-                        if (warga != null && warga.isNotEmpty) {
-                          namaWarga = warga[0].getStringValue('nama');
-                        } else {
-                          namaWarga = anggota.getStringValue('warga');
-                        }
+                        final wargaExpand = anggota.expand['warga'];
+                        final namaWarga = (wargaExpand != null && wargaExpand.isNotEmpty)
+                            ? wargaExpand[0].getStringValue('nama_lengkap')
+                            : '-';
                         return ListTile(
-                          title: Text(hubungan),
-                          subtitle: Text(namaWarga),
+                          title: Text(namaWarga),
+                          subtitle: Text(hubungan),
                           trailing: Text(status),
                         );
                       },
@@ -114,7 +170,4 @@ class KkDetailScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-extension on List<RecordModel> {
 }

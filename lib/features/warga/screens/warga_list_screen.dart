@@ -11,10 +11,16 @@ import '../../../shared/models/warga_model.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 
 final wargaListProvider = FutureProvider.autoDispose<List<WargaModel>>((ref) async {
+  final auth = ref.watch(authProvider);
+  final userId = auth.user?.id;
+  if (userId == null) return [];
+  final isAdmin = auth.role == AppConstants.roleAdmin || auth.role == AppConstants.roleSuperuser;
+
   final result = await pb.collection(AppConstants.colWarga).getList(
     page: 1,
     perPage: 100,
     sort: 'nama_lengkap',
+    filter: isAdmin ? '' : 'user_id = "$userId"',
   );
   return result.items.map((r) => WargaModel.fromRecord(r)).toList();
 });
