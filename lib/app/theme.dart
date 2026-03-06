@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 class AppTheme {
@@ -12,11 +14,24 @@ class AppTheme {
   static const Color errorColor = Color(0xFFE53935);
   static const Color successColor = Color(0xFF43A047);
   static const Color warningColor = Color(0xFFFDD835);
-  static const Color backgroundColor = Color(0xFFF5F5F5);
+  static const Color backgroundColor = Color(0xFFF0F4F8);
   static const Color surfaceColor = Colors.white;
-  static const Color textPrimary = Color(0xFF212121);
-  static const Color textSecondary = Color(0xFF757575);
-  static const Color dividerColor = Color(0xFFBDBDBD);
+  static const Color textPrimary = Color(0xFF1A1A2E);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color dividerColor = Color(0xFFE5E7EB);
+
+  // Gradient colors
+  static const LinearGradient primaryGradient = LinearGradient(
+    colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const LinearGradient headerGradient = LinearGradient(
+    colors: [Color(0xFF0D47A1), Color(0xFF1976D2), Color(0xFF42A5F5)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
 
   // === TEXT STYLES ===
   static const TextStyle heading1 = TextStyle(
@@ -147,9 +162,7 @@ class AppTheme {
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: primaryColor,
-        ),
+        style: TextButton.styleFrom(foregroundColor: primaryColor),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -199,10 +212,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(radiusXLarge),
         ),
       ),
-      dividerTheme: const DividerThemeData(
-        color: dividerColor,
-        thickness: 0.5,
-      ),
+      dividerTheme: const DividerThemeData(color: dividerColor, thickness: 0.5),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: textPrimary,
         contentTextStyle: bodyMedium.copyWith(color: Colors.white),
@@ -280,6 +290,84 @@ class AppTheme {
       ),
       snackBarTheme: const SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  // === GLASSMORPHISM DECORATION ===
+  static BoxDecoration glassDecoration({
+    double opacity = 0.12,
+    double borderRadius = radiusLarge,
+    double blur = 12.0,
+    Color? borderColor,
+  }) {
+    return BoxDecoration(
+      color: Colors.white.withValues(alpha: opacity),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(
+        color: borderColor ?? Colors.white.withValues(alpha: 0.25),
+        width: 1.0,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.04),
+          blurRadius: blur,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    );
+  }
+
+  static BoxDecoration cardDecoration({
+    double borderRadius = radiusLarge,
+    Color? color,
+  }) {
+    return BoxDecoration(
+      color: color ?? surfaceColor,
+      borderRadius: BorderRadius.circular(borderRadius),
+      boxShadow: [
+        BoxShadow(
+          color: primaryColor.withValues(alpha: 0.06),
+          blurRadius: 16,
+          offset: const Offset(0, 4),
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.03),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    );
+  }
+
+  // === HELPER: Glassmorphism Container Widget ===
+  static Widget glassContainer({
+    required Widget child,
+    EdgeInsets? padding,
+    EdgeInsets? margin,
+    double opacity = 0.65,
+    double blur = 10.0,
+    double borderRadius = radiusLarge,
+  }) {
+    return Container(
+      margin: margin,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+          child: Container(
+            padding: padding ?? const EdgeInsets.all(paddingMedium),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: opacity),
+              borderRadius: BorderRadius.circular(borderRadius),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 1.0,
+              ),
+            ),
+            child: child,
+          ),
+        ),
       ),
     );
   }

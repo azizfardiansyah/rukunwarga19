@@ -117,6 +117,35 @@ class KkOcrService {
     if (members.isEmpty) {
       members = _parseMembers(lines, noKkHint: noKk);
     }
+    // Fallback: parse from the "hubungan dalam keluarga" / bottom section
+    // which often contains names more clearly
+    if (members.isEmpty) {
+      members = _parseMembersFromHubunganSection(lines, noKkHint: noKk);
+    }
+    // If structured members have names but all NIKs are empty, try to
+    // extract NIKs from the header raw text
+    if (members.isNotEmpty && members.every((m) => m.nik.isEmpty)) {
+      _tryFillNiksFromRawText(members, headerRaw, noKkHint: noKk);
+    }
+
+    // Post-process: enrich members with hubungan & names from the bottom
+    // section of the KK (which has cleaner text for names + hubungan).
+    final bottomMembers = _parseMembersFromHubunganSection(
+      lines,
+      noKkHint: noKk,
+    );
+    if (bottomMembers.isNotEmpty && members.isNotEmpty) {
+      _enrichMembersFromBottomSection(members, bottomMembers);
+    }
+
+    // Post-process: try to fill missing NIKs from the raw text
+    if (members.isNotEmpty && members.any((m) => m.nik.isEmpty)) {
+      _tryFillNiksFromRawText(members, headerRaw, noKkHint: noKk);
+    }
+
+    // Post-process: try to fill missing detail fields from raw text
+    _tryFillMemberDetailsFromRawText(members, headerRaw);
+
     final namaKepalaKeluarga = _extractNamaKepalaKeluarga(lines);
     final alamat = _extractAlamat(lines);
     final rtRw = _extractRtRw(lines);
@@ -182,13 +211,64 @@ class KkOcrService {
           _extract16DigitsWithOcrCorrection(parts[2]) ??
           parts[2].replaceAll(RegExp(r'[^0-9]'), '');
 
-      if (nama.isEmpty ||
-          nikCandidate.length != 16 ||
-          seenNik.contains(nikCandidate)) {
+      // Accept member if name is present even if NIK is imperfect.
+      // Don't discard if only NIK prefix doesn't match — OCR often garbles digits.
+      final hasValidNik =
+          nikCandidate.length == 16 &&
+          !seenNik.contains(nikCandidate) &&
+          !RegExp(r'^0+$').hasMatch(nikCandidate) &&
+          !RegExp(r'^(\d)\1{15}$').hasMatch(nikCandidate);
+
+      final nikPrefixMatches =
+          noKkHint.length >= 6 &&
+          nikCandidate.length == 16 &&
+          nikCandidate.startsWith(noKkHint.substring(0, 6));
+
+      // Relaxed: accept if name is good AND (NIK looks valid, or NIK prefix matches)
+      // Also accept if NIK is valid even with a short name
+      if (nama.isEmpty && !hasValidNik) {
         continue;
       }
-      if (!_isLikelyMemberNik(nikCandidate, noKkHint: noKkHint)) {
+      if (nikCandidate.length == 16 && seenNik.contains(nikCandidate)) {
         continue;
+      }
+
+      // Only apply strict NIK prefix check if we already have some members
+      // This prevents losing ALL members when OCR garbles all NIKs
+      if (hasValidNik &&
+          !nikPrefixMatches &&
+          noKkHint.length >= 6 &&
+          members.length >= 3) {
+        continue;
+      }
+
+      // Skip if day/month in NIK are invalid (basic sanity)
+      if (nikCandidate.length == 16) {
+        var day = int.tryParse(nikCandidate.substring(6, 8)) ?? 0;
+        final month = int.tryParse(nikCandidate.substring(8, 10)) ?? 0;
+        if (day > 40) day -= 40;
+        if (day < 1 || day > 31 || month < 1 || month > 12) {
+          // NIK date invalid but name is present — accept with empty NIK for manual correction
+          if (nama.isNotEmpty) {
+            members.add(
+              ParsedKkMember(
+                nama: nama,
+                nik: '',
+                hubungan: '',
+                jenisKelamin: _normalizeStructuredJenisKelamin(parts[3]),
+                tempatLahir: _toTitleCase(_cleanStructuredField(parts[4])),
+                tanggalLahir: _normalizeTanggalFromToken(
+                  _cleanStructuredField(parts[5]),
+                ),
+                agama: _toTitleCase(_normalizeAgama(parts[6])),
+                pendidikan: _toTitleCase(_cleanStructuredField(parts[7])),
+                jenisPekerjaan: _toTitleCase(_cleanStructuredField(parts[8])),
+                golonganDarah: _normalizeGolonganDarah(parts[9]),
+              ),
+            );
+          }
+          continue;
+        }
       }
 
       final jenisKelamin = _normalizeStructuredJenisKelamin(parts[3]);
@@ -201,10 +281,12 @@ class KkOcrService {
       final pekerjaan = _toTitleCase(_cleanStructuredField(parts[8]));
       final golonganDarah = _normalizeGolonganDarah(parts[9]);
 
+      final nikToStore = hasValidNik ? nikCandidate : '';
+
       members.add(
         ParsedKkMember(
-          nama: nama,
-          nik: nikCandidate,
+          nama: nama.isNotEmpty ? nama : '(Nama tidak terbaca)',
+          nik: nikToStore,
           hubungan: '',
           jenisKelamin: jenisKelamin,
           tempatLahir: tempatLahir,
@@ -215,7 +297,7 @@ class KkOcrService {
           golonganDarah: golonganDarah,
         ),
       );
-      seenNik.add(nikCandidate);
+      if (hasValidNik) seenNik.add(nikCandidate);
     }
 
     return members;
@@ -335,6 +417,254 @@ class KkOcrService {
     }
 
     return members;
+  }
+
+  /// Parse members from the "hubungan dalam keluarga" section in the raw OCR.
+  /// This section is at the bottom half of the KK and often has cleaner text.
+  List<ParsedKkMember> _parseMembersFromHubunganSection(
+    List<String> lines, {
+    String noKkHint = '',
+  }) {
+    final members = <ParsedKkMember>[];
+    final seenNames = <String>{};
+
+    // Find the "Status Perkawinan" / "Hubungan Dalam Keluarga" section
+    var inSection = false;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.contains('STATUS PERKAWINAN') ||
+          line.contains('HUBUNGAN') ||
+          line.contains('KEWARGANEGARAAN')) {
+        inSection = true;
+        continue;
+      }
+      if (!inSection) continue;
+      if (line.contains('DIKELUARKAN') ||
+          line.contains('KEPALA DINAS') ||
+          line.contains('PENCATATAN SIPIL') ||
+          line.contains('DOKUMEN INI')) {
+        break;
+      }
+
+      // Detect hubungan keywords
+      final hubunganPattern = RegExp(
+        r'(KEPALA\s*KELUARGA|ISTRI|SUAMI|ANAK|MENANTU|CUCU|ORANG\s*TUA|MERTUA|FAMILI\s*LAIN|PEMBANTU|LAINNYA)',
+        caseSensitive: false,
+      );
+      final hubunganMatch = hubunganPattern.firstMatch(line);
+
+      // Try to find names — in KK bottom section, names often appear as:
+      // - Mixed case words like "Josoeomo" (garbled OCR)
+      // - ALL CAPS sequences separated by spaces
+      // - Concatenated with other text
+      // Accept both CamelCase and ALL CAPS patterns
+      final namePatterns = [
+        // CamelCase names: "Timin Rohana"
+        RegExp(r'[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+'),
+        // ALL CAPS names with dots: "MOCH. JUBAEDI"
+        RegExp(r'[A-Z]{3,}\.?\s+[A-Z]{3,}(?:\s+[A-Z]{3,})*'),
+        // lowercase-run name (garbled OCR): "Jazisrarpiansyan"
+        RegExp(r'J[a-z]{6,}'),
+      ];
+
+      for (final pattern in namePatterns) {
+        for (final nameMatch in pattern.allMatches(line)) {
+          var nama = nameMatch.group(0)!.trim();
+          // Clean up the name — remove common noise words
+          nama = nama
+              .replaceAll(
+                RegExp(
+                  r'\b(WNI|INDONESIA|KAWIN|BELUM|TERCATAT|TIDAK|PASPOR|KITAP|DOKUMEN|IMIGRASI)\b',
+                  caseSensitive: false,
+                ),
+                '',
+              )
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
+          if (nama.length >= 4 && !seenNames.contains(nama.toUpperCase())) {
+            final hubungan = hubunganMatch != null
+                ? _mapHubunganToDbValue(
+                    hubunganMatch
+                        .group(0)!
+                        .replaceAll(RegExp(r'\s+'), ' ')
+                        .trim(),
+                  )
+                : '';
+            members.add(
+              ParsedKkMember(
+                nama: _toTitleCase(nama),
+                nik: '',
+                hubungan: hubungan,
+                jenisKelamin: 'Laki-laki',
+              ),
+            );
+            seenNames.add(nama.toUpperCase());
+          }
+        }
+      }
+    }
+
+    return members;
+  }
+
+  /// Enrich structured members with data from the bottom hubungan section.
+  /// Matches members by fuzzy name similarity and fills in missing hubungan.
+  void _enrichMembersFromBottomSection(
+    List<ParsedKkMember> members,
+    List<ParsedKkMember> bottomMembers,
+  ) {
+    // For each bottom member with hubungan, try to match it to a structured member
+    for (final bm in bottomMembers) {
+      if (bm.hubungan.isEmpty) continue;
+      var bestIdx = -1;
+      var bestScore = 0.0;
+      for (var i = 0; i < members.length; i++) {
+        if (members[i].hubungan.isNotEmpty) continue;
+        final score = _nameSimilarity(members[i].nama, bm.nama);
+        if (score > bestScore && score >= 0.4) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx >= 0) {
+        members[bestIdx].hubungan = bm.hubungan;
+      }
+    }
+
+    // If we know the first member is likely kepala keluarga (index 0) and
+    // they still have no hubungan, default them to Ayah
+    if (members.isNotEmpty && members[0].hubungan.isEmpty) {
+      members[0].hubungan = 'Ayah';
+    }
+    // Second member without hubungan is likely Ibu
+    if (members.length >= 2 && members[1].hubungan.isEmpty) {
+      members[1].hubungan = 'Ibu';
+    }
+    // Remaining without hubungan default to Anak
+    for (var i = 2; i < members.length; i++) {
+      if (members[i].hubungan.isEmpty) {
+        members[i].hubungan = 'Anak';
+      }
+    }
+  }
+
+  /// Simple character-level similarity score between two names.
+  double _nameSimilarity(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return 0.0;
+    final la = a.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    final lb = b.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    if (la.isEmpty || lb.isEmpty) return 0.0;
+    // Count common bigrams
+    final bigramsA = <String>{};
+    for (var i = 0; i < la.length - 1; i++) {
+      bigramsA.add(la.substring(i, i + 2));
+    }
+    final bigramsB = <String>{};
+    for (var i = 0; i < lb.length - 1; i++) {
+      bigramsB.add(lb.substring(i, i + 2));
+    }
+    if (bigramsA.isEmpty || bigramsB.isEmpty) return 0.0;
+    final intersection = bigramsA.intersection(bigramsB).length;
+    return (2.0 * intersection) / (bigramsA.length + bigramsB.length);
+  }
+
+  /// Try to fill missing detail fields (agama, tempat lahir, etc.) from raw text.
+  /// Looks for well-known patterns in the full OCR dump.
+  void _tryFillMemberDetailsFromRawText(
+    List<ParsedKkMember> members,
+    String rawText,
+  ) {
+    // Try to detect agama from the raw text — KK documents typically have
+    // the same agama for all members
+    if (members.any((m) => m.agama.isEmpty)) {
+      final agamaMatch = RegExp(
+        r'\b(ISLAM|KRISTEN|KATOLIK|KATHOLIK|KHATOLIK|BUDDHA|BUDHA)\b',
+        caseSensitive: false,
+      ).firstMatch(rawText.toUpperCase());
+      if (agamaMatch != null) {
+        final detectedAgama = _normalizeAgama(agamaMatch.group(0)!);
+        for (var i = 0; i < members.length; i++) {
+          if (members[i].agama.isEmpty) {
+            members[i].agama = detectedAgama;
+          }
+        }
+      }
+    }
+
+    // Try to extract tempat lahir & tanggal lahir patterns from raw text
+    // Format often seen: "CIMAHI 22-09-1988" or "BANDUNG 25-05-1995"
+    final birthPatterns = RegExp(
+      r'([A-Z]{3,})\s+([0-3]?\d[-/.][0-1]?\d[-/.]\d{2,4})',
+      caseSensitive: false,
+    ).allMatches(rawText.toUpperCase());
+    final birthInfoList = <(String, String)>[];
+    for (final match in birthPatterns) {
+      final place = match.group(1)?.trim() ?? '';
+      final date = match.group(2)?.trim() ?? '';
+      if (place.isNotEmpty && date.isNotEmpty) {
+        // Skip if place is a known non-location word
+        const skip = {
+          'TANGGAL', 'STATUS', 'DIKELUARKAN', 'KAWIN', 'TERCATAT',
+          'DOKUMEN', 'SERTIFIKASI', 'ELEKTRONIK',
+        };
+        if (!skip.contains(place)) {
+          birthInfoList.add((_toTitleCase(place), _normalizeTanggalFromToken(date)));
+        }
+      }
+    }
+
+    // Assign birth info to members missing it, in order
+    var birthIdx = 0;
+    for (var i = 0; i < members.length && birthIdx < birthInfoList.length; i++) {
+      if (members[i].tempatLahir.isEmpty && members[i].tanggalLahir.isEmpty) {
+        members[i].tempatLahir = birthInfoList[birthIdx].$1;
+        members[i].tanggalLahir = birthInfoList[birthIdx].$2;
+        birthIdx++;
+      }
+    }
+  }
+
+  /// Try to fill in empty NIKs from the raw OCR text.
+  /// Extracts all 16-digit sequences and assigns them to members in order.
+  void _tryFillNiksFromRawText(
+    List<ParsedKkMember> members,
+    String rawText, {
+    String noKkHint = '',
+  }) {
+    final normalized = _normalizeOcrDigits(rawText.toUpperCase());
+    final nikMatches = RegExp(
+      r'([0-9](?:\s*[0-9]){15})',
+    ).allMatches(normalized);
+    final validNiks = <String>[];
+
+    for (final match in nikMatches) {
+      final digits = match.group(0)!.replaceAll(RegExp(r'\s+'), '');
+      if (digits.length != 16) continue;
+      if (RegExp(r'^0+$').hasMatch(digits)) continue;
+      if (RegExp(r'^(\d)\1{15}$').hasMatch(digits)) continue;
+
+      // Basic date validation in NIK
+      var day = int.tryParse(digits.substring(6, 8)) ?? 0;
+      final month = int.tryParse(digits.substring(8, 10)) ?? 0;
+      if (day > 40) day -= 40;
+      if (day < 1 || day > 31 || month < 1 || month > 12) continue;
+
+      // Skip if it looks like the NoKK itself
+      if (noKkHint.isNotEmpty && digits == noKkHint) continue;
+
+      if (!validNiks.contains(digits)) {
+        validNiks.add(digits);
+      }
+    }
+
+    // Assign NIKs to members that don't have one
+    var nikIndex = 0;
+    for (var i = 0; i < members.length && nikIndex < validNiks.length; i++) {
+      if (members[i].nik.isEmpty) {
+        members[i].nik = validNiks[nikIndex];
+        nikIndex++;
+      }
+    }
   }
 
   String _extractNoKk(List<String> lines, String rawText) {
@@ -986,12 +1316,12 @@ class KkOcrService {
     if (upper.contains('KATOLIK') ||
         upper.contains('KATHOLIK') ||
         upper.contains('KHATOLIK')) {
-      return 'Katolik';
+      return 'Khatolik';
     }
-    if (upper.contains('HINDU')) return 'Hindu';
-    if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'Buddha';
+    if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'Budha';
+    if (upper.contains('HINDU')) return 'Islam'; // Fallback — not in DB
     if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
-      return 'Konghucu';
+      return 'Islam'; // Fallback — not in DB
     }
     return _cleanMemberDetailValue(input);
   }
@@ -1340,14 +1670,99 @@ class KkOcrService {
         .trim();
   }
 
+  /// Maps OCR-detected hubungan text to PocketBase select values: Ayah, Ibu, Anak.
+  String _mapHubunganToDbValue(String input) {
+    final upper = input.toUpperCase();
+    if (upper.contains('KEPALA KELUARGA') || upper.contains('SUAMI')) {
+      return 'Ayah';
+    }
+    if (upper.contains('ISTRI') || upper.contains('IBU')) return 'Ibu';
+    if (upper.contains('ANAK') ||
+        upper.contains('MENANTU') ||
+        upper.contains('CUCU')) {
+      return 'Anak';
+    }
+    return 'Anak'; // Default fallback
+  }
+
   String _normalizeStructuredName(String input) {
-    final upper = input
+    // First, strip digits that OCR may have injected into a name
+    var cleaned = input
         .toUpperCase()
+        .replaceAll(RegExp(r'[0-9]'), '')
         .replaceAll(RegExp(r"[^A-Z\s'.-]"), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    if (upper.isEmpty || !_isLikelyName(upper)) return '';
-    return _toTitleCase(upper);
+    if (cleaned.isEmpty) return '';
+
+    // Remove common OCR noise words (short nonsense fragments)
+    const ocrNoise = {
+      'TVS', 'LVI', 'JLT', 'BL', 'BD', 'BSNS', 'TAM', 'TAP', 'FP',
+      'PAI', 'NF', 'IF', 'MD', 'NON', 'NA', 'OA', 'GA', 'EE', 'DA',
+      'HE', 'DE', 'DAN', 'NETT', 'AALT', 'TAMNI', 'AMOVGONGA',
+      'YE', 'EL', 'WS', 'SO', 'CE', 'NP', 'SS', 'FOO', 'DIN', 'MAL',
+      'TNVAU', 'TOMA', 'IU', 'MIA', 'DD', 'RR', 'OW', 'RE', 'OL',
+      'EF', 'FR', 'RV', 'SE', 'AP', 'FE', 'AW', 'EV', 'AN', 'OO',
+      'WA', 'WNI', 'WN', 'II', 'TT', 'PP',
+    };
+    // Also reject KK-specific column header words
+    const columnHeaders = {
+      'NAMA', 'LENGKAP', 'NIK', 'JENIS', 'KELAMIN', 'TEMPAT', 'LAHIR',
+      'AGAMA', 'PENDIDIKAN', 'PEKERJAAN', 'GOLONGAN', 'DARAH', 'TANGGAL',
+      'STATUS', 'ISLAM', 'KRISTEN', 'LAKI', 'PEREMPUAN', 'KARYAWAN',
+      'SWASTA', 'WIRASWASTA', 'HUBUNGAN', 'KELUARGA', 'KEPALA',
+    };
+    final words = cleaned.split(' ').where((w) {
+      if (w.length < 2) return false;
+      if (ocrNoise.contains(w)) return false;
+      if (columnHeaders.contains(w)) return false;
+      // Filter out words that are all the same character repeated (e.g., "SS", "RR")
+      if (w.length <= 3 && RegExp(r'^(.)\1+$').hasMatch(w)) return false;
+      return true;
+    }).toList();
+
+    if (words.isEmpty) return '';
+
+    // If total character count is too low, it's noise (e.g. "WA WANS" = 6 chars)
+    final totalChars = words.join('').length;
+    if (totalChars < 4) return '';
+
+    // If more than 60% of words are 2 chars, likely noise
+    final shortCount = words.where((w) => w.length <= 2).length;
+    if (words.length >= 3 && shortCount / words.length > 0.6) return '';
+
+    // Try to merge broken name fragments: e.g. "FARDIANS YAH" → "FARDIANSYAH"
+    // This happens when OCR splits a word at a random position
+    final merged = _mergeFragmentedWords(words);
+
+    final result = merged.join(' ');
+    if (!_isLikelyName(result)) return '';
+    return _toTitleCase(result);
+  }
+
+  /// Merge OCR-fragmented words back together.
+  /// E.g. ['FARDIANS', 'YAH'] → ['FARDIANSYAH']
+  /// Heuristic: if a word is <= 3 chars and the previous word doesn't look
+  /// like a complete name part, merge them.
+  List<String> _mergeFragmentedWords(List<String> words) {
+    if (words.length <= 1) return words;
+    final result = <String>[words.first];
+    for (var i = 1; i < words.length; i++) {
+      final current = words[i];
+      final prev = result.last;
+      // Merge if current fragment is short (<=3 chars) and prev is not a
+      // common standalone word, OR if the combo looks like a known pattern
+      if (current.length <= 3 && prev.length >= 3) {
+        // Likely a broken suffix — merge
+        result[result.length - 1] = '$prev$current';
+      } else if (prev.length <= 3 && current.length >= 3) {
+        // Previous was a broken prefix — merge
+        result[result.length - 1] = '$prev$current';
+      } else {
+        result.add(current);
+      }
+    }
+    return result;
   }
 
   String _normalizeStructuredJenisKelamin(String input) {

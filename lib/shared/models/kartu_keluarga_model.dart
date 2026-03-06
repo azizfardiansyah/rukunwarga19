@@ -99,9 +99,7 @@ class AnggotaKkModel {
       id: record.id,
       kartuKeluarga: record.getStringValue('no_kk'),
       warga: record.getStringValue('warga'),
-      hubungan: record.getStringValue('hubungan').isNotEmpty
-          ? record.getStringValue('hubungan')
-          : record.getStringValue('hubungan_'),
+      hubungan: record.getStringValue('hubungan'),
       created: DateTime.tryParse(record.getStringValue('created')),
     );
   }

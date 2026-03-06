@@ -182,19 +182,61 @@ Future<String> _extractStructuredMemberRows({
             .trim();
       }
 
+      // Read the full row first for fallback data
       final rowRaw = await readColumn(
         startRatio: 0.0,
         widthRatio: 1.0,
-        scale: 2,
+        scale: 3,
         binarize: true,
       );
-      final nameRaw = await readColumn(startRatio: 0.00, widthRatio: 0.30);
+
+      // Column ratios adjusted to match typical KK layout:
+      // Nama Lengkap: ~0-18% of table width
+      // NIK: ~18-33%
+      // Jenis Kelamin: ~33-42%
+      // Tempat Lahir: ~42-52%
+      // Tanggal Lahir: ~52-60%
+      // Agama: ~60-68%
+      // Pendidikan: ~68-78%
+      // Pekerjaan: ~78-90%
+      // Golongan Darah: ~90-100%
+      final nameRaw = await readColumn(
+        startRatio: 0.00,
+        widthRatio: 0.18,
+        scale: 4,
+        binarize: true,
+      );
       final nikRaw = await readColumn(
-        startRatio: 0.28,
-        widthRatio: 0.15,
+        startRatio: 0.17,
+        widthRatio: 0.16,
         scale: 4,
         binarize: true,
         forceLang: 'eng',
+      );
+      final jkRaw = await readColumn(
+        startRatio: 0.33,
+        widthRatio: 0.09,
+        scale: 4,
+        binarize: true,
+      );
+      final tempatRaw = await readColumn(
+        startRatio: 0.42,
+        widthRatio: 0.10,
+        scale: 3,
+        binarize: true,
+      );
+      final tglRaw = await readColumn(
+        startRatio: 0.52,
+        widthRatio: 0.08,
+        scale: 4,
+        binarize: true,
+        forceLang: 'eng',
+      );
+      final agamaRaw = await readColumn(
+        startRatio: 0.60,
+        widthRatio: 0.08,
+        scale: 3,
+        binarize: true,
       );
 
       final nik = _normalizeNikCandidate('$nikRaw $rowRaw');
@@ -202,15 +244,43 @@ Future<String> _extractStructuredMemberRows({
       if (nama.isEmpty) {
         nama = _extractNameFromRowRaw(rowRaw);
       }
-      final jenisKelamin = _normalizeGenderCandidate(rowRaw);
-      final tempatLahir = '';
-      final tanggalLahir = _normalizeDateCandidate(rowRaw);
-      final agama = _normalizeAgamaCandidate(rowRaw);
-      final pendidikan = '';
-      final pekerjaan = '';
-      final goldar = _normalizeGolDarahCandidate(rowRaw);
+      // If still empty, try extracting the name from the beginning of the full row
+      if (nama.isEmpty) {
+        nama = _extractNameBeforeDigits(rowRaw);
+      }
+      final jenisKelamin = _normalizeGenderCandidate('$jkRaw $rowRaw');
+      final tempatLahir = _normalizeTextField(tempatRaw);
+      final tanggalLahir = _normalizeDateCandidate('$tglRaw $rowRaw');
+      final agama = _normalizeAgamaCandidate('$agamaRaw $rowRaw');
+      // Also try to read pendidikan and pekerjaan columns
+      final pendidikanRaw = await readColumn(
+        startRatio: 0.68,
+        widthRatio: 0.10,
+        scale: 3,
+        binarize: true,
+      );
+      final pekerjaanRaw = await readColumn(
+        startRatio: 0.78,
+        widthRatio: 0.12,
+        scale: 3,
+        binarize: true,
+      );
+      final goldarRaw = await readColumn(
+        startRatio: 0.90,
+        widthRatio: 0.10,
+        scale: 3,
+        binarize: true,
+      );
+      final pendidikan = _normalizePendidikanCandidate(pendidikanRaw);
+      final pekerjaan = _normalizePekerjaanCandidate(pekerjaanRaw);
+      final goldar = _normalizeGolDarahCandidate('$goldarRaw $rowRaw');
 
-      final hasData = nama.isNotEmpty || nik.length >= 12;
+      // Stricter validation: need a meaningful name (>= 4 alpha chars)
+      // OR a valid-looking 16-digit NIK. Reject short noise names.
+      final nameAlphaLen = nama.replaceAll(RegExp(r'[^A-Za-z]'), '').length;
+      final hasGoodName = nama.isNotEmpty && nameAlphaLen >= 4;
+      final hasGoodNik = nik.length == 16 && _looksLikeNik(nik);
+      final hasData = hasGoodName || hasGoodNik;
       if (kDebugMode) {
         debugPrint(
           '[KK OCR WEB] MEMBER STRUCT[$rowIndex] => nama=$nama, nik=$nik, '
@@ -229,7 +299,7 @@ Future<String> _extractStructuredMemberRows({
         emptyStreak += 1;
       }
 
-      if (rowIndex >= 3 && emptyStreak >= 3) break;
+      if (rowIndex >= 4 && emptyStreak >= 2) break;
     }
 
     return rows.join('\n');
@@ -331,10 +401,12 @@ Future<String> _extractMemberRowsText({
   required int imageWidth,
   required int imageHeight,
 }) {
-  final x = (imageWidth * 0.015).round();
-  final y = (imageHeight * 0.165).round();
-  final w = (imageWidth * 0.97).round();
-  final h = (imageHeight * 0.275).round();
+  // KK member data table typically occupies ~16.5% to ~46% of image height
+  // Widened to capture more of the table
+  final x = (imageWidth * 0.01).round();
+  final y = (imageHeight * 0.155).round();
+  final w = (imageWidth * 0.98).round();
+  final h = (imageHeight * 0.32).round();
   if (w <= 0 || h <= 0) return null;
   final safeX = x.clamp(0, imageWidth - 1);
   final safeY = y.clamp(0, imageHeight - 1);
@@ -359,10 +431,12 @@ Future<String> _extractMemberRowsText({
   final tableW = table.$3;
   final tableH = table.$4;
 
-  final dataX = tableX + (tableW * 0.03).round();
-  final dataW = (tableW * 0.96).round();
-  final dataStartY = tableY + (tableH * 0.22).round();
-  final rowHeight = (tableH * 0.073).round();
+  // Skip the header row (Nama Lengkap, NIK, etc) which takes ~18% of table height
+  final dataX = tableX + (tableW * 0.02).round();
+  final dataW = (tableW * 0.97).round();
+  final dataStartY = tableY + (tableH * 0.18).round();
+  // Each data row is about 7.5% of table height (slightly smaller to avoid overlap)
+  final rowHeight = (tableH * 0.075).round();
   final dataY = dataStartY + (rowIndex * rowHeight);
   if (dataW <= 0 || rowHeight <= 0) return null;
 
@@ -395,14 +469,46 @@ String _normalizeNameCandidate(String input) {
     'ANAK',
     'KEPALA',
     'KELUARGA',
+    'STATUS',
+    'HUBUNGAN',
+    'NAMA',
+    'LENGKAP',
+    'NIK',
+    'JENIS',
+    'KELAMIN',
+    'TEMPAT',
+    'LAHIR',
+    'AGAMA',
+    'PENDIDIKAN',
+    'PEKERJAAN',
+    'GOLONGAN',
+    'DARAH',
+    'TANGGAL',
+  };
+  // Also filter out short OCR noise fragments
+  const ocrNoise = {
+    'YE', 'EL', 'EE', 'WS', 'SO', 'CE', 'NP', 'SS', 'FOO', 'DIN', 'MAL',
+    'TNVAU', 'TOMA', 'IU', 'MIA', 'DD', 'RR', 'OW', 'RE', 'OL', 'EF',
+    'FR', 'RV', 'SE', 'AP', 'FE', 'AW', 'EV', 'AN', 'OO', 'HE', 'DE',
+    'WA', 'WN', 'WNI', 'II', 'TT', 'PP', 'NW', 'RI',
   };
   final words = cleaned
       .split(' ')
-      .where((w) => w.length >= 2 && !blocked.contains(w))
+      .where(
+        (w) => w.length >= 2 && !blocked.contains(w) && !ocrNoise.contains(w),
+      )
       .toList();
   if (words.isEmpty) return '';
-  if (words.length == 1 && words.first.length < 4) return '';
-  return words.take(6).join(' ');
+  if (words.length == 1 && words.first.length < 3) return '';
+  // If total character count is too low, it's noise
+  final totalChars = words.join('').length;
+  if (totalChars < 4) return '';
+  // If too many short noise words, skip
+  final shortCount = words.where((w) => w.length <= 2).length;
+  if (words.length >= 3 && shortCount / words.length > 0.6) return '';
+  // Merge fragmented words: "FARDIANS YAH" → "FARDIANSYAH"
+  final merged = _mergeFragmentedNameWords(words);
+  return merged.take(6).join(' ');
 }
 
 String _extractNameFromRowRaw(String rowRaw) {
@@ -410,6 +516,37 @@ String _extractNameFromRowRaw(String rowRaw) {
   if (upper.isEmpty) return '';
   final beforeDigits = upper.split(RegExp(r'\d')).first.trim();
   return _normalizeNameCandidate(beforeDigits);
+}
+
+/// Merge OCR-fragmented words back together.
+/// E.g. ['FARDIANS', 'YAH'] → ['FARDIANSYAH']
+List<String> _mergeFragmentedNameWords(List<String> words) {
+  if (words.length <= 1) return words;
+  final result = <String>[words.first];
+  for (var i = 1; i < words.length; i++) {
+    final current = words[i];
+    final prev = result.last;
+    // Merge if current fragment is short (<=3 chars) and prev is longer
+    if (current.length <= 3 && prev.length >= 3) {
+      result[result.length - 1] = '$prev$current';
+    } else if (prev.length <= 3 && current.length >= 3) {
+      result[result.length - 1] = '$prev$current';
+    } else {
+      result.add(current);
+    }
+  }
+  return result;
+}
+
+String _extractNameBeforeDigits(String rowRaw) {
+  final upper = _normalizeTextField(rowRaw);
+  if (upper.isEmpty) return '';
+  // Extract text before the first long sequence of digits (NIK)
+  final match = RegExp(r'^([A-Z\s]{3,}?)(?=\s*\d{6,})').firstMatch(upper);
+  if (match != null) {
+    return _normalizeNameCandidate(match.group(1) ?? '');
+  }
+  return '';
 }
 
 String _normalizeNikCandidate(String input) {
@@ -516,12 +653,12 @@ String _normalizeAgamaCandidate(String input) {
   if (upper.contains('KATOLIK') ||
       upper.contains('KATHOLIK') ||
       upper.contains('KHATOLIK')) {
-    return 'KATOLIK';
+    return 'KHATOLIK';
   }
-  if (upper.contains('HINDU')) return 'HINDU';
-  if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'BUDDHA';
+  if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'BUDHA';
+  if (upper.contains('HINDU')) return 'ISLAM';
   if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
-    return 'KONGHUCU';
+    return 'ISLAM';
   }
   return '';
 }
@@ -529,22 +666,74 @@ String _normalizeAgamaCandidate(String input) {
 String _normalizeGolDarahCandidate(String input) {
   final upper = input.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9+-]'), '');
   if (upper.isEmpty) return '';
-  if (upper == 'TIDAKTAHU') return 'TIDAK TAHU';
-  if (upper == 'A' ||
-      upper == 'B' ||
-      upper == 'O' ||
-      upper == 'AB' ||
-      upper == 'A+' ||
-      upper == 'A-' ||
-      upper == 'B+' ||
-      upper == 'B-' ||
-      upper == 'AB+' ||
-      upper == 'AB-' ||
-      upper == 'O+' ||
-      upper == 'O-') {
-    return upper;
+  if (upper.contains('TIDAKTAHU')) return 'TIDAK TAHU';
+  // Check for blood type patterns
+  for (final bt in ['AB+', 'AB-', 'AB', 'A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'A', 'B', 'O']) {
+    if (upper == bt) return bt;
   }
   return '';
+}
+
+String _normalizePendidikanCandidate(String input) {
+  final upper = _normalizeTextField(input);
+  if (upper.isEmpty) return '';
+  const knownPendidikan = [
+    'TIDAK/BELUM SEKOLAH',
+    'BELUM TAMAT SD/SEDERAJAT',
+    'TAMAT SD/SEDERAJAT',
+    'SLTP/SEDERAJAT',
+    'SLTA/SEDERAJAT',
+    'DIPLOMA I/II',
+    'AKADEMI/DIPLOMA III/SARJANA MUDA',
+    'DIPLOMA IV/STRATA I',
+    'STRATA II',
+    'STRATA III',
+  ];
+  for (final p in knownPendidikan) {
+    if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
+    // Fuzzy: check if most words match
+    final words = p.split(RegExp(r'[\s/]+'));
+    final matchCount = words.where((w) => upper.contains(w)).length;
+    if (matchCount >= words.length - 1 && words.length >= 2) return p;
+  }
+  // Partial matches
+  if (upper.contains('AKADEMI') || upper.contains('DIPLOMA III') || upper.contains('SARJANA MUDA')) {
+    return 'AKADEMI/DIPLOMA III/SARJANA MUDA';
+  }
+  if (upper.contains('SLTA')) return 'SLTA/SEDERAJAT';
+  if (upper.contains('SLTP')) return 'SLTP/SEDERAJAT';
+  if (upper.contains('BELUM') && upper.contains('SEKOLAH')) return 'TIDAK/BELUM SEKOLAH';
+  return upper;
+}
+
+String _normalizePekerjaanCandidate(String input) {
+  final upper = _normalizeTextField(input);
+  if (upper.isEmpty) return '';
+  const knownPekerjaan = [
+    'WIRASWASTA',
+    'KARYAWAN SWASTA',
+    'BELUM/TIDAK BEKERJA',
+    'PELAJAR/MAHASISWA',
+    'PNS',
+    'PETANI',
+    'PEDAGANG',
+    'BURUH',
+    'NELAYAN',
+    'PENSIUNAN',
+    'MENGURUS RUMAH TANGGA',
+  ];
+  for (final p in knownPekerjaan) {
+    if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
+    final words = p.split(RegExp(r'[\s/]+'));
+    final matchCount = words.where((w) => upper.contains(w)).length;
+    if (matchCount >= words.length - 1 && words.length >= 2) return p;
+  }
+  if (upper.contains('WIRASWASTA')) return 'WIRASWASTA';
+  if (upper.contains('KARYAWAN')) return 'KARYAWAN SWASTA';
+  if (upper.contains('BELUM') && upper.contains('BEKERJA')) return 'BELUM/TIDAK BEKERJA';
+  if (upper.contains('TIDAK') && upper.contains('BEKERJA')) return 'BELUM/TIDAK BEKERJA';
+  if (upper.contains('PELAJAR')) return 'PELAJAR/MAHASISWA';
+  return upper;
 }
 
 String _cropDataUrlFromImage({
@@ -573,13 +762,49 @@ String _cropDataUrlFromImage({
   if (binarize) {
     final imageData = ctx.getImageData(0, 0, canvas.width!, canvas.height!);
     final data = imageData.data;
+    // Use adaptive-style binarization: compute local average and apply Otsu-like threshold
+    // First pass: compute histogram
+    final histogram = List<int>.filled(256, 0);
     for (var i = 0; i < data.length; i += 4) {
       final r = data[i];
       final g = data[i + 1];
       final b = data[i + 2];
-      var gray = (0.299 * r + 0.587 * g + 0.114 * b);
-      gray = ((gray - 128) * 1.6 + 128).clamp(0, 255);
-      final bw = gray > 170 ? 255 : 0;
+      final gray = (0.299 * r + 0.587 * g + 0.114 * b).round().clamp(0, 255);
+      histogram[gray]++;
+    }
+    // Otsu's method to find optimal threshold
+    final totalPixels = data.length ~/ 4;
+    var sumAll = 0.0;
+    for (var i = 0; i < 256; i++) {
+      sumAll += i * histogram[i];
+    }
+    var sumBg = 0.0;
+    var weightBg = 0;
+    var maxVariance = 0.0;
+    var bestThreshold = 128;
+    for (var t = 0; t < 256; t++) {
+      weightBg += histogram[t];
+      if (weightBg == 0) continue;
+      final weightFg = totalPixels - weightBg;
+      if (weightFg == 0) break;
+      sumBg += t * histogram[t];
+      final meanBg = sumBg / weightBg;
+      final meanFg = (sumAll - sumBg) / weightFg;
+      final variance =
+          weightBg * weightFg * (meanBg - meanFg) * (meanBg - meanFg);
+      if (variance > maxVariance) {
+        maxVariance = variance;
+        bestThreshold = t;
+      }
+    }
+
+    // Apply binarization with the computed threshold
+    for (var i = 0; i < data.length; i += 4) {
+      final r = data[i];
+      final g = data[i + 1];
+      final b = data[i + 2];
+      final gray = (0.299 * r + 0.587 * g + 0.114 * b).round().clamp(0, 255);
+      final bw = gray > bestThreshold ? 255 : 0;
       data[i] = bw;
       data[i + 1] = bw;
       data[i + 2] = bw;

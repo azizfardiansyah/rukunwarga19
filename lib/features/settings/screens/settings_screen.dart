@@ -96,7 +96,7 @@ class SettingsScreen extends ConsumerWidget {
                 applicationName: AppConstants.appFullName,
                 applicationVersion: AppConstants.appVersion,
                 children: [
-                  const Text('Sistem Manajemen Data Warga RW 19'),
+                  const Text('Sistem Manajemen Rukun Warga'),
                 ],
               );
             },

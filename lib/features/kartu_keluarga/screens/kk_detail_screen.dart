@@ -64,7 +64,7 @@ class KkDetailScreen extends ConsumerWidget {
         authState.role == AppConstants.roleSuperuser;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Kartu Keluarga')),
+      appBar: AppBar(title: const Text('Detail Kartu Keluarga'), elevation: 0),
       body: FutureBuilder(
         future: pb.collection(AppConstants.colKartuKeluarga).getOne(kkId),
         builder: (context, snapshot) {
@@ -72,7 +72,20 @@ class KkDetailScreen extends ConsumerWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 48,
+                    color: AppTheme.errorColor,
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Error: ${snapshot.error}', style: AppTheme.bodySmall),
+                ],
+              ),
+            );
           }
 
           final record = snapshot.data!;
@@ -85,85 +98,192 @@ class KkDetailScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('No. KK', style: AppTheme.bodySmall),
-                        Text(
-                          Formatters.formatNoKk(kk.noKk),
-                          style: AppTheme.heading3,
-                        ),
-                        const Divider(),
-                        Text('Alamat', style: AppTheme.bodySmall),
-                        Text(kk.alamat, style: AppTheme.bodyMedium),
-                        const SizedBox(height: 8),
-                        Text(
-                          'RT ${kk.rt} / RW ${kk.rw}',
-                          style: AppTheme.bodyMedium,
-                        ),
-                        if ((kk.desaKelurahan ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Desa/Kelurahan: ${kk.desaKelurahan}',
-                            style: AppTheme.bodyMedium,
-                          ),
-                        ],
-                        if ((kk.kecamatan ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'Kecamatan: ${kk.kecamatan}',
-                            style: AppTheme.bodyMedium,
-                          ),
-                        ],
-                        if ((kk.kabupatenKota ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'Kabupaten/Kota: ${kk.kabupatenKota}',
-                            style: AppTheme.bodyMedium,
-                          ),
-                        ],
-                        if ((kk.provinsi ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'Provinsi: ${kk.provinsi}',
-                            style: AppTheme.bodyMedium,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (canManage) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                // KK Info Card with gradient header
+                Container(
+                  decoration: AppTheme.cardDecoration(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: () =>
-                            context.push('${Routes.kkForm}?id=${kk.id}'),
-                        icon: const Icon(Icons.edit_outlined),
-                        label: const Text('Edit KK'),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+                        decoration: const BoxDecoration(
+                          gradient: AppTheme.headerGradient,
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(AppTheme.radiusLarge),
+                            topRight: Radius.circular(AppTheme.radiusLarge),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.credit_card_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Kartu Keluarga',
+                                    style: AppTheme.caption.copyWith(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    Formatters.formatNoKk(kk.noKk),
+                                    style: AppTheme.heading3.copyWith(
+                                      color: Colors.white,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      ElevatedButton.icon(
-                        onPressed: () =>
-                            context.push('${Routes.wargaForm}?noKk=${kk.id}'),
-                        icon: const Icon(Icons.person_add_alt_1),
-                        label: const Text('Tambah Anggota'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _deleteKk(context),
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('Hapus KK'),
+                      Padding(
+                        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildInfoRow(
+                              Icons.location_on_rounded,
+                              'Alamat',
+                              kk.alamat,
+                            ),
+                            _buildInfoRow(
+                              Icons.grid_view_rounded,
+                              'RT/RW',
+                              'RT ${kk.rt} / RW ${kk.rw}',
+                            ),
+                            if ((kk.desaKelurahan ?? '').isNotEmpty)
+                              _buildInfoRow(
+                                Icons.holiday_village_rounded,
+                                'Desa/Kelurahan',
+                                kk.desaKelurahan!,
+                              ),
+                            if ((kk.kecamatan ?? '').isNotEmpty)
+                              _buildInfoRow(
+                                Icons.location_city_rounded,
+                                'Kecamatan',
+                                kk.kecamatan!,
+                              ),
+                            if ((kk.kabupatenKota ?? '').isNotEmpty)
+                              _buildInfoRow(
+                                Icons.apartment_rounded,
+                                'Kabupaten/Kota',
+                                kk.kabupatenKota!,
+                              ),
+                            if ((kk.provinsi ?? '').isNotEmpty)
+                              _buildInfoRow(
+                                Icons.map_rounded,
+                                'Provinsi',
+                                kk.provinsi!,
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                ),
+                const SizedBox(height: 16),
+                if (canManage) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              context.push('${Routes.kkForm}?id=${kk.id}'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusMedium,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(Icons.edit_rounded, size: 18),
+                          label: const Text('Edit KK'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () =>
+                              context.push('${Routes.wargaForm}?noKk=${kk.id}'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.secondaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusMedium,
+                              ),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.person_add_alt_1_rounded,
+                            size: 18,
+                          ),
+                          label: const Text('Tambah Anggota'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _deleteKk(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.errorColor,
+                        side: const BorderSide(color: AppTheme.errorColor),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusMedium,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('Hapus KK'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                 ],
-                Text('Anggota Keluarga', style: AppTheme.heading3),
+                // Anggota section header
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.people_rounded,
+                        size: 22,
+                        color: AppTheme.primaryColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('Anggota Keluarga', style: AppTheme.heading3),
+                    ],
+                  ),
+                ),
                 FutureBuilder(
                   future: pb
                       .collection(AppConstants.colAnggotaKk)
@@ -183,32 +303,105 @@ class KkDetailScreen extends ConsumerWidget {
                     }
                     final anggotaList = anggotaSnapshot.data?.items ?? [];
                     if (anggotaList.isEmpty) {
-                      return Text(
-                        'Belum ada anggota keluarga',
-                        style: AppTheme.bodySmall,
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: AppTheme.cardDecoration(
+                          color: AppTheme.backgroundColor,
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.person_search_rounded,
+                              size: 40,
+                              color: AppTheme.textSecondary.withValues(
+                                alpha: 0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Belum ada anggota keluarga',
+                              style: AppTheme.bodySmall,
+                            ),
+                          ],
+                        ),
                       );
                     }
                     return ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: anggotaList.length,
-                      separatorBuilder: (_, _) => const Divider(),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, idx) {
                         final anggota = anggotaList[idx];
-                        final hubungan =
-                            anggota.getStringValue('hubungan').isNotEmpty
-                            ? anggota.getStringValue('hubungan')
-                            : anggota.getStringValue('hubungan_');
+                        final hubungan = anggota.getStringValue('hubungan');
                         final status = anggota.getStringValue('status');
                         final wargaExpand = anggota.expand['warga'];
                         final namaWarga =
                             (wargaExpand != null && wargaExpand.isNotEmpty)
                             ? wargaExpand[0].getStringValue('nama_lengkap')
                             : '-';
-                        return ListTile(
-                          title: Text(namaWarga),
-                          subtitle: Text(hubungan),
-                          trailing: Text(status),
+                        final isActive = status.toLowerCase() == 'aktif';
+                        return Container(
+                          decoration: AppTheme.cardDecoration(),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 6,
+                            ),
+                            leading: CircleAvatar(
+                              radius: 20,
+                              backgroundColor: AppTheme.primaryColor.withValues(
+                                alpha: 0.1,
+                              ),
+                              child: Text(
+                                '${idx + 1}',
+                                style: AppTheme.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.primaryColor,
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              namaWarga,
+                              style: AppTheme.bodyMedium.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              hubungan,
+                              style: AppTheme.caption.copyWith(
+                                color: AppTheme.secondaryColor,
+                              ),
+                            ),
+                            trailing: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? AppTheme.successColor.withValues(
+                                        alpha: 0.1,
+                                      )
+                                    : AppTheme.textSecondary.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusXLarge,
+                                ),
+                              ),
+                              child: Text(
+                                status,
+                                style: AppTheme.caption.copyWith(
+                                  color: isActive
+                                      ? AppTheme.successColor
+                                      : AppTheme.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
                         );
                       },
                     );
@@ -218,6 +411,36 @@ class KkDetailScreen extends ConsumerWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: AppTheme.primaryColor.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTheme.caption.copyWith(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 2),
+                Text(value, style: AppTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

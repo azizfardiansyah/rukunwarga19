@@ -55,15 +55,28 @@ class Routes {
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 
+/// A [ChangeNotifier] bridge so that [GoRouter.refreshListenable] re-evaluates
+/// its redirect whenever the Riverpod auth state changes.
+class _AuthChangeNotifier extends ChangeNotifier {
+  _AuthChangeNotifier(Ref ref) {
+    // Listen to auth state changes; every emission triggers GoRouter redirect.
+    ref.listen<AuthState>(authProvider, (_, _) => notifyListeners());
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authProvider);
+  final notifier = _AuthChangeNotifier(ref);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
+    refreshListenable: notifier,
     initialLocation: Routes.dashboard,
     redirect: (context, state) {
+      // Read (not watch) current auth state inside redirect callback.
+      final authState = ref.read(authProvider);
       final isLoggedIn = authState.isAuthenticated;
-      final isAuthRoute = state.matchedLocation == Routes.login ||
+      final isAuthRoute =
+          state.matchedLocation == Routes.login ||
           state.matchedLocation == Routes.register;
 
       if (!isLoggedIn && !isAuthRoute) {
@@ -92,9 +105,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: Routes.dashboard,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: DashboardScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: DashboardScreen()),
           ),
           GoRoute(
             path: Routes.warga,
@@ -104,15 +116,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: Routes.chat,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: ChatListScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ChatListScreen()),
           ),
           GoRoute(
             path: Routes.settings,
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: SettingsScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: SettingsScreen()),
           ),
         ],
       ),
@@ -123,10 +133,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final wargaId = state.uri.queryParameters['id'];
           final noKk = state.uri.queryParameters['noKk'];
-          return WargaFormScreen(
-            wargaId: wargaId,
-            initialNoKk: noKk,
-          );
+          return WargaFormScreen(wargaId: wargaId, initialNoKk: noKk);
         },
       ),
       GoRoute(

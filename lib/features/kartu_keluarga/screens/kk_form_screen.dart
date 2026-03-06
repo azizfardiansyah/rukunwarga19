@@ -366,7 +366,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         ParsedKkMember(
           nama: '',
           nik: '',
-          hubungan: '',
+          hubungan: AppConstants.hubunganKeluarga.first,
           jenisKelamin: 'Laki-laki',
         ),
       ];
@@ -415,10 +415,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         );
         return false;
       }
-      if (member.hubungan.trim().isEmpty) {
+      if (member.hubungan.trim().isEmpty ||
+          !AppConstants.hubunganKeluarga.contains(member.hubungan.trim())) {
         ErrorClassifier.showErrorSnackBar(
           context,
-          'Hubungan anggota ke-${i + 1} wajib diisi manual.',
+          'Hubungan anggota ke-${i + 1} wajib dipilih (Ayah/Ibu/Anak).',
         );
         return false;
       }
@@ -453,15 +454,39 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final upper = input.trim().toUpperCase();
     if (upper.contains('ISLAM')) return 'Islam';
     if (upper.contains('KRISTEN')) return 'Kristen';
-    if (upper.contains('KATOLIK') || upper.contains('KATHOLIK')) {
-      return 'Katolik';
+    if (upper.contains('KATOLIK') ||
+        upper.contains('KATHOLIK') ||
+        upper.contains('KHATOLIK')) {
+      return 'Khatolik';
     }
-    if (upper.contains('HINDU')) return 'Hindu';
-    if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'Buddha';
+    if (upper.contains('BUDHA') || upper.contains('BUDDHA')) return 'Budha';
+    if (upper.contains('HINDU')) return 'Islam'; // Fallback — not in DB
     if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
-      return 'Konghucu';
+      return 'Islam'; // Fallback — not in DB
     }
     return AppConstants.daftarAgama.first;
+  }
+
+  /// Maps any hubungan value (from OCR or user input) to the PocketBase
+  /// select values: Ayah, Ibu, Anak.
+  String _mapHubunganForStorage(String input) {
+    final upper = input.trim().toUpperCase();
+    if (upper.contains('AYAH') ||
+        upper.contains('KEPALA KELUARGA') ||
+        upper.contains('SUAMI')) {
+      return 'Ayah';
+    }
+    if (upper.contains('IBU') || upper.contains('ISTRI')) return 'Ibu';
+    if (upper.contains('ANAK') ||
+        upper.contains('MENANTU') ||
+        upper.contains('CUCU')) {
+      return 'Anak';
+    }
+    // If already one of the valid values, return as-is
+    if (AppConstants.hubunganKeluarga.contains(input.trim())) {
+      return input.trim();
+    }
+    return 'Anak'; // Default fallback
   }
 
   Future<void> _createAnggotaKk({
@@ -469,44 +494,28 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     required String wargaId,
     required String hubungan,
   }) async {
-    try {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .create(
-            body: {
-              'no_kk': kkId,
-              'warga': wargaId,
-              'hubungan': hubungan,
-              'status': 'Aktif',
-            },
-          );
-    } catch (_) {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .create(
-            body: {
-              'no_kk': kkId,
-              'warga': wargaId,
-              'hubungan_': hubungan,
-              'status': 'Aktif',
-            },
-          );
-    }
+    await pb
+        .collection(AppConstants.colAnggotaKk)
+        .create(
+          body: {
+            'no_kk': kkId,
+            'warga': wargaId,
+            'hubungan': _mapHubunganForStorage(hubungan),
+            'status': 'Aktif',
+          },
+        );
   }
 
   Future<void> _updateAnggotaKkHubungan({
     required String anggotaId,
     required String hubungan,
   }) async {
-    try {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .update(anggotaId, body: {'hubungan': hubungan});
-    } catch (_) {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .update(anggotaId, body: {'hubungan_': hubungan});
-    }
+    await pb
+        .collection(AppConstants.colAnggotaKk)
+        .update(
+          anggotaId,
+          body: {'hubungan': _mapHubunganForStorage(hubungan)},
+        );
   }
 
   String _slugFirstName(String fullName) {
@@ -617,7 +626,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'tanggal_lahir': _normalizeTanggalLahirToIso(member.tanggalLahir),
         'jenis_kelamin': member.jenisKelamin,
         'agama': _mapAgamaForStorage(member.agama),
-        'status_pernikahan': AppConstants.statusPernikahan.first,
+        'status_pernikahan': 'Belum Menikah',
         'pekerjaan': member.jenisPekerjaan.trim(),
         'alamat': _alamatCtrl.text.trim(),
         'rt': rtNumber,
@@ -670,10 +679,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final member = _parsedMembers[index];
     final namaCtrl = TextEditingController(text: member.nama);
     final nikCtrl = TextEditingController(text: member.nik);
-    final hubunganCtrl = TextEditingController(text: member.hubungan);
     final tempatLahirCtrl = TextEditingController(text: member.tempatLahir);
     final tanggalLahirCtrl = TextEditingController(text: member.tanggalLahir);
-    final agamaCtrl = TextEditingController(text: member.agama);
     final pendidikanCtrl = TextEditingController(text: member.pendidikan);
     final pekerjaanCtrl = TextEditingController(text: member.jenisPekerjaan);
     final golonganDarahCtrl = TextEditingController(text: member.golonganDarah);
@@ -682,11 +689,28 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         ? 'Perempuan'
         : 'Laki-laki';
 
+    // Map existing hubungan to valid DB value
+    var hubungan = _mapHubunganForStorage(
+      member.hubungan.isNotEmpty ? member.hubungan : '',
+    );
+    if (!AppConstants.hubunganKeluarga.contains(hubungan)) {
+      hubungan = AppConstants.hubunganKeluarga.first;
+    }
+
+    // Map existing agama to valid DB value
+    var agama = _mapAgamaForStorage(
+      member.agama.isNotEmpty ? member.agama : '',
+    );
+    if (!AppConstants.daftarAgama.contains(agama)) {
+      agama = AppConstants.daftarAgama.first;
+    }
+
     try {
       await showModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
+        backgroundColor: Colors.transparent,
         builder: (sheetContext) {
           var isEditing = false;
           return StatefulBuilder(
@@ -696,9 +720,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 required TextEditingController controller,
                 TextInputType keyboardType = TextInputType.text,
                 String? hintText,
+                IconData? prefixIcon,
               }) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: TextField(
                     controller: controller,
                     enabled: isEditing,
@@ -706,6 +731,25 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     decoration: InputDecoration(
                       labelText: label,
                       hintText: hintText,
+                      prefixIcon: prefixIcon != null
+                          ? Icon(prefixIcon, size: 20)
+                          : null,
+                      filled: true,
+                      fillColor: isEditing
+                          ? Colors.white
+                          : AppTheme.backgroundColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusMedium,
+                        ),
+                        borderSide: BorderSide(color: AppTheme.dividerColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusMedium,
+                        ),
+                        borderSide: BorderSide(color: AppTheme.dividerColor),
+                      ),
                     ),
                   ),
                 );
@@ -714,25 +758,24 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               Future<void> saveMember() async {
                 final nama = namaCtrl.text.trim();
                 final nik = nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-                final hubungan = hubunganCtrl.text.trim();
                 if (nama.isEmpty) {
                   ErrorClassifier.showErrorSnackBar(
-                    context,
+                    sheetContext,
                     'Nama anggota wajib diisi.',
                   );
                   return;
                 }
                 if (nik.length != 16) {
                   ErrorClassifier.showErrorSnackBar(
-                    context,
+                    sheetContext,
                     'NIK anggota harus 16 digit.',
                   );
                   return;
                 }
                 if (hubungan.isEmpty) {
                   ErrorClassifier.showErrorSnackBar(
-                    context,
-                    'Hubungan wajib diisi manual.',
+                    sheetContext,
+                    'Hubungan wajib dipilih.',
                   );
                   return;
                 }
@@ -744,7 +787,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   jenisKelamin: jenisKelamin,
                   tempatLahir: tempatLahirCtrl.text.trim(),
                   tanggalLahir: tanggalLahirCtrl.text.trim(),
-                  agama: agamaCtrl.text.trim(),
+                  agama: agama,
                   pendidikan: pendidikanCtrl.text.trim(),
                   jenisPekerjaan: pekerjaanCtrl.text.trim(),
                   golonganDarah: golonganDarahCtrl.text.trim(),
@@ -770,10 +813,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 }
                 namaCtrl.text = member.nama;
                 nikCtrl.text = member.nik;
-                hubunganCtrl.text = member.hubungan;
                 tempatLahirCtrl.text = member.tempatLahir;
                 tanggalLahirCtrl.text = member.tanggalLahir;
-                agamaCtrl.text = member.agama;
                 pendidikanCtrl.text = member.pendidikan;
                 pekerjaanCtrl.text = member.jenisPekerjaan;
                 golonganDarahCtrl.text = member.golonganDarah;
@@ -781,124 +822,315 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     member.jenisKelamin.trim().toLowerCase() == 'perempuan'
                     ? 'Perempuan'
                     : 'Laki-laki';
+                hubungan = _mapHubunganForStorage(
+                  member.hubungan.isNotEmpty ? member.hubungan : '',
+                );
+                agama = _mapAgamaForStorage(
+                  member.agama.isNotEmpty ? member.agama : '',
+                );
                 setSheetState(() => isEditing = false);
               }
 
               return SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    8,
-                    16,
-                    20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(AppTheme.radiusXLarge),
+                      topRight: Radius.circular(AppTheme.radiusXLarge),
+                    ),
                   ),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Detail Anggota ${index + 1}',
-                          style: AppTheme.heading3,
-                        ),
-                        const SizedBox(height: 12),
-                        buildInputField(
-                          label: 'Nama Lengkap',
-                          controller: namaCtrl,
-                        ),
-                        buildInputField(
-                          label: 'NIK',
-                          controller: nikCtrl,
-                          keyboardType: TextInputType.number,
-                        ),
-                        buildInputField(
-                          label: 'Hubungan',
-                          controller: hubunganCtrl,
-                          hintText: 'Wajib isi manual',
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Jenis Kelamin',
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: jenisKelamin,
-                                isExpanded: true,
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'Laki-laki',
-                                    child: Text('Laki-laki'),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      8,
+                      20,
+                      20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  gradient: AppTheme.primaryGradient,
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
                                   ),
-                                  DropdownMenuItem(
-                                    value: 'Perempuan',
-                                    child: Text('Perempuan'),
+                                ),
+                                child: const Icon(
+                                  Icons.person_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Detail Anggota ${index + 1}',
+                                  style: AppTheme.heading3,
+                                ),
+                              ),
+                              if (isEditing)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
                                   ),
-                                ],
-                                onChanged: isEditing
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setSheetState(
-                                          () => jenisKelamin = value,
-                                        );
-                                      }
-                                    : null,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.accentColor.withValues(
+                                      alpha: 0.15,
+                                    ),
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusXLarge,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Editing',
+                                    style: AppTheme.caption.copyWith(
+                                      color: AppTheme.accentColor,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          buildInputField(
+                            label: 'Nama Lengkap',
+                            controller: namaCtrl,
+                            prefixIcon: Icons.badge_rounded,
+                          ),
+                          buildInputField(
+                            label: 'NIK',
+                            controller: nikCtrl,
+                            keyboardType: TextInputType.number,
+                            prefixIcon: Icons.credit_card_rounded,
+                          ),
+                          // Hubungan dropdown (sesuai PB select: Ayah/Ibu/Anak)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Hubungan',
+                                prefixIcon: const Icon(
+                                  Icons.family_restroom_rounded,
+                                  size: 20,
+                                ),
+                                filled: true,
+                                fillColor: isEditing
+                                    ? Colors.white
+                                    : AppTheme.backgroundColor,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor,
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor,
+                                  ),
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: hubungan,
+                                  isExpanded: true,
+                                  items: AppConstants.hubunganKeluarga
+                                      .map(
+                                        (h) => DropdownMenuItem(
+                                          value: h,
+                                          child: Text(h),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: isEditing
+                                      ? (value) {
+                                          if (value == null) return;
+                                          setSheetState(() => hubungan = value);
+                                        }
+                                      : null,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        buildInputField(
-                          label: 'Tempat Lahir',
-                          controller: tempatLahirCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Tanggal Lahir',
-                          controller: tanggalLahirCtrl,
-                          hintText: 'DD-MM-YYYY',
-                        ),
-                        buildInputField(label: 'Agama', controller: agamaCtrl),
-                        buildInputField(
-                          label: 'Pendidikan',
-                          controller: pendidikanCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Jenis Pekerjaan',
-                          controller: pekerjaanCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Golongan Darah',
-                          controller: golonganDarahCtrl,
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: isEditing
-                                    ? null
-                                    : () =>
-                                          setSheetState(() => isEditing = true),
-                                child: const Text('Edit'),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Jenis Kelamin',
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: jenisKelamin,
+                                  isExpanded: true,
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'Laki-laki',
+                                      child: Text('Laki-laki'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'Perempuan',
+                                      child: Text('Perempuan'),
+                                    ),
+                                  ],
+                                  onChanged: isEditing
+                                      ? (value) {
+                                          if (value == null) return;
+                                          setSheetState(
+                                            () => jenisKelamin = value,
+                                          );
+                                        }
+                                      : null,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: isEditing ? saveMember : null,
-                                child: const Text('Save'),
+                          ),
+                          buildInputField(
+                            label: 'Tempat Lahir',
+                            controller: tempatLahirCtrl,
+                          ),
+                          buildInputField(
+                            label: 'Tanggal Lahir',
+                            controller: tanggalLahirCtrl,
+                            hintText: 'DD-MM-YYYY',
+                          ),
+                          // Agama dropdown (sesuai PB select: Islam/Kristen/Budha/Khatolik)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Agama',
+                                filled: true,
+                                fillColor: isEditing
+                                    ? Colors.white
+                                    : AppTheme.backgroundColor,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor,
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor,
+                                  ),
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: agama,
+                                  isExpanded: true,
+                                  items: AppConstants.daftarAgama
+                                      .map(
+                                        (a) => DropdownMenuItem(
+                                          value: a,
+                                          child: Text(a),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: isEditing
+                                      ? (value) {
+                                          if (value == null) return;
+                                          setSheetState(() => agama = value);
+                                        }
+                                      : null,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextButton(
-                                onPressed: cancelEdit,
-                                child: const Text('Cancel'),
+                          ),
+                          buildInputField(
+                            label: 'Pendidikan',
+                            controller: pendidikanCtrl,
+                          ),
+                          buildInputField(
+                            label: 'Jenis Pekerjaan',
+                            controller: pekerjaanCtrl,
+                          ),
+                          buildInputField(
+                            label: 'Golongan Darah',
+                            controller: golonganDarahCtrl,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: isEditing
+                                      ? null
+                                      : () => setSheetState(
+                                          () => isEditing = true,
+                                        ),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppTheme.radiusMedium,
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.edit_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Edit'),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: isEditing ? saveMember : null,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.successColor,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppTheme.radiusMedium,
+                                      ),
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.save_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Simpan'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: cancelEdit,
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  child: const Text('Batal'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -910,10 +1142,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     } finally {
       namaCtrl.dispose();
       nikCtrl.dispose();
-      hubunganCtrl.dispose();
       tempatLahirCtrl.dispose();
       tanggalLahirCtrl.dispose();
-      agamaCtrl.dispose();
       pendidikanCtrl.dispose();
       pekerjaanCtrl.dispose();
       golonganDarahCtrl.dispose();
@@ -1029,31 +1259,55 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     String value, {
     required bool isValid,
   }) {
-    final color = isValid ? Colors.green : Colors.red;
+    final color = isValid ? AppTheme.successColor : AppTheme.errorColor;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        border: Border.all(color: color.withValues(alpha: 0.8)),
-        borderRadius: BorderRadius.circular(10),
-        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        color: color.withValues(alpha: 0.06),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 1.2),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(child: Text(label, style: AppTheme.bodySmall)),
-              Icon(
-                isValid ? Icons.check_circle_outline : Icons.error_outline,
-                size: 16,
-                color: color,
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value.isEmpty ? '-' : value,
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: value.isEmpty
+                        ? AppTheme.textSecondary
+                        : AppTheme.textPrimary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 2),
-          Text(value.isEmpty ? '-' : value, style: AppTheme.bodyMedium),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isValid ? Icons.check_circle_rounded : Icons.error_rounded,
+              size: 18,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -1066,195 +1320,513 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         : _noKkCtrl.text;
     final kepalaNama = _kepalaNama;
     final headerIssues = _getHeaderIssues();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Hasil Scan Data Kartu Keluarga', style: AppTheme.heading3),
-            const SizedBox(height: 8),
-            Text(
-              'Pastikan area merah (No KK, alamat, dan wilayah) sudah benar sebelum simpan.',
-              style: AppTheme.bodySmall,
+    return Container(
+      decoration: AppTheme.cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header with gradient
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            decoration: const BoxDecoration(
+              gradient: AppTheme.headerGradient,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(AppTheme.radiusLarge),
+                topRight: Radius.circular(AppTheme.radiusLarge),
+              ),
             ),
-            const SizedBox(height: 10),
-            _buildReadonlyField(
-              'Nama Kepala Keluarga',
-              kepalaNama,
-              isValid: _isKepalaNamaValid,
-            ),
-            _buildReadonlyField(
-              'Nomor KK',
-              formattedNoKk,
-              isValid: _isNoKkValid,
-            ),
-            _buildReadonlyField(
-              'Alamat',
-              _alamatCtrl.text,
-              isValid: _isAlamatValid,
-            ),
-            Row(
+            child: Row(
               children: [
-                Expanded(
-                  child: _buildReadonlyField(
-                    'RT',
-                    _rtCtrl.text,
-                    isValid: _isRtValid,
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                  ),
+                  child: const Icon(
+                    Icons.document_scanner_rounded,
+                    color: Colors.white,
+                    size: 22,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: _buildReadonlyField(
-                    'RW',
-                    _rwCtrl.text,
-                    isValid: _isRwValid,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Hasil Scan Kartu Keluarga',
+                        style: AppTheme.heading3.copyWith(color: Colors.white),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Pastikan data sudah benar sebelum simpan',
+                        style: AppTheme.caption.copyWith(
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            Row(
+          ),
+          Padding(
+            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _buildReadonlyField(
-                    'Desa/Kelurahan',
-                    _kelurahan,
-                    isValid: _isKelurahanValid,
-                  ),
+                _buildReadonlyField(
+                  'Nama Kepala Keluarga',
+                  kepalaNama,
+                  isValid: _isKepalaNamaValid,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _buildReadonlyField(
-                    'Kecamatan',
-                    _kecamatan,
-                    isValid: _isKecamatanValid,
-                  ),
+                _buildReadonlyField(
+                  'Nomor KK',
+                  formattedNoKk,
+                  isValid: _isNoKkValid,
                 ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildReadonlyField(
-                    'Kabupaten/Kota',
-                    _kabupatenKota,
-                    isValid: _isKabupatenKotaValid,
-                  ),
+                _buildReadonlyField(
+                  'Alamat',
+                  _alamatCtrl.text,
+                  isValid: _isAlamatValid,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _buildReadonlyField(
-                    'Provinsi',
-                    _provinsi,
-                    isValid: _isProvinsiValid,
-                  ),
-                ),
-              ],
-            ),
-            if (headerIssues.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.shade300),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
                   children: [
-                    Text('Header belum valid', style: AppTheme.bodyMedium),
-                    const SizedBox(height: 4),
-                    ...headerIssues.map(
-                      (issue) => Text('- $issue', style: AppTheme.bodySmall),
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'RT',
+                        _rtCtrl.text,
+                        isValid: _isRtValid,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'RW',
+                        _rwCtrl.text,
+                        isValid: _isRwValid,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: headerIssues.isEmpty
-                  ? () => setState(() {
-                      _headerConfirmed = true;
-                    })
-                  : null,
-              icon: Icon(
-                _headerConfirmed
-                    ? Icons.verified_outlined
-                    : Icons.fact_check_outlined,
-              ),
-              label: const Text('Konfirmasi Data'),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'Desa/Kelurahan',
+                        _kelurahan,
+                        isValid: _isKelurahanValid,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'Kecamatan',
+                        _kecamatan,
+                        isValid: _isKecamatanValid,
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'Kabupaten/Kota',
+                        _kabupatenKota,
+                        isValid: _isKabupatenKotaValid,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _buildReadonlyField(
+                        'Provinsi',
+                        _provinsi,
+                        isValid: _isProvinsiValid,
+                      ),
+                    ),
+                  ],
+                ),
+                if (headerIssues.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
+                      ),
+                      border: Border.all(
+                        color: AppTheme.warningColor.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.orange.shade700,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Data belum lengkap',
+                                style: AppTheme.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              ...headerIssues.map(
+                                (issue) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Text(
+                                    '• $issue',
+                                    style: AppTheme.caption.copyWith(
+                                      color: Colors.orange.shade700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: headerIssues.isEmpty
+                        ? () => setState(() {
+                            _headerConfirmed = true;
+                          })
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _headerConfirmed
+                          ? AppTheme.successColor
+                          : AppTheme.primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusMedium,
+                        ),
+                      ),
+                    ),
+                    icon: Icon(
+                      _headerConfirmed
+                          ? Icons.verified_rounded
+                          : Icons.fact_check_rounded,
+                    ),
+                    label: Text(
+                      _headerConfirmed
+                          ? 'Data Terkonfirmasi ✓'
+                          : 'Konfirmasi Data',
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildParsedMembersSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Hasil Parser Anggota KK', style: AppTheme.heading3),
-            const SizedBox(height: 8),
-            Text(
-              'Jika ada data kurang/keliru, edit dulu sebelum simpan.',
-              style: AppTheme.bodySmall,
+    return Container(
+      decoration: AppTheme.cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.secondaryColor.withValues(alpha: 0.9),
+                  AppTheme.secondaryColor,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(AppTheme.radiusLarge),
+                topRight: Radius.circular(AppTheme.radiusLarge),
+              ),
             ),
-            const SizedBox(height: 8),
-            if (_parsedMembers.isEmpty)
-              Text('Belum ada anggota terdeteksi.', style: AppTheme.bodySmall)
-            else
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _parsedMembers.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final member = _parsedMembers[index];
-                  return Card(
-                    margin: EdgeInsets.zero,
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                  ),
+                  child: const Icon(
+                    Icons.people_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Anggota Keluarga',
+                        style: AppTheme.heading3.copyWith(color: Colors.white),
                       ),
-                      title: Text(
-                        member.nama.isEmpty
-                            ? '(Nama belum diisi)'
-                            : member.nama,
+                      const SizedBox(height: 2),
+                      Text(
+                        _parsedMembers.isEmpty
+                            ? 'Belum ada anggota terdeteksi'
+                            : '${_parsedMembers.length} anggota terdeteksi',
+                        style: AppTheme.caption.copyWith(
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
                       ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        tooltip: 'Detail Anggota',
-                        onPressed: () => _showMemberDetail(index),
+                    ],
+                  ),
+                ),
+                if (_parsedMembers.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusXLarge,
                       ),
                     ),
-                  );
-                },
-              ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+                    child: Text(
+                      '${_parsedMembers.length}',
+                      style: AppTheme.bodyMedium.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                OutlinedButton.icon(
-                  onPressed: _addManualMember,
-                  icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('Tambah Manual'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _isScanning ? null : _runParser,
-                  icon: const Icon(Icons.document_scanner_outlined),
-                  label: const Text('Scan Ulang'),
+                if (_parsedMembers.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: AppTheme.backgroundColor,
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
+                      ),
+                      border: Border.all(
+                        color: AppTheme.dividerColor,
+                        style: BorderStyle.solid,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.person_search_rounded,
+                          size: 48,
+                          color: AppTheme.textSecondary.withValues(alpha: 0.4),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Belum ada anggota terdeteksi',
+                          style: AppTheme.bodyMedium.copyWith(
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Scan KK atau tambah manual',
+                          style: AppTheme.caption,
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _parsedMembers.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final member = _parsedMembers[index];
+                      final hasName = member.nama.isNotEmpty;
+                      final hasNik = member.nik.isNotEmpty;
+                      final hasHubungan = member.hubungan.isNotEmpty;
+                      final isComplete = hasName && hasNik && hasHubungan;
+
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: isComplete
+                              ? AppTheme.successColor.withValues(alpha: 0.04)
+                              : AppTheme.warningColor.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusMedium,
+                          ),
+                          border: Border.all(
+                            color: isComplete
+                                ? AppTheme.successColor.withValues(alpha: 0.2)
+                                : AppTheme.warningColor.withValues(alpha: 0.25),
+                            width: 1,
+                          ),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 4,
+                          ),
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: isComplete
+                                ? AppTheme.successColor.withValues(alpha: 0.12)
+                                : AppTheme.primaryColor.withValues(alpha: 0.1),
+                            child: Text(
+                              '${index + 1}',
+                              style: AppTheme.bodyMedium.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: isComplete
+                                    ? AppTheme.successColor
+                                    : AppTheme.primaryColor,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            hasName ? member.nama : '(Nama belum diisi)',
+                            style: AppTheme.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: hasName
+                                  ? AppTheme.textPrimary
+                                  : AppTheme.textSecondary,
+                            ),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (hasNik)
+                                Text(
+                                  'NIK: ${member.nik}',
+                                  style: AppTheme.caption,
+                                ),
+                              if (!hasNik)
+                                Text(
+                                  'NIK belum diisi',
+                                  style: AppTheme.caption.copyWith(
+                                    color: AppTheme.errorColor,
+                                  ),
+                                ),
+                              if (hasHubungan)
+                                Text(
+                                  member.hubungan,
+                                  style: AppTheme.caption.copyWith(
+                                    color: AppTheme.secondaryColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              if (!hasHubungan)
+                                Text(
+                                  'Hubungan belum diisi',
+                                  style: AppTheme.caption.copyWith(
+                                    color: AppTheme.errorColor,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  Icons.edit_rounded,
+                                  color: AppTheme.primaryColor,
+                                  size: 20,
+                                ),
+                                tooltip: 'Edit Anggota',
+                                onPressed: () => _showMemberDetail(index),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: AppTheme.errorColor.withValues(
+                                    alpha: 0.7,
+                                  ),
+                                  size: 20,
+                                ),
+                                tooltip: 'Hapus Anggota',
+                                onPressed: () {
+                                  setState(() {
+                                    _parsedMembers = [..._parsedMembers]
+                                      ..removeAt(index);
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _addManualMember,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusMedium,
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Tambah Manual'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _isScanning ? null : _runParser,
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusMedium,
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(Icons.document_scanner_rounded),
+                        label: const Text('Scan Ulang'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1263,9 +1835,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _isEdit ? 'Edit KK + Scan Anggota' : 'Tambah KK + Scan Anggota',
-        ),
+        title: Text(_isEdit ? 'Edit Kartu Keluarga' : 'Tambah Kartu Keluarga'),
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppTheme.paddingMedium),
@@ -1274,79 +1845,275 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           children: [
             _buildOcrHeaderSection(),
             const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Upload Scan KK', style: AppTheme.heading3),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Pilih file KK dari galeri atau foto langsung, lalu tekan tombol Scan.',
-                      style: AppTheme.bodySmall,
+            // Upload Section
+            Container(
+              decoration: AppTheme.cardDecoration(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(AppTheme.paddingMedium),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppTheme.accentColor.withValues(alpha: 0.85),
+                          AppTheme.accentColor,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(AppTheme.radiusLarge),
+                        topRight: Radius.circular(AppTheme.radiusLarge),
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    child: Row(
                       children: [
-                        ElevatedButton.icon(
-                          onPressed: _isScanning || _isLoading
-                              ? null
-                              : _pickKkFile,
-                          icon: const Icon(Icons.upload_file_outlined),
-                          label: const Text('Tambah File KK'),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusSmall,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.upload_file_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
                         ),
-                        ElevatedButton.icon(
-                          onPressed: _isScanning || _isLoading
-                              ? null
-                              : _runParser,
-                          icon: const Icon(Icons.document_scanner_outlined),
-                          label: const Text('Scan'),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Upload Scan KK',
+                                style: AppTheme.heading3.copyWith(
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Pilih gambar lalu tekan Scan',
+                                style: AppTheme.caption.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    if (_existingScanKk != null &&
-                        (_scanFilename ?? '').isEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Scan KK tersimpan: $_existingScanKk',
-                        style: AppTheme.bodySmall,
-                      ),
-                    ],
-                    if ((_scanFilename ?? '').isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'File dipilih: $_scanFilename',
-                        style: AppTheme.bodySmall,
-                      ),
-                    ],
-                    if (_isScanning) ...[
-                      const SizedBox(height: 12),
-                      const Center(child: CircularProgressIndicator()),
-                    ],
-                  ],
-                ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(AppTheme.paddingMedium),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isScanning || _isLoading
+                                    ? null
+                                    : _pickKkFile,
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusMedium,
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.add_photo_alternate_rounded,
+                                ),
+                                label: const Text('Pilih Gambar'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isScanning || _isLoading
+                                    ? null
+                                    : _runParser,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.secondaryColor,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusMedium,
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.document_scanner_rounded,
+                                ),
+                                label: const Text('Scan'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_existingScanKk != null &&
+                            (_scanFilename ?? '').isEmpty) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withValues(
+                                alpha: 0.06,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusSmall,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.image_rounded,
+                                  size: 18,
+                                  color: AppTheme.primaryColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Tersimpan: $_existingScanKk',
+                                    style: AppTheme.caption.copyWith(
+                                      color: AppTheme.primaryColor,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if ((_scanFilename ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.successColor.withValues(
+                                alpha: 0.06,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusSmall,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: AppTheme.successColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Dipilih: $_scanFilename',
+                                    style: AppTheme.caption.copyWith(
+                                      color: AppTheme.successColor,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (_isScanning) ...[
+                          const SizedBox(height: 16),
+                          Center(
+                            child: Column(
+                              children: [
+                                const SizedBox(
+                                  height: 28,
+                                  width: 28,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Memproses OCR...',
+                                  style: AppTheme.caption.copyWith(
+                                    color: AppTheme.primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
             _buildParsedMembersSection(),
             const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _isLoading || _isScanning ? null : _save,
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+            // Save & Cancel buttons
+            Container(
+              decoration: BoxDecoration(
+                gradient: _isLoading || _isScanning
+                    ? null
+                    : AppTheme.primaryGradient,
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                boxShadow: _isLoading || _isScanning
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+              ),
+              child: ElevatedButton(
+                onPressed: _isLoading || _isScanning ? null : _save,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                  ),
+                  disabledBackgroundColor: AppTheme.dividerColor,
+                ),
+                child: _isLoading
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.save_rounded, size: 20),
+                          SizedBox(width: 8),
+                          Text('Simpan KK + Anggota'),
+                        ],
                       ),
-                    )
-                  : const Text('Simpan KK + Anggota'),
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             OutlinedButton(
               onPressed: _isLoading
                   ? null
@@ -1356,8 +2123,15 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         if (mounted) context.go(Routes.dashboard);
                       });
                     },
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                ),
+              ),
               child: const Text('Batal'),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

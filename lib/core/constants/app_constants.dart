@@ -2,8 +2,8 @@ class AppConstants {
   AppConstants._();
 
   // === APP INFO ===
-  static const String appName = 'RW 19';
-  static const String appFullName = 'Sistem Manajemen Rukun Warga 19';
+  static const String appName = 'RukunWarga';
+  static const String appFullName = 'Sistem Manajemen Rukun Warga';
   static const String appVersion = '1.0.0';
 
   // === ROLES ===
@@ -71,43 +71,27 @@ class AppConstants {
     'Lainnya',
   ];
 
-  // === AGAMA ===
+  // === AGAMA (sesuai PocketBase select field warga.agama) ===
   static const List<String> daftarAgama = [
     'Islam',
     'Kristen',
-    'Katolik',
-    'Hindu',
-    'Buddha',
-    'Konghucu',
+    'Budha',
+    'Khatolik',
   ];
 
-  // === STATUS PERNIKAHAN ===
+  // === STATUS PERNIKAHAN (sesuai PocketBase select field warga.status_pernikahan) ===
   static const List<String> statusPernikahan = [
-    'Belum Menikah',
     'Menikah',
+    'Belum Menikah',
     'Cerai Hidup',
     'Cerai Mati',
   ];
 
   // === JENIS KELAMIN ===
-  static const List<String> jenisKelamin = [
-    'Laki-laki',
-    'Perempuan',
-  ];
+  static const List<String> jenisKelamin = ['Laki-laki', 'Perempuan'];
 
-  // === HUBUNGAN KELUARGA ===
-  static const List<String> hubunganKeluarga = [
-    'Kepala Keluarga',
-    'Istri',
-    'Anak',
-    'Menantu',
-    'Cucu',
-    'Orang Tua',
-    'Mertua',
-    'Famili Lain',
-    'Pembantu',
-    'Lainnya',
-  ];
+  // === HUBUNGAN KELUARGA (sesuai PocketBase select field anggota_kk.hubungan) ===
+  static const List<String> hubunganKeluarga = ['Ayah', 'Ibu', 'Anak'];
 
   // === CONVERSATION TYPES ===
   static const String convPrivate = 'private';
