@@ -33,6 +33,18 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- Prevent CanvasKit crash on WebGL context lost -->
+  <script>
+    // Intercept WebGL context lost events globally to prevent
+    // Flutter engine LateInitializationError on _handledContextLostEvent
+    window.addEventListener('webglcontextlost', function(e) {
+      e.preventDefault();
+      console.warn('WebGL context lost — will attempt restore.');
+    }, true);
+    window.addEventListener('webglcontextrestored', function(e) {
+      console.info('WebGL context restored.');
+    }, true);
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

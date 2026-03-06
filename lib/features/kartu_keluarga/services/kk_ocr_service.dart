@@ -211,21 +211,14 @@ class KkOcrService {
           _extract16DigitsWithOcrCorrection(parts[2]) ??
           parts[2].replaceAll(RegExp(r'[^0-9]'), '');
 
-      // Accept member if name is present even if NIK is imperfect.
-      // Don't discard if only NIK prefix doesn't match — OCR often garbles digits.
       final hasValidNik =
           nikCandidate.length == 16 &&
           !seenNik.contains(nikCandidate) &&
           !RegExp(r'^0+$').hasMatch(nikCandidate) &&
           !RegExp(r'^(\d)\1{15}$').hasMatch(nikCandidate);
 
-      final nikPrefixMatches =
-          noKkHint.length >= 6 &&
-          nikCandidate.length == 16 &&
-          nikCandidate.startsWith(noKkHint.substring(0, 6));
-
-      // Relaxed: accept if name is good AND (NIK looks valid, or NIK prefix matches)
-      // Also accept if NIK is valid even with a short name
+      // Accept member if name is present even with bad/missing NIK.
+      // OCR frequently garbles digits — don't lose real members.
       if (nama.isEmpty && !hasValidNik) {
         continue;
       }
@@ -233,41 +226,14 @@ class KkOcrService {
         continue;
       }
 
-      // Only apply strict NIK prefix check if we already have some members
-      // This prevents losing ALL members when OCR garbles all NIKs
-      if (hasValidNik &&
-          !nikPrefixMatches &&
-          noKkHint.length >= 6 &&
-          members.length >= 3) {
-        continue;
-      }
-
-      // Skip if day/month in NIK are invalid (basic sanity)
+      // Validate day/month in NIK if present
+      var nikDateOk = true;
       if (nikCandidate.length == 16) {
         var day = int.tryParse(nikCandidate.substring(6, 8)) ?? 0;
         final month = int.tryParse(nikCandidate.substring(8, 10)) ?? 0;
         if (day > 40) day -= 40;
         if (day < 1 || day > 31 || month < 1 || month > 12) {
-          // NIK date invalid but name is present — accept with empty NIK for manual correction
-          if (nama.isNotEmpty) {
-            members.add(
-              ParsedKkMember(
-                nama: nama,
-                nik: '',
-                hubungan: '',
-                jenisKelamin: _normalizeStructuredJenisKelamin(parts[3]),
-                tempatLahir: _normalizeTempatLahir(parts[4]),
-                tanggalLahir: _normalizeTanggalFromToken(
-                  _cleanStructuredField(parts[5]),
-                ),
-                agama: _toTitleCase(_normalizeAgama(parts[6])),
-                pendidikan: _normalizePendidikanField(parts[7]),
-                jenisPekerjaan: _normalizePekerjaanField(parts[8]),
-                golonganDarah: _normalizeGolonganDarah(parts[9]),
-              ),
-            );
-          }
-          continue;
+          nikDateOk = false;
         }
       }
 
@@ -281,7 +247,8 @@ class KkOcrService {
       final pekerjaan = _normalizePekerjaanField(parts[8]);
       final golonganDarah = _normalizeGolonganDarah(parts[9]);
 
-      final nikToStore = hasValidNik ? nikCandidate : '';
+      // Store NIK only if it passes all checks
+      final nikToStore = (hasValidNik && nikDateOk) ? nikCandidate : '';
 
       members.add(
         ParsedKkMember(
@@ -297,7 +264,7 @@ class KkOcrService {
           golonganDarah: golonganDarah,
         ),
       );
-      if (hasValidNik) seenNik.add(nikCandidate);
+      if (hasValidNik && nikDateOk) seenNik.add(nikCandidate);
     }
 
     return members;
@@ -532,13 +499,17 @@ class KkOcrService {
     }
 
     // If we know the first member is likely kepala keluarga (index 0) and
-    // they still have no hubungan, default them to Ayah
+    // they still have no hubungan, infer from jenis kelamin
     if (members.isNotEmpty && members[0].hubungan.isEmpty) {
-      members[0].hubungan = 'Ayah';
+      members[0].hubungan = members[0].jenisKelamin == 'Perempuan'
+          ? 'Ibu'
+          : 'Ayah';
     }
-    // Second member without hubungan is likely Ibu
+    // Second member without hubungan — infer from jenis kelamin
     if (members.length >= 2 && members[1].hubungan.isEmpty) {
-      members[1].hubungan = 'Ibu';
+      members[1].hubungan = members[1].jenisKelamin == 'Perempuan'
+          ? 'Ibu'
+          : 'Ayah';
     }
     // Remaining without hubungan default to Anak
     for (var i = 2; i < members.length; i++) {
@@ -1629,10 +1600,10 @@ class KkOcrService {
     required int width,
     required int height,
   }) {
-    final x = (width * 0.015).round();
-    final y = (height * 0.165).round();
-    final w = (width * 0.97).round();
-    final h = (height * 0.275).round();
+    final x = (width * 0.01).round();
+    final y = (height * 0.150).round();
+    final w = (width * 0.98).round();
+    final h = (height * 0.36).round();
     if (w <= 0 || h <= 0) return null;
     final safeX = x.clamp(0, width - 1);
     final safeY = y.clamp(0, height - 1);
@@ -1654,10 +1625,10 @@ class KkOcrService {
     final tableW = table.$3;
     final tableH = table.$4;
 
-    final dataX = tableX + (tableW * 0.03).round();
-    final dataW = (tableW * 0.96).round();
-    final dataStartY = tableY + (tableH * 0.22).round();
-    final rowHeight = (tableH * 0.073).round();
+    final dataX = tableX + (tableW * 0.02).round();
+    final dataW = (tableW * 0.97).round();
+    final dataStartY = tableY + (tableH * 0.16).round();
+    final rowHeight = (tableH * 0.070).round();
     final dataY = dataStartY + (rowIndex * rowHeight);
 
     if (dataW <= 0 || rowHeight <= 0) return null;
@@ -1690,45 +1661,45 @@ class KkOcrService {
     if (RegExp(r'^[\d\s]+$').hasMatch(cleaned)) return '';
 
     // Filter out individual noise tokens
+    const noise = {
+      'IU',
+      'MIA',
+      'DD',
+      'RR',
+      'OW',
+      'RE',
+      'OL',
+      'EF',
+      'FR',
+      'SE',
+      'AP',
+      'FE',
+      'AW',
+      'EV',
+      'AN',
+      'OO',
+      'HE',
+      'DE',
+      'BII',
+      'BI',
+      'BH',
+      'CE',
+      'NP',
+      'SS',
+      'WS',
+      'SO',
+      'WA',
+      'WN',
+      'WNI',
+    };
     final words = cleaned.split(' ').where((w) {
       if (w.isEmpty) return false;
       // Pure numbers
       if (RegExp(r'^[\d]+$').hasMatch(w)) return false;
-      // Single letter or very short tokens with digits
+      // Single letter
       if (w.length <= 1) return false;
       if (w.length <= 2 && RegExp(r'\d').hasMatch(w)) return false;
       // Common OCR noise
-      const noise = {
-        'IU',
-        'MIA',
-        'DD',
-        'RR',
-        'OW',
-        'RE',
-        'OL',
-        'EF',
-        'FR',
-        'SE',
-        'AP',
-        'FE',
-        'AW',
-        'EV',
-        'AN',
-        'OO',
-        'HE',
-        'DE',
-        'BII',
-        'BI',
-        'BH',
-        'CE',
-        'NP',
-        'SS',
-        'WS',
-        'SO',
-        'WA',
-        'WN',
-        'WNI',
-      };
       if (noise.contains(w)) return false;
       return true;
     }).toList();
@@ -1742,7 +1713,77 @@ class KkOcrService {
     final alphaCount = result.replaceAll(RegExp(r'[^A-Z]'), '').length;
     if (alphaCount < 3) return '';
 
-    return _toTitleCase(result);
+    // Strip leading single-character noise
+    final resultClean = result.replaceFirst(RegExp(r'^[A-Z]\s+'), '').trim();
+    if (resultClean.isEmpty || resultClean.length < 3) return '';
+
+    // Try fuzzy matching against common Indonesian city/regency names
+    // that often appear in KK documents
+    final fuzzyResult = _fuzzyMatchTempatLahir(resultClean);
+    if (fuzzyResult != null) return _toTitleCase(fuzzyResult);
+
+    // If the remaining text is very short (< 5 chars) and didn't fuzzy-match,
+    // it's likely OCR noise like "DARA", "BARAT" fragments
+    if (resultClean.length <= 4) return '';
+
+    return _toTitleCase(resultClean);
+  }
+
+  /// Fuzzy-match garbled tempat lahir against common Indonesian cities.
+  String? _fuzzyMatchTempatLahir(String input) {
+    // Common cities/regencies that appear on KK documents in West Java area
+    const commonPlaces = [
+      'BANDUNG',
+      'BANDUNG BARAT',
+      'CIMAHI',
+      'GARUT',
+      'SUMEDANG',
+      'SUBANG',
+      'PURWAKARTA',
+      'KARAWANG',
+      'BEKASI',
+      'BOGOR',
+      'DEPOK',
+      'CIANJUR',
+      'SUKABUMI',
+      'TASIKMALAYA',
+      'CIAMIS',
+      'KUNINGAN',
+      'MAJALENGKA',
+      'INDRAMAYU',
+      'CIREBON',
+      'JAKARTA',
+      'TANGERANG',
+      'SEMARANG',
+      'SURABAYA',
+      'YOGYAKARTA',
+      'MEDAN',
+      'PALEMBANG',
+      'MAKASSAR',
+      'MALANG',
+      'SOLO',
+    ];
+
+    final inputAlpha = input.replaceAll(RegExp(r'[^A-Z]'), '');
+    if (inputAlpha.length < 3) return null;
+
+    String? bestMatch;
+    var bestScore = 0.0;
+
+    for (final place in commonPlaces) {
+      final placeAlpha = place.replaceAll(RegExp(r'[^A-Z]'), '');
+      final score = _bigramSimilarity(inputAlpha, placeAlpha);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = place;
+      }
+    }
+
+    // Require a high similarity threshold to avoid false positives
+    if (bestScore >= 0.45 && bestMatch != null) {
+      return bestMatch;
+    }
+    return null;
   }
 
   /// Normalize pendidikan from OCR structured field.
@@ -1752,6 +1793,7 @@ class KkOcrService {
     if (cleaned.isEmpty) return '';
 
     final upper = cleaned.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final compact = upper.replaceAll(RegExp(r'[\s/]+'), '');
 
     // Try exact and fuzzy matching against known values
     const knownPendidikan = [
@@ -1768,7 +1810,7 @@ class KkOcrService {
     ];
 
     for (final p in knownPendidikan) {
-      if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
+      if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
         return _toTitleCase(p);
       }
       final words = p.split(RegExp(r'[\s/]+'));
@@ -1781,11 +1823,18 @@ class KkOcrService {
     // Partial / garbled matches
     if (upper.contains('AKADEMI') ||
         upper.contains('DIPLOMA III') ||
-        upper.contains('SARJANA MUDA')) {
+        upper.contains('SARJANA MUDA') ||
+        upper.contains('SARJANA') ||
+        compact.contains('DIPLOMAIII') ||
+        compact.contains('SARJANAMUDA')) {
       return _toTitleCase('AKADEMI/DIPLOMA III/SARJANA MUDA');
     }
-    if (upper.contains('SLTA')) return _toTitleCase('SLTA/SEDERAJAT');
-    if (upper.contains('SLTP')) return _toTitleCase('SLTP/SEDERAJAT');
+    if (upper.contains('SLTA') || compact.contains('SLTA')) {
+      return _toTitleCase('SLTA/SEDERAJAT');
+    }
+    if (upper.contains('SLTP') || compact.contains('SLTP')) {
+      return _toTitleCase('SLTP/SEDERAJAT');
+    }
     if (upper.contains('SD') && !upper.contains('SL')) {
       return _toTitleCase('TAMAT SD/SEDERAJAT');
     }
@@ -1796,8 +1845,12 @@ class KkOcrService {
       return _toTitleCase('TIDAK/BELUM SEKOLAH');
     }
 
+    // Aggressive OCR garble recovery using bigram similarity
+    final bestMatch = _fuzzyMatchPendidikan(compact);
+    if (bestMatch != null) return _toTitleCase(bestMatch);
+
     // If it's just noise (mostly garbled short words), clear it
-    final alphaCount = upper.replaceAll(RegExp(r'[^A-Z]'), '').length;
+    final alphaCount = compact.replaceAll(RegExp(r'[^A-Z]'), '').length;
     if (alphaCount < 4) return '';
 
     // Check if it's too garbled to be meaningful
@@ -1816,6 +1869,7 @@ class KkOcrService {
     if (cleaned.isEmpty) return '';
 
     final upper = cleaned.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final compact = upper.replaceAll(RegExp(r'[\s/]+'), '');
 
     const knownPekerjaan = [
       'WIRASWASTA',
@@ -1832,7 +1886,7 @@ class KkOcrService {
     ];
 
     for (final p in knownPekerjaan) {
-      if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
+      if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
         return _toTitleCase(p);
       }
       final words = p.split(RegExp(r'[\s/]+'));
@@ -1852,10 +1906,43 @@ class KkOcrService {
       return _toTitleCase('BELUM/TIDAK BEKERJA');
     }
     if (upper.contains('PELAJAR')) return _toTitleCase('PELAJAR/MAHASISWA');
+    if (upper.contains('MAHASISWA')) return _toTitleCase('PELAJAR/MAHASISWA');
+    if (upper.contains('MENGURUS') || upper.contains('RUMAH TANGGA')) {
+      return _toTitleCase('MENGURUS RUMAH TANGGA');
+    }
+    if (upper.contains('PETANI')) return _toTitleCase('PETANI');
+    if (upper.contains('PEDAGANG')) return _toTitleCase('PEDAGANG');
+    if (upper.contains('BURUH')) return _toTitleCase('BURUH');
+    if (upper.contains('PENSIUNAN')) return _toTitleCase('PENSIUNAN');
+
+    // Fuzzy match with bigram similarity
+    final inputAlpha = compact.replaceAll(RegExp(r'[^A-Z]'), '');
+    if (inputAlpha.length >= 3) {
+      String? bestMatch;
+      var bestScore = 0.0;
+      for (final p in knownPekerjaan) {
+        final pAlpha = p.replaceAll(RegExp(r'[^A-Z]'), '');
+        final score = _bigramSimilarity(inputAlpha, pAlpha);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = p;
+        }
+      }
+      if (bestScore >= 0.35 && bestMatch != null) {
+        return _toTitleCase(bestMatch);
+      }
+    }
 
     // If it's just noise, clear it
     final alphaCount = upper.replaceAll(RegExp(r'[^A-Z]'), '').length;
     if (alphaCount < 3) return '';
+
+    // Check if garbled
+    final words = upper.split(' ');
+    final garbledCount = words
+        .where((w) => w.length >= 4 && !_hasReasonableVowelRatio(w))
+        .length;
+    if (words.isNotEmpty && garbledCount / words.length > 0.5) return '';
 
     return _toTitleCase(cleaned);
   }
@@ -1866,6 +1953,63 @@ class KkOcrService {
         .replaceAll(RegExp(r'[^A-Z0-9/\-\+\s]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  /// Fuzzy-match garbled OCR text against known pendidikan values.
+  /// Uses bigram similarity (Dice coefficient) to find the best match.
+  String? _fuzzyMatchPendidikan(String compact) {
+    const knownPendidikan = [
+      'TIDAK/BELUM SEKOLAH',
+      'BELUM TAMAT SD/SEDERAJAT',
+      'TAMAT SD/SEDERAJAT',
+      'SLTP/SEDERAJAT',
+      'SLTA/SEDERAJAT',
+      'DIPLOMA I/II',
+      'AKADEMI/DIPLOMA III/SARJANA MUDA',
+      'DIPLOMA IV/STRATA I',
+      'STRATA II',
+      'STRATA III',
+    ];
+
+    final inputAlpha = compact.replaceAll(RegExp(r'[^A-Z]'), '');
+    if (inputAlpha.length < 3) return null;
+
+    String? bestMatch;
+    var bestScore = 0.0;
+
+    for (final p in knownPendidikan) {
+      final pAlpha = p.replaceAll(RegExp(r'[^A-Z]'), '');
+      final score = _bigramSimilarity(inputAlpha, pAlpha);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = p;
+      }
+    }
+
+    // Require a reasonable similarity threshold
+    final threshold = inputAlpha.length <= 6 ? 0.25 : 0.30;
+    if (bestScore >= threshold && bestMatch != null) {
+      return bestMatch;
+    }
+    return null;
+  }
+
+  /// Compute Dice coefficient (bigram similarity) between two strings.
+  double _bigramSimilarity(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return 0.0;
+    if (a.length < 2 || b.length < 2) {
+      return a == b ? 1.0 : 0.0;
+    }
+    final bigramsA = <String>{};
+    for (var i = 0; i < a.length - 1; i++) {
+      bigramsA.add(a.substring(i, i + 2));
+    }
+    final bigramsB = <String>{};
+    for (var i = 0; i < b.length - 1; i++) {
+      bigramsB.add(b.substring(i, i + 2));
+    }
+    final intersection = bigramsA.intersection(bigramsB).length;
+    return (2.0 * intersection) / (bigramsA.length + bigramsB.length);
   }
 
   /// Maps OCR-detected hubungan text to PocketBase select values: Ayah, Ibu, Anak.
@@ -1893,6 +2037,10 @@ class KkOcrService {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     if (cleaned.isEmpty) return '';
+
+    // Strip leading single-character noise (e.g., "J ARINI" → "ARINI")
+    // This happens when OCR captures grid borders or row numbers as a letter
+    cleaned = cleaned.replaceFirst(RegExp(r'^[A-Z]\s+'), '').trim();
 
     // Remove common OCR noise words (short nonsense fragments)
     const ocrNoise = {

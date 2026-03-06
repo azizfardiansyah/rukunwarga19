@@ -172,22 +172,57 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (sheetContext) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Galeri'),
-                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('Foto'),
-                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pilih Sumber Gambar',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Ambil foto KK dari kamera atau pilih dari galeri',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _imageSourceCard(
+                        icon: Icons.photo_library_rounded,
+                        label: 'Galeri',
+                        color: const Color(0xFF7C3AED),
+                        onTap: () =>
+                            Navigator.pop(sheetContext, ImageSource.gallery),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _imageSourceCard(
+                        icon: Icons.camera_alt_rounded,
+                        label: 'Kamera',
+                        color: const Color(0xFF0EA5E9),
+                        onTap: () =>
+                            Navigator.pop(sheetContext, ImageSource.camera),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -200,6 +235,47 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       return;
     }
     await _scanFromCamera();
+  }
+
+  Widget _imageSourceCard({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 28),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _runParser() async {
@@ -677,12 +753,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   Future<void> _showMemberDetail(int index) async {
     final member = _parsedMembers[index];
-    // Local controllers for the bottom sheet — NOT manually disposed.
-    // They are method-scoped and will be GC'd when the method returns.
-    // Disposing them in a `finally` block causes "disposed controller"
-    // errors because the bottom sheet's close animation may still read
-    // the controllers after `Navigator.pop` returns but before the
-    // animation finishes.
     final namaCtrl = TextEditingController(text: member.nama);
     final nikCtrl = TextEditingController(text: member.nik);
     final tempatLahirCtrl = TextEditingController(text: member.tempatLahir);
@@ -695,7 +765,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         ? 'Perempuan'
         : 'Laki-laki';
 
-    // Map existing hubungan to valid DB value
     var hubungan = _mapHubunganForStorage(
       member.hubungan.isNotEmpty ? member.hubungan : '',
     );
@@ -703,7 +772,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       hubungan = AppConstants.hubunganKeluarga.first;
     }
 
-    // Map existing agama to valid DB value
     var agama = _mapAgamaForStorage(
       member.agama.isNotEmpty ? member.agama : '',
     );
@@ -720,7 +788,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         var isEditing = false;
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            Widget buildInputField({
+            Widget buildField({
               required String label,
               required TextEditingController controller,
               TextInputType keyboardType = TextInputType.text,
@@ -728,32 +796,120 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               IconData? prefixIcon,
             }) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: 14),
                 child: TextField(
                   controller: controller,
                   enabled: isEditing,
                   keyboardType: keyboardType,
+                  style: const TextStyle(fontSize: 14),
                   decoration: InputDecoration(
                     labelText: label,
                     hintText: hintText,
                     prefixIcon: prefixIcon != null
-                        ? Icon(prefixIcon, size: 20)
+                        ? Icon(
+                            prefixIcon,
+                            size: 20,
+                            color: AppTheme.primaryColor,
+                          )
                         : null,
                     filled: true,
                     fillColor: isEditing
                         ? Colors.white
-                        : AppTheme.backgroundColor,
+                        : const Color(0xFFF5F7FA),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppTheme.radiusMedium,
-                      ),
+                      borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: AppTheme.dividerColor),
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppTheme.radiusMedium,
-                      ),
+                      borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: AppTheme.dividerColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: AppTheme.primaryColor,
+                        width: 1.5,
+                      ),
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: AppTheme.dividerColor.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    labelStyle: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            Widget buildDropdown({
+              required String label,
+              required String value,
+              required List<String> items,
+              required ValueChanged<String?> onChanged,
+              IconData? prefixIcon,
+            }) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: label,
+                    prefixIcon: prefixIcon != null
+                        ? Icon(
+                            prefixIcon,
+                            size: 20,
+                            color: AppTheme.primaryColor,
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: isEditing
+                        ? Colors.white
+                        : const Color(0xFFF5F7FA),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppTheme.dividerColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppTheme.dividerColor),
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: AppTheme.dividerColor.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    labelStyle: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: value,
+                      isExpanded: true,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.textPrimary,
+                      ),
+                      items: items
+                          .map(
+                            (v) => DropdownMenuItem(value: v, child: Text(v)),
+                          )
+                          .toList(),
+                      onChanged: isEditing ? onChanged : null,
                     ),
                   ),
                 ),
@@ -836,306 +992,326 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               setSheetState(() => isEditing = false);
             }
 
+            final isMale = jenisKelamin == 'Laki-laki';
+            final avatarColor = isMale
+                ? const Color(0xFF3B82F6)
+                : const Color(0xFFEC4899);
+            final avatarBg = avatarColor.withValues(alpha: 0.1);
+
             return SafeArea(
               child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(sheetContext).size.height * 0.88,
+                ),
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(AppTheme.radiusXLarge),
-                    topRight: Radius.circular(AppTheme.radiusXLarge),
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
                   ),
                 ),
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    8,
-                    20,
-                    20 + MediaQuery.of(sheetContext).viewInsets.bottom,
-                  ),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.primaryGradient,
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.person_rounded,
-                                color: Colors.white,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Detail Anggota ${index + 1}',
-                                style: AppTheme.heading3,
-                              ),
-                            ),
-                            if (isEditing)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.accentColor.withValues(
-                                    alpha: 0.15,
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusXLarge,
-                                  ),
-                                ),
-                                child: Text(
-                                  'Editing',
-                                  style: AppTheme.caption.copyWith(
-                                    color: AppTheme.accentColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ─── Header ───
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            avatarColor.withValues(alpha: 0.08),
+                            Colors.white,
                           ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
                         ),
-                        const SizedBox(height: 16),
-                        buildInputField(
-                          label: 'Nama Lengkap',
-                          controller: namaCtrl,
-                          prefixIcon: Icons.badge_rounded,
-                        ),
-                        buildInputField(
-                          label: 'NIK',
-                          controller: nikCtrl,
-                          keyboardType: TextInputType.number,
-                          prefixIcon: Icons.credit_card_rounded,
-                        ),
-                        // Hubungan dropdown (sesuai PB select: Ayah/Ibu/Anak)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Hubungan',
-                              prefixIcon: const Icon(
-                                Icons.family_restroom_rounded,
-                                size: 20,
-                              ),
-                              filled: true,
-                              fillColor: isEditing
-                                  ? Colors.white
-                                  : AppTheme.backgroundColor,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor,
-                                ),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor,
-                                ),
-                              ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: avatarBg,
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: hubungan,
-                                isExpanded: true,
-                                items: AppConstants.hubunganKeluarga
-                                    .map(
-                                      (h) => DropdownMenuItem(
-                                        value: h,
-                                        child: Text(h),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: isEditing
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setSheetState(() => hubungan = value);
-                                      }
-                                    : null,
-                              ),
+                            child: Icon(
+                              isMale ? Icons.man_rounded : Icons.woman_rounded,
+                              color: avatarColor,
+                              size: 28,
                             ),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Jenis Kelamin',
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: jenisKelamin,
-                                isExpanded: true,
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'Laki-laki',
-                                    child: Text('Laki-laki'),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  member.nama.isNotEmpty
+                                      ? member.nama
+                                      : 'Anggota ${index + 1}',
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.textPrimary,
                                   ),
-                                  DropdownMenuItem(
-                                    value: 'Perempuan',
-                                    child: Text('Perempuan'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '$hubungan • $jenisKelamin',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isEditing)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentColor.withValues(
+                                  alpha: 0.15,
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.edit_rounded,
+                                    size: 12,
+                                    color: AppTheme.accentColor,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Edit',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.accentColor,
+                                    ),
                                   ),
                                 ],
-                                onChanged: isEditing
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setSheetState(
-                                          () => jenisKelamin = value,
-                                        );
-                                      }
-                                    : null,
                               ),
                             ),
-                          ),
+                        ],
+                      ),
+                    ),
+                    // ─── Scrollable form ───
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: EdgeInsets.fromLTRB(
+                          20,
+                          0,
+                          20,
+                          20 + MediaQuery.of(sheetContext).viewInsets.bottom,
                         ),
-                        buildInputField(
-                          label: 'Tempat Lahir',
-                          controller: tempatLahirCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Tanggal Lahir',
-                          controller: tanggalLahirCtrl,
-                          hintText: 'DD-MM-YYYY',
-                        ),
-                        // Agama dropdown (sesuai PB select: Islam/Kristen/Budha/Khatolik)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: InputDecorator(
-                            decoration: InputDecoration(
-                              labelText: 'Agama',
-                              filled: true,
-                              fillColor: isEditing
-                                  ? Colors.white
-                                  : AppTheme.backgroundColor,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor,
-                                ),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor,
-                                ),
-                              ),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: agama,
-                                isExpanded: true,
-                                items: AppConstants.daftarAgama
-                                    .map(
-                                      (a) => DropdownMenuItem(
-                                        value: a,
-                                        child: Text(a),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: isEditing
-                                    ? (value) {
-                                        if (value == null) return;
-                                        setSheetState(() => agama = value);
-                                      }
-                                    : null,
-                              ),
-                            ),
-                          ),
-                        ),
-                        buildInputField(
-                          label: 'Pendidikan',
-                          controller: pendidikanCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Jenis Pekerjaan',
-                          controller: pekerjaanCtrl,
-                        ),
-                        buildInputField(
-                          label: 'Golongan Darah',
-                          controller: golonganDarahCtrl,
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: isEditing
-                                    ? null
-                                    : () =>
+                            buildField(
+                              label: 'Nama Lengkap',
+                              controller: namaCtrl,
+                              prefixIcon: Icons.badge_rounded,
+                            ),
+                            buildField(
+                              label: 'NIK (16 digit)',
+                              controller: nikCtrl,
+                              keyboardType: TextInputType.number,
+                              prefixIcon: Icons.credit_card_rounded,
+                              hintText: '3273xxxxxxxxxxxx',
+                            ),
+                            buildDropdown(
+                              label: 'Hubungan',
+                              value: hubungan,
+                              items: AppConstants.hubunganKeluarga,
+                              prefixIcon: Icons.family_restroom_rounded,
+                              onChanged: (v) {
+                                if (v == null) return;
+                                setSheetState(() => hubungan = v);
+                              },
+                            ),
+                            buildDropdown(
+                              label: 'Jenis Kelamin',
+                              value: jenisKelamin,
+                              items: const ['Laki-laki', 'Perempuan'],
+                              prefixIcon: Icons.wc_rounded,
+                              onChanged: (v) {
+                                if (v == null) return;
+                                setSheetState(() => jenisKelamin = v);
+                              },
+                            ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: buildField(
+                                    label: 'Tempat Lahir',
+                                    controller: tempatLahirCtrl,
+                                    prefixIcon: Icons.location_city_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: buildField(
+                                    label: 'Tgl Lahir',
+                                    controller: tanggalLahirCtrl,
+                                    hintText: 'DD-MM-YYYY',
+                                    prefixIcon: Icons.calendar_today_rounded,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            buildDropdown(
+                              label: 'Agama',
+                              value: agama,
+                              items: AppConstants.daftarAgama,
+                              prefixIcon: Icons.auto_awesome_rounded,
+                              onChanged: (v) {
+                                if (v == null) return;
+                                setSheetState(() => agama = v);
+                              },
+                            ),
+                            buildField(
+                              label: 'Pendidikan',
+                              controller: pendidikanCtrl,
+                              prefixIcon: Icons.school_rounded,
+                            ),
+                            buildField(
+                              label: 'Jenis Pekerjaan',
+                              controller: pekerjaanCtrl,
+                              prefixIcon: Icons.work_rounded,
+                            ),
+                            buildField(
+                              label: 'Golongan Darah',
+                              controller: golonganDarahCtrl,
+                              prefixIcon: Icons.bloodtype_rounded,
+                            ),
+                            const SizedBox(height: 8),
+                            // ─── Action buttons ───
+                            Row(
+                              children: [
+                                if (!isEditing)
+                                  Expanded(
+                                    child: _buildSheetButton(
+                                      icon: Icons.edit_rounded,
+                                      label: 'Edit',
+                                      color: AppTheme.primaryColor,
+                                      onPressed: () =>
                                           setSheetState(() => isEditing = true),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      AppTheme.radiusMedium,
                                     ),
                                   ),
-                                ),
-                                icon: const Icon(Icons.edit_rounded, size: 18),
-                                label: const Text('Edit'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: isEditing ? saveMember : null,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppTheme.successColor,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      AppTheme.radiusMedium,
+                                if (isEditing) ...[
+                                  Expanded(
+                                    child: _buildSheetButton(
+                                      icon: Icons.save_rounded,
+                                      label: 'Simpan',
+                                      color: AppTheme.successColor,
+                                      filled: true,
+                                      onPressed: saveMember,
                                     ),
                                   ),
-                                ),
-                                icon: const Icon(Icons.save_rounded, size: 18),
-                                label: const Text('Simpan'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextButton(
-                                onPressed: cancelEdit,
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 12,
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _buildSheetButton(
+                                      icon: Icons.close_rounded,
+                                      label: 'Batal',
+                                      color: AppTheme.textSecondary,
+                                      onPressed: cancelEdit,
+                                    ),
                                   ),
-                                ),
-                                child: const Text('Batal'),
-                              ),
+                                ],
+                                if (!isEditing) ...[
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _buildSheetButton(
+                                      icon: Icons.close_rounded,
+                                      label: 'Tutup',
+                                      color: AppTheme.textSecondary,
+                                      onPressed: () {
+                                        if (sheetContext.mounted) {
+                                          Navigator.pop(sheetContext);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildSheetButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    bool filled = false,
+    required VoidCallback onPressed,
+  }) {
+    if (filled) {
+      return ElevatedButton.icon(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 0,
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: BorderSide(color: color.withValues(alpha: 0.4)),
+      ),
+      icon: Icon(icon, size: 18),
+      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _memberChip(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F4F8),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: AppTheme.textSecondary),
+          const SizedBox(width: 3),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1658,117 +1834,216 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _parsedMembers.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final member = _parsedMembers[index];
                       final hasName = member.nama.isNotEmpty;
                       final hasNik = member.nik.isNotEmpty;
                       final hasHubungan = member.hubungan.isNotEmpty;
                       final isComplete = hasName && hasNik && hasHubungan;
+                      final isMale = member.jenisKelamin != 'Perempuan';
+                      final genderColor = isMale
+                          ? const Color(0xFF3B82F6)
+                          : const Color(0xFFEC4899);
 
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: isComplete
-                              ? AppTheme.successColor.withValues(alpha: 0.04)
-                              : AppTheme.warningColor.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(
-                            AppTheme.radiusMedium,
-                          ),
-                          border: Border.all(
-                            color: isComplete
-                                ? AppTheme.successColor.withValues(alpha: 0.2)
-                                : AppTheme.warningColor.withValues(alpha: 0.25),
-                            width: 1,
-                          ),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 4,
-                          ),
-                          leading: CircleAvatar(
-                            radius: 20,
-                            backgroundColor: isComplete
-                                ? AppTheme.successColor.withValues(alpha: 0.12)
-                                : AppTheme.primaryColor.withValues(alpha: 0.1),
-                            child: Text(
-                              '${index + 1}',
-                              style: AppTheme.bodyMedium.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: isComplete
-                                    ? AppTheme.successColor
-                                    : AppTheme.primaryColor,
+                      return InkWell(
+                        onTap: () => _showMemberDetail(index),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isComplete
+                                  ? AppTheme.successColor.withValues(
+                                      alpha: 0.25,
+                                    )
+                                  : AppTheme.warningColor.withValues(
+                                      alpha: 0.35,
+                                    ),
+                              width: 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
                               ),
-                            ),
-                          ),
-                          title: Text(
-                            hasName ? member.nama : '(Nama belum diisi)',
-                            style: AppTheme.bodyMedium.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: hasName
-                                  ? AppTheme.textPrimary
-                                  : AppTheme.textSecondary,
-                            ),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (hasNik)
-                                Text(
-                                  'NIK: ${member.nik}',
-                                  style: AppTheme.caption,
-                                ),
-                              if (!hasNik)
-                                Text(
-                                  'NIK belum diisi',
-                                  style: AppTheme.caption.copyWith(
-                                    color: AppTheme.errorColor,
-                                  ),
-                                ),
-                              if (hasHubungan)
-                                Text(
-                                  member.hubungan,
-                                  style: AppTheme.caption.copyWith(
-                                    color: AppTheme.secondaryColor,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              if (!hasHubungan)
-                                Text(
-                                  'Hubungan belum diisi',
-                                  style: AppTheme.caption.copyWith(
-                                    color: AppTheme.errorColor,
-                                  ),
-                                ),
                             ],
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              IconButton(
-                                icon: Icon(
-                                  Icons.edit_rounded,
-                                  color: AppTheme.primaryColor,
-                                  size: 20,
-                                ),
-                                tooltip: 'Edit Anggota',
-                                onPressed: () => _showMemberDetail(index),
-                              ),
-                              IconButton(
-                                icon: Icon(
-                                  Icons.delete_outline_rounded,
-                                  color: AppTheme.errorColor.withValues(
-                                    alpha: 0.7,
+                              // Avatar
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      genderColor.withValues(alpha: 0.15),
+                                      genderColor.withValues(alpha: 0.08),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
                                   ),
-                                  size: 20,
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
-                                tooltip: 'Hapus Anggota',
-                                onPressed: () {
-                                  setState(() {
-                                    _parsedMembers = [..._parsedMembers]
-                                      ..removeAt(index);
-                                  });
-                                },
+                                child: Center(
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: genderColor,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              // Details
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            hasName
+                                                ? member.nama
+                                                : '(Nama belum diisi)',
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              color: hasName
+                                                  ? AppTheme.textPrimary
+                                                  : AppTheme.textSecondary,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (hasHubungan)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.secondaryColor
+                                                  .withValues(alpha: 0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              member.hubungan,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppTheme.secondaryColor,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // NIK row
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.credit_card_rounded,
+                                          size: 13,
+                                          color: hasNik
+                                              ? AppTheme.textSecondary
+                                              : AppTheme.errorColor,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          hasNik
+                                              ? member.nik
+                                              : 'NIK belum diisi',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: hasNik
+                                                ? AppTheme.textSecondary
+                                                : AppTheme.errorColor,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    // Extra detail chips
+                                    if (member.tempatLahir.isNotEmpty ||
+                                        member.tanggalLahir.isNotEmpty ||
+                                        member.agama.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        children: [
+                                          if (member.jenisKelamin.isNotEmpty)
+                                            _memberChip(
+                                              Icons.wc_rounded,
+                                              member.jenisKelamin,
+                                            ),
+                                          if (member.tempatLahir.isNotEmpty)
+                                            _memberChip(
+                                              Icons.location_city_rounded,
+                                              member.tempatLahir,
+                                            ),
+                                          if (member.tanggalLahir.isNotEmpty)
+                                            _memberChip(
+                                              Icons.calendar_today_rounded,
+                                              member.tanggalLahir,
+                                            ),
+                                          if (member.agama.isNotEmpty)
+                                            _memberChip(
+                                              Icons.auto_awesome_rounded,
+                                              member.agama,
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              // Action buttons
+                              Column(
+                                children: [
+                                  InkWell(
+                                    onTap: () => _showMemberDetail(index),
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(6),
+                                      child: Icon(
+                                        Icons.edit_rounded,
+                                        color: AppTheme.primaryColor,
+                                        size: 18,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    onTap: () {
+                                      setState(() {
+                                        _parsedMembers = [..._parsedMembers]
+                                          ..removeAt(index);
+                                      });
+                                    },
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(6),
+                                      child: Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: AppTheme.errorColor.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                        size: 18,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -1902,6 +2177,39 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Image preview
+                        if (_scanBytes != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusMedium,
+                            ),
+                            child: Container(
+                              width: double.infinity,
+                              constraints: const BoxConstraints(maxHeight: 200),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0F4F8),
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                              ),
+                              child: Image.memory(
+                                _scanBytes!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (ctx, err, st) => const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(24),
+                                    child: Icon(
+                                      Icons.broken_image_rounded,
+                                      size: 48,
+                                      color: AppTheme.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         Row(
                           children: [
                             Expanded(

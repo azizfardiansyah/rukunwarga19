@@ -191,50 +191,50 @@ Future<String> _extractStructuredMemberRows({
       );
 
       // Column ratios adjusted to match typical KK layout:
-      // Nama Lengkap: ~0-18% of table width
-      // NIK: ~18-33%
-      // Jenis Kelamin: ~33-42%
-      // Tempat Lahir: ~42-52%
-      // Tanggal Lahir: ~52-60%
-      // Agama: ~60-68%
-      // Pendidikan: ~68-78%
-      // Pekerjaan: ~78-90%
-      // Golongan Darah: ~90-100%
+      // Nama Lengkap: ~0-20% of table width
+      // NIK: ~20-35%
+      // Jenis Kelamin: ~35-43%
+      // Tempat Lahir: ~43-53%
+      // Tanggal Lahir: ~53-61%
+      // Agama: ~61-68%
+      // Pendidikan: ~68-80%
+      // Pekerjaan: ~80-92%
+      // Golongan Darah: ~92-100%
       final nameRaw = await readColumn(
-        startRatio: 0.00,
-        widthRatio: 0.18,
+        startRatio: 0.01,
+        widthRatio: 0.20,
         scale: 4,
         binarize: true,
       );
       final nikRaw = await readColumn(
-        startRatio: 0.17,
+        startRatio: 0.20,
         widthRatio: 0.16,
         scale: 4,
         binarize: true,
         forceLang: 'eng',
       );
       final jkRaw = await readColumn(
-        startRatio: 0.33,
-        widthRatio: 0.09,
+        startRatio: 0.35,
+        widthRatio: 0.08,
         scale: 4,
         binarize: true,
       );
       final tempatRaw = await readColumn(
-        startRatio: 0.42,
+        startRatio: 0.43,
         widthRatio: 0.10,
         scale: 3,
         binarize: true,
       );
       final tglRaw = await readColumn(
-        startRatio: 0.52,
+        startRatio: 0.53,
         widthRatio: 0.08,
         scale: 4,
         binarize: true,
         forceLang: 'eng',
       );
       final agamaRaw = await readColumn(
-        startRatio: 0.60,
-        widthRatio: 0.08,
+        startRatio: 0.61,
+        widthRatio: 0.07,
         scale: 3,
         binarize: true,
       );
@@ -250,24 +250,32 @@ Future<String> _extractStructuredMemberRows({
       }
       final jenisKelamin = _normalizeGenderCandidate('$jkRaw $rowRaw');
       final tempatLahir = _normalizeTempatLahirCandidate(tempatRaw);
-      final tanggalLahir = _normalizeDateCandidate('$tglRaw $rowRaw');
-      final agama = _normalizeAgamaCandidate('$agamaRaw $rowRaw');
+      // Prefer date from dedicated column; fallback to rowRaw only if column fails
+      var tanggalLahir = _normalizeDateCandidate(tglRaw);
+      if (tanggalLahir.isEmpty) {
+        tanggalLahir = _normalizeDateCandidate(rowRaw);
+      }
+      // Prefer agama from dedicated column; fallback to rowRaw
+      var agama = _normalizeAgamaCandidate(agamaRaw);
+      if (agama.isEmpty) {
+        agama = _normalizeAgamaCandidate(rowRaw);
+      }
       // Also try to read pendidikan and pekerjaan columns
       final pendidikanRaw = await readColumn(
         startRatio: 0.68,
-        widthRatio: 0.10,
+        widthRatio: 0.13,
         scale: 3,
         binarize: true,
       );
       final pekerjaanRaw = await readColumn(
-        startRatio: 0.78,
-        widthRatio: 0.12,
+        startRatio: 0.81,
+        widthRatio: 0.11,
         scale: 3,
         binarize: true,
       );
       final goldarRaw = await readColumn(
-        startRatio: 0.90,
-        widthRatio: 0.10,
+        startRatio: 0.92,
+        widthRatio: 0.08,
         scale: 3,
         binarize: true,
       );
@@ -401,12 +409,12 @@ Future<String> _extractMemberRowsText({
   required int imageWidth,
   required int imageHeight,
 }) {
-  // KK member data table typically occupies ~16.5% to ~46% of image height
-  // Widened to capture more of the table
+  // KK member data table typically occupies ~15.5% to ~50% of image height
+  // Widened to capture more of the table and all member rows
   final x = (imageWidth * 0.01).round();
-  final y = (imageHeight * 0.155).round();
+  final y = (imageHeight * 0.150).round();
   final w = (imageWidth * 0.98).round();
-  final h = (imageHeight * 0.32).round();
+  final h = (imageHeight * 0.36).round();
   if (w <= 0 || h <= 0) return null;
   final safeX = x.clamp(0, imageWidth - 1);
   final safeY = y.clamp(0, imageHeight - 1);
@@ -431,11 +439,11 @@ Future<String> _extractMemberRowsText({
   final tableW = table.$3;
   final tableH = table.$4;
 
-  // Skip the header row (Nama Lengkap, NIK, etc) which takes ~18% of table height
+  // Skip the header row (Nama Lengkap, NIK, etc) which takes ~14% of table height
   final dataX = tableX + (tableW * 0.02).round();
   final dataW = (tableW * 0.97).round();
-  final dataStartY = tableY + (tableH * 0.18).round();
-  // Each data row is about 7.5% of table height (slightly smaller to avoid overlap)
+  final dataStartY = tableY + (tableH * 0.14).round();
+  // Each data row is about 7.5% of table height
   final rowHeight = (tableH * 0.075).round();
   final dataY = dataStartY + (rowIndex * rowHeight);
   if (dataW <= 0 || rowHeight <= 0) return null;
@@ -516,12 +524,31 @@ String _normalizeTempatLahirCandidate(String input) {
   final alphaCount = result.replaceAll(RegExp(r'[^A-Z]'), '').length;
   if (alphaCount < 3) return '';
 
-  return result;
+  // Strip leading single-character noise
+  final resultClean = result.replaceFirst(RegExp(r'^[A-Z]\s+'), '').trim();
+  if (resultClean.isEmpty || resultClean.length < 3) return '';
+
+  // Try fuzzy matching against common Indonesian city/regency names
+  final fuzzyResult = _fuzzyMatchTempatLahirWeb(resultClean);
+  if (fuzzyResult != null) return fuzzyResult;
+
+  // If the remaining text is very short (< 5 chars) and didn't fuzzy-match,
+  // it's likely OCR noise like "DARA", "BARAT" fragments, etc.
+  if (resultClean.length <= 4) return '';
+
+  return resultClean;
 }
 
 String _normalizeNameCandidate(String input) {
-  final cleaned = _normalizeTextField(input);
+  var cleaned = _normalizeTextField(input);
   if (cleaned.isEmpty) return '';
+
+  // Strip leading digits and row numbers (OCR may capture "No" column)
+  cleaned = cleaned.replaceFirst(RegExp(r'^\d+\s*'), '').trim();
+  // Strip leading single character noise (e.g., "J ARINI" → "ARINI")
+  // This happens when OCR captures grid borders as a letter
+  cleaned = cleaned.replaceFirst(RegExp(r'^[A-Z]\s+'), '').trim();
+
   const blocked = {
     'WNI',
     'ISLAM',
@@ -807,6 +834,10 @@ String _normalizeGolDarahCandidate(String input) {
 String _normalizePendidikanCandidate(String input) {
   final upper = _normalizeTextField(input);
   if (upper.isEmpty) return '';
+
+  // Compact form: remove spaces/slashes for fuzzy matching
+  final compact = upper.replaceAll(RegExp(r'[\s/]+'), '');
+
   const knownPendidikan = [
     'TIDAK/BELUM SEKOLAH',
     'BELUM TAMAT SD/SEDERAJAT',
@@ -820,29 +851,59 @@ String _normalizePendidikanCandidate(String input) {
     'STRATA III',
   ];
   for (final p in knownPendidikan) {
-    if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
+    if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
     // Fuzzy: check if most words match
     final words = p.split(RegExp(r'[\s/]+'));
     final matchCount = words.where((w) => upper.contains(w)).length;
     if (matchCount >= words.length - 1 && words.length >= 2) return p;
   }
-  // Partial matches
+
+  // Partial keyword matches
   if (upper.contains('AKADEMI') ||
       upper.contains('DIPLOMA III') ||
-      upper.contains('SARJANA MUDA')) {
+      upper.contains('SARJANA MUDA') ||
+      upper.contains('SARJANA') ||
+      compact.contains('DIPLOMAIII') ||
+      compact.contains('SARJANAMUDA')) {
     return 'AKADEMI/DIPLOMA III/SARJANA MUDA';
   }
-  if (upper.contains('SLTA')) return 'SLTA/SEDERAJAT';
-  if (upper.contains('SLTP')) return 'SLTP/SEDERAJAT';
+  if (upper.contains('SLTA') || compact.contains('SLTA')) {
+    return 'SLTA/SEDERAJAT';
+  }
+  if (upper.contains('SLTP') || compact.contains('SLTP')) {
+    return 'SLTP/SEDERAJAT';
+  }
   if (upper.contains('BELUM') && upper.contains('SEKOLAH')) {
     return 'TIDAK/BELUM SEKOLAH';
   }
+  if (upper.contains('STRATA I') || upper.contains('DIPLOMA IV')) {
+    return 'DIPLOMA IV/STRATA I';
+  }
+  if (upper.contains('STRATA II')) return 'STRATA II';
+  if (upper.contains('STRATA III')) return 'STRATA III';
+
+  // ──────────────────────────────────────────────────────────────
+  // Aggressive OCR garble recovery:
+  // Tesseract often misreads KK pendidikan in bizarre ways.
+  // Build a "letter soup" from the OCR output and try to match
+  // against known values using character-level similarity.
+  // ──────────────────────────────────────────────────────────────
+  final bestMatch = _fuzzyMatchPendidikan(compact);
+  if (bestMatch != null) return bestMatch;
+
+  // If it's short garbage, clear it
+  final alphaCount = compact.replaceAll(RegExp(r'[^A-Z]'), '').length;
+  if (alphaCount < 4) return '';
+
   return upper;
 }
 
 String _normalizePekerjaanCandidate(String input) {
   final upper = _normalizeTextField(input);
   if (upper.isEmpty) return '';
+
+  final compact = upper.replaceAll(RegExp(r'[\s/]+'), '');
+
   const knownPekerjaan = [
     'WIRASWASTA',
     'KARYAWAN SWASTA',
@@ -857,7 +918,7 @@ String _normalizePekerjaanCandidate(String input) {
     'MENGURUS RUMAH TANGGA',
   ];
   for (final p in knownPekerjaan) {
-    if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
+    if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) return p;
     final words = p.split(RegExp(r'[\s/]+'));
     final matchCount = words.where((w) => upper.contains(w)).length;
     if (matchCount >= words.length - 1 && words.length >= 2) return p;
@@ -871,7 +932,49 @@ String _normalizePekerjaanCandidate(String input) {
     return 'BELUM/TIDAK BEKERJA';
   }
   if (upper.contains('PELAJAR')) return 'PELAJAR/MAHASISWA';
+
+  // Fuzzy match
+  final bestMatch = _fuzzyMatchPekerjaanWeb(compact);
+  if (bestMatch != null) return bestMatch;
+
   return upper;
+}
+
+/// Fuzzy-match garbled pekerjaan from OCR.
+String? _fuzzyMatchPekerjaanWeb(String compact) {
+  const knownPekerjaan = [
+    'WIRASWASTA',
+    'KARYAWAN SWASTA',
+    'BELUM/TIDAK BEKERJA',
+    'PELAJAR/MAHASISWA',
+    'PNS',
+    'PETANI',
+    'PEDAGANG',
+    'BURUH',
+    'NELAYAN',
+    'PENSIUNAN',
+    'MENGURUS RUMAH TANGGA',
+  ];
+
+  final inputAlpha = compact.replaceAll(RegExp(r'[^A-Z]'), '');
+  if (inputAlpha.length < 3) return null;
+
+  String? bestMatch;
+  var bestScore = 0.0;
+
+  for (final p in knownPekerjaan) {
+    final pAlpha = p.replaceAll(RegExp(r'[^A-Z]'), '');
+    final score = _bigramSimilarity(inputAlpha, pAlpha);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = p;
+    }
+  }
+
+  if (bestScore >= 0.35 && bestMatch != null) {
+    return bestMatch;
+  }
+  return null;
 }
 
 String _cropDataUrlFromImage({
@@ -964,4 +1067,117 @@ bool _hasReasonableVowelRatio(String word) {
   if (ratio < 0.15) return false;
   if (RegExp(r'[^AEIOU]{5,}').hasMatch(upper)) return false;
   return true;
+}
+
+/// Fuzzy-match garbled OCR text against known pendidikan values.
+/// Uses bigram similarity (Dice coefficient) to find the best match.
+String? _fuzzyMatchPendidikan(String compact) {
+  const knownPendidikan = [
+    'TIDAK/BELUM SEKOLAH',
+    'BELUM TAMAT SD/SEDERAJAT',
+    'TAMAT SD/SEDERAJAT',
+    'SLTP/SEDERAJAT',
+    'SLTA/SEDERAJAT',
+    'DIPLOMA I/II',
+    'AKADEMI/DIPLOMA III/SARJANA MUDA',
+    'DIPLOMA IV/STRATA I',
+    'STRATA II',
+    'STRATA III',
+  ];
+
+  final inputAlpha = compact.replaceAll(RegExp(r'[^A-Z]'), '');
+  if (inputAlpha.length < 3) return null;
+
+  String? bestMatch;
+  var bestScore = 0.0;
+
+  for (final p in knownPendidikan) {
+    final pAlpha = p.replaceAll(RegExp(r'[^A-Z]'), '');
+    final score = _bigramSimilarity(inputAlpha, pAlpha);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = p;
+    }
+  }
+
+  // Require a reasonable similarity threshold
+  // Lower threshold for short inputs (they have fewer bigrams to match)
+  final threshold = inputAlpha.length <= 6 ? 0.25 : 0.30;
+  if (bestScore >= threshold && bestMatch != null) {
+    return bestMatch;
+  }
+  return null;
+}
+
+/// Compute Dice coefficient (bigram similarity) between two strings.
+double _bigramSimilarity(String a, String b) {
+  if (a.isEmpty || b.isEmpty) return 0.0;
+  if (a.length < 2 || b.length < 2) {
+    return a == b ? 1.0 : 0.0;
+  }
+  final bigramsA = <String>{};
+  for (var i = 0; i < a.length - 1; i++) {
+    bigramsA.add(a.substring(i, i + 2));
+  }
+  final bigramsB = <String>{};
+  for (var i = 0; i < b.length - 1; i++) {
+    bigramsB.add(b.substring(i, i + 2));
+  }
+  final intersection = bigramsA.intersection(bigramsB).length;
+  return (2.0 * intersection) / (bigramsA.length + bigramsB.length);
+}
+
+/// Fuzzy-match garbled tempat lahir against common Indonesian cities.
+String? _fuzzyMatchTempatLahirWeb(String input) {
+  const commonPlaces = [
+    'BANDUNG',
+    'BANDUNG BARAT',
+    'CIMAHI',
+    'GARUT',
+    'SUMEDANG',
+    'SUBANG',
+    'PURWAKARTA',
+    'KARAWANG',
+    'BEKASI',
+    'BOGOR',
+    'DEPOK',
+    'CIANJUR',
+    'SUKABUMI',
+    'TASIKMALAYA',
+    'CIAMIS',
+    'KUNINGAN',
+    'MAJALENGKA',
+    'INDRAMAYU',
+    'CIREBON',
+    'JAKARTA',
+    'TANGERANG',
+    'SEMARANG',
+    'SURABAYA',
+    'YOGYAKARTA',
+    'MEDAN',
+    'PALEMBANG',
+    'MAKASSAR',
+    'MALANG',
+    'SOLO',
+  ];
+
+  final inputAlpha = input.replaceAll(RegExp(r'[^A-Z]'), '');
+  if (inputAlpha.length < 3) return null;
+
+  String? bestMatch;
+  var bestScore = 0.0;
+
+  for (final place in commonPlaces) {
+    final placeAlpha = place.replaceAll(RegExp(r'[^A-Z]'), '');
+    final score = _bigramSimilarity(inputAlpha, placeAlpha);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = place;
+    }
+  }
+
+  if (bestScore >= 0.45 && bestMatch != null) {
+    return bestMatch;
+  }
+  return null;
 }
