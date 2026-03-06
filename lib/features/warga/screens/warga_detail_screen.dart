@@ -55,13 +55,17 @@ class WargaDetailScreen extends ConsumerWidget {
                           child: Text(
                             Formatters.inisial(warga.namaLengkap),
                             style: const TextStyle(
-                              color: Colors.white, fontSize: 28),
+                              color: Colors.white,
+                              fontSize: 28,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
                         Text(warga.namaLengkap, style: AppTheme.heading2),
-                        Text('NIK: ${Formatters.formatNik(warga.nik)}',
-                            style: AppTheme.bodySmall),
+                        Text(
+                          'NIK: ${Formatters.formatNik(warga.nik)}',
+                          style: AppTheme.bodySmall,
+                        ),
                       ],
                     ),
                   ),
@@ -77,12 +81,24 @@ class WargaDetailScreen extends ConsumerWidget {
                       children: [
                         Text('Data Pribadi', style: AppTheme.heading3),
                         const Divider(),
-                        _InfoRow('Tempat/Tgl Lahir',
-                            '${warga.tempatLahir}, ${warga.tanggalLahir != null ? Formatters.tanggalLengkap(warga.tanggalLahir!) : "-"}'),
+                        _InfoRow(
+                          'Tempat/Tgl Lahir',
+                          '${warga.tempatLahir}, ${warga.tanggalLahir != null ? Formatters.tanggalLengkap(warga.tanggalLahir!) : "-"}',
+                        ),
                         _InfoRow('Jenis Kelamin', warga.jenisKelamin),
                         _InfoRow('Agama', warga.agama),
                         _InfoRow('Status', warga.statusPernikahan),
                         _InfoRow('Pekerjaan', warga.pekerjaan),
+                        _InfoRow(
+                          'Pendidikan',
+                          warga.pendidikan.isEmpty ? '-' : warga.pendidikan,
+                        ),
+                        _InfoRow(
+                          'Golongan Darah',
+                          warga.golonganDarah.isEmpty
+                              ? '-'
+                              : warga.golonganDarah,
+                        ),
                       ],
                     ),
                   ),
@@ -127,10 +143,7 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 130,
-            child: Text(label, style: AppTheme.bodySmall),
-          ),
+          SizedBox(width: 130, child: Text(label, style: AppTheme.bodySmall)),
           Expanded(child: Text(value, style: AppTheme.bodyMedium)),
         ],
       ),

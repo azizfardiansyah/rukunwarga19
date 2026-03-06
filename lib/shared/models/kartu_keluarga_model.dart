@@ -7,9 +7,10 @@ class KartuKeluargaModel {
   final String alamat;
   final String rt;
   final String rw;
-  final String? kelurahan;
+  final String? desaKelurahan;
   final String? kecamatan;
-  final String? kota;
+  final String? kabupatenKota;
+  final String? provinsi;
   final String? scanKk; // file upload
   final DateTime? created;
   final DateTime? updated;
@@ -24,26 +25,39 @@ class KartuKeluargaModel {
     required this.alamat,
     required this.rt,
     required this.rw,
-    this.kelurahan,
+    this.desaKelurahan,
     this.kecamatan,
-    this.kota,
+    this.kabupatenKota,
+    this.provinsi,
     this.scanKk,
     this.created,
     this.updated,
     this.anggota,
   });
 
+  static String _asString(RecordModel record, String field) {
+    final value = record.getStringValue(field);
+    if (value.isNotEmpty) return value;
+    final raw = record.data[field];
+    return raw?.toString() ?? '';
+  }
+
   factory KartuKeluargaModel.fromRecord(RecordModel record) {
     return KartuKeluargaModel(
       id: record.id,
-      noKk: record.getStringValue('no_kk'),
+      noKk: _asString(record, 'no_kk'),
       kepalaKeluarga: record.getStringValue('kepala_keluarga'),
       alamat: record.getStringValue('alamat'),
-      rt: record.getStringValue('rt'),
-      rw: record.getStringValue('rw'),
-      kelurahan: record.getStringValue('kelurahan'),
+      rt: _asString(record, 'rt'),
+      rw: _asString(record, 'rw'),
+      desaKelurahan: record.getStringValue('desa_kelurahan').isNotEmpty
+          ? record.getStringValue('desa_kelurahan')
+          : record.getStringValue('kelurahan'),
       kecamatan: record.getStringValue('kecamatan'),
-      kota: record.getStringValue('kota'),
+      kabupatenKota: record.getStringValue('kabupaten_kota').isNotEmpty
+          ? record.getStringValue('kabupaten_kota')
+          : record.getStringValue('kota'),
+      provinsi: record.getStringValue('provinsi'),
       scanKk: record.getStringValue('scan_kk'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
@@ -57,9 +71,10 @@ class KartuKeluargaModel {
       'alamat': alamat,
       'rt': rt,
       'rw': rw,
-      'kelurahan': kelurahan,
+      'desa_kelurahan': desaKelurahan,
       'kecamatan': kecamatan,
-      'kota': kota,
+      'kabupaten_kota': kabupatenKota,
+      'provinsi': provinsi,
     };
   }
 }
@@ -82,18 +97,16 @@ class AnggotaKkModel {
   factory AnggotaKkModel.fromRecord(RecordModel record) {
     return AnggotaKkModel(
       id: record.id,
-      kartuKeluarga: record.getStringValue('kartu_keluarga'),
+      kartuKeluarga: record.getStringValue('no_kk'),
       warga: record.getStringValue('warga'),
-      hubungan: record.getStringValue('hubungan'),
+      hubungan: record.getStringValue('hubungan').isNotEmpty
+          ? record.getStringValue('hubungan')
+          : record.getStringValue('hubungan_'),
       created: DateTime.tryParse(record.getStringValue('created')),
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'kartu_keluarga': kartuKeluarga,
-      'warga': warga,
-      'hubungan': hubungan,
-    };
+    return {'no_kk': kartuKeluarga, 'warga': warga, 'hubungan': hubungan};
   }
 }

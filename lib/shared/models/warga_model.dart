@@ -2,6 +2,7 @@ import 'package:pocketbase/pocketbase.dart';
 
 class WargaModel {
   final String id;
+  final String noKkId; // relasi ke kartu_keluarga
   final String nik;
   final String namaLengkap;
   final String tempatLahir;
@@ -10,21 +11,22 @@ class WargaModel {
   final String agama;
   final String statusPernikahan;
   final String pekerjaan;
+  final String pendidikan;
+  final String golonganDarah;
   final String alamat;
   final String rt;
   final String rw;
-  final String? kelurahan;
-  final String? kecamatan;
-  final String? kota;
   final String noHp;
   final String? email;
   final String? userId; // relasi ke users collection
-  final String? foto;
+  final String? fotoKtp;
+  final String? fotoWarga;
   final DateTime? created;
   final DateTime? updated;
 
   WargaModel({
     required this.id,
+    required this.noKkId,
     required this.nik,
     required this.namaLengkap,
     required this.tempatLahir,
@@ -33,23 +35,31 @@ class WargaModel {
     required this.agama,
     required this.statusPernikahan,
     required this.pekerjaan,
+    required this.pendidikan,
+    required this.golonganDarah,
     required this.alamat,
     required this.rt,
     required this.rw,
-    this.kelurahan,
-    this.kecamatan,
-    this.kota,
     required this.noHp,
     this.email,
     this.userId,
-    this.foto,
+    this.fotoKtp,
+    this.fotoWarga,
     this.created,
     this.updated,
   });
 
+  static String _asString(RecordModel record, String field) {
+    final fromGetter = record.getStringValue(field);
+    if (fromGetter.isNotEmpty) return fromGetter;
+    final raw = record.data[field];
+    return raw?.toString() ?? '';
+  }
+
   factory WargaModel.fromRecord(RecordModel record) {
     return WargaModel(
       id: record.id,
+      noKkId: record.getStringValue('no_kk'),
       nik: record.getStringValue('nik'),
       namaLengkap: record.getStringValue('nama_lengkap'),
       tempatLahir: record.getStringValue('tempat_lahir'),
@@ -58,16 +68,16 @@ class WargaModel {
       agama: record.getStringValue('agama'),
       statusPernikahan: record.getStringValue('status_pernikahan'),
       pekerjaan: record.getStringValue('pekerjaan'),
+      pendidikan: record.getStringValue('pendidikan'),
+      golonganDarah: record.getStringValue('golongan_darah'),
       alamat: record.getStringValue('alamat'),
-      rt: record.getStringValue('rt'),
-      rw: record.getStringValue('rw'),
-      kelurahan: record.getStringValue('kelurahan'),
-      kecamatan: record.getStringValue('kecamatan'),
-      kota: record.getStringValue('kota'),
-      noHp: record.getStringValue('no_hp'),
+      rt: _asString(record, 'rt'),
+      rw: _asString(record, 'rw'),
+      noHp: _asString(record, 'no_hp'),
       email: record.getStringValue('email'),
       userId: record.getStringValue('user_id'),
-      foto: record.getStringValue('foto'),
+      fotoKtp: record.getStringValue('foto_ktp'),
+      fotoWarga: record.getStringValue('foto_warga'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
     );
@@ -75,6 +85,7 @@ class WargaModel {
 
   Map<String, dynamic> toJson() {
     return {
+      'no_kk': noKkId,
       'nik': nik,
       'nama_lengkap': namaLengkap,
       'tempat_lahir': tempatLahir,
@@ -83,12 +94,11 @@ class WargaModel {
       'agama': agama,
       'status_pernikahan': statusPernikahan,
       'pekerjaan': pekerjaan,
+      'pendidikan': pendidikan,
+      'golongan_darah': golonganDarah,
       'alamat': alamat,
       'rt': rt,
       'rw': rw,
-      'kelurahan': kelurahan,
-      'kecamatan': kecamatan,
-      'kota': kota,
       'no_hp': noHp,
       'email': email,
       'user_id': userId,

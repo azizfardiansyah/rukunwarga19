@@ -56,9 +56,14 @@ class KkOcrService {
         continue;
       }
 
-      final nama = _extractName(line, lines, i);
+      final detail = _extractMemberDetailFromLine(line);
+      final nama = detail.nama.isNotEmpty
+          ? detail.nama
+          : _extractName(line, lines, i);
       final hubungan = _extractHubungan(lines, i);
-      final jenisKelamin = _extractGender(lines, i);
+      final jenisKelamin = detail.jenisKelamin.isNotEmpty
+          ? detail.jenisKelamin
+          : _extractGender(lines, i);
 
       if (nama.isEmpty) {
         continue;
@@ -70,6 +75,12 @@ class KkOcrService {
           nik: nik,
           hubungan: hubungan,
           jenisKelamin: jenisKelamin,
+          tempatLahir: _toTitleCase(detail.tempatLahir),
+          tanggalLahir: detail.tanggalLahir,
+          agama: _toTitleCase(detail.agama),
+          pendidikan: _toTitleCase(detail.pendidikan),
+          jenisPekerjaan: _toTitleCase(detail.jenisPekerjaan),
+          golonganDarah: detail.golonganDarah,
         ),
       );
       seenNik.add(nik);
@@ -621,6 +632,231 @@ class KkOcrService {
     if (upperContext.contains('PR')) return 'Perempuan';
     if (upperContext.contains('LK')) return 'Laki-laki';
     return 'Laki-laki';
+  }
+
+  ({
+    String nama,
+    String jenisKelamin,
+    String tempatLahir,
+    String tanggalLahir,
+    String agama,
+    String pendidikan,
+    String jenisPekerjaan,
+    String golonganDarah,
+  })
+  _extractMemberDetailFromLine(String line) {
+    final nikMatch = RegExp(r'(\d[\d\s]{15,22}\d)').firstMatch(line);
+    if (nikMatch == null) {
+      return (
+        nama: '',
+        jenisKelamin: '',
+        tempatLahir: '',
+        tanggalLahir: '',
+        agama: '',
+        pendidikan: '',
+        jenisPekerjaan: '',
+        golonganDarah: '',
+      );
+    }
+
+    final left = line.substring(0, nikMatch.start).trim();
+    var remaining = line.substring(nikMatch.end).trim();
+
+    final nama = _extractNameBeforeNik(left);
+    var jenisKelamin = '';
+    var tempatLahir = '';
+    var tanggalLahir = '';
+    var agama = '';
+    var pendidikan = '';
+    var jenisPekerjaan = '';
+    var golonganDarah = '';
+
+    final genderMatch = RegExp(
+      r'\b(PEREMPUAN|LAKI[\s\-]*LAKI|LAKI|PR|LK)\b',
+    ).firstMatch(remaining);
+    if (genderMatch != null) {
+      jenisKelamin = _normalizeJenisKelamin(genderMatch.group(1) ?? '');
+      if (genderMatch.start <= 4) {
+        remaining = remaining.substring(genderMatch.end).trim();
+      }
+    }
+
+    final tanggalMatch = RegExp(
+      r'\b([0-3]?\d[-/][0-1]?\d[-/]\d{2,4})\b',
+    ).firstMatch(remaining);
+    if (tanggalMatch != null) {
+      tempatLahir = _cleanMemberDetailValue(
+        remaining.substring(0, tanggalMatch.start),
+      );
+      tanggalLahir = _normalizeTanggalFromToken(tanggalMatch.group(1) ?? '');
+      remaining = remaining.substring(tanggalMatch.end).trim();
+    }
+
+    final agamaMatch = _findAgamaMatch(remaining);
+    if (agamaMatch != null) {
+      if (tanggalMatch == null && tempatLahir.isEmpty && agamaMatch.start > 0) {
+        tempatLahir = _cleanMemberDetailValue(
+          remaining.substring(0, agamaMatch.start),
+        );
+      }
+      agama = _normalizeAgama(agamaMatch.group(0) ?? '');
+      remaining = remaining.substring(agamaMatch.end).trim();
+    }
+
+    final golDarahMatch = RegExp(
+      r'(TIDAK\s+TAHU|AB[+-]?|A[+-]?|B[+-]?|O[+-]?|-)\s*$',
+    ).firstMatch(remaining);
+    if (golDarahMatch != null) {
+      golonganDarah = _normalizeGolonganDarah(golDarahMatch.group(1) ?? '');
+      remaining = remaining.substring(0, golDarahMatch.start).trim();
+    }
+
+    final pendidikanPekerjaan = _splitPendidikanDanPekerjaan(remaining);
+    pendidikan = pendidikanPekerjaan.$1;
+    jenisPekerjaan = pendidikanPekerjaan.$2;
+
+    return (
+      nama: nama,
+      jenisKelamin: jenisKelamin,
+      tempatLahir: tempatLahir,
+      tanggalLahir: tanggalLahir,
+      agama: agama,
+      pendidikan: pendidikan,
+      jenisPekerjaan: jenisPekerjaan,
+      golonganDarah: golonganDarah,
+    );
+  }
+
+  String _extractNameBeforeNik(String input) {
+    var candidate = input.replaceFirst(RegExp(r'^\d+\s*'), '').trim();
+    candidate = candidate
+        .replaceAll(RegExp(r"[^A-Z\s'.-]"), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (!_isLikelyName(candidate)) return '';
+    return _toTitleCase(candidate);
+  }
+
+  String _normalizeJenisKelamin(String input) {
+    final upper = input.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    if (upper == 'PR' || upper.contains('PEREMPUAN')) {
+      return 'Perempuan';
+    }
+    return 'Laki-laki';
+  }
+
+  String _normalizeTanggalFromToken(String input) {
+    final cleaned = input.replaceAll('/', '-').trim();
+    final match = RegExp(
+      r'^(\d{1,2})-(\d{1,2})-(\d{2,4})$',
+    ).firstMatch(cleaned);
+    if (match == null) {
+      return cleaned;
+    }
+
+    final day = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final yearRaw = int.tryParse(match.group(3) ?? '');
+    if (day == null || month == null || yearRaw == null) {
+      return cleaned;
+    }
+
+    final year = yearRaw < 100
+        ? (yearRaw <= 30 ? 2000 + yearRaw : 1900 + yearRaw)
+        : yearRaw;
+    if (day < 1 || day > 31 || month < 1 || month > 12) {
+      return cleaned;
+    }
+
+    final dd = day.toString().padLeft(2, '0');
+    final mm = month.toString().padLeft(2, '0');
+    final yyyy = year.toString().padLeft(4, '0');
+    return '$dd-$mm-$yyyy';
+  }
+
+  RegExpMatch? _findAgamaMatch(String input) {
+    return RegExp(
+      r'\b(ISLAM|KRISTEN|KATOLIK|KATHOLIK|KHATOLIK|HINDU|BUDDHA|BUDHA|KONGHUCU|KONGHUCHU)\b',
+    ).firstMatch(input);
+  }
+
+  String _normalizeAgama(String input) {
+    final upper = input.toUpperCase();
+    if (upper.contains('ISLAM')) return 'Islam';
+    if (upper.contains('KRISTEN')) return 'Kristen';
+    if (upper.contains('KATOLIK') ||
+        upper.contains('KATHOLIK') ||
+        upper.contains('KHATOLIK')) {
+      return 'Katolik';
+    }
+    if (upper.contains('HINDU')) return 'Hindu';
+    if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'Buddha';
+    if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
+      return 'Konghucu';
+    }
+    return _cleanMemberDetailValue(input);
+  }
+
+  String _normalizeGolonganDarah(String input) {
+    final upper = input.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    if (upper.isEmpty || upper == '-') return '';
+    if (upper == 'TIDAKTAHU') return 'Tidak Tahu';
+    if (upper == 'AB' ||
+        upper == 'A' ||
+        upper == 'B' ||
+        upper == 'O' ||
+        upper == 'A+' ||
+        upper == 'A-' ||
+        upper == 'B+' ||
+        upper == 'B-' ||
+        upper == 'AB+' ||
+        upper == 'AB-' ||
+        upper == 'O+' ||
+        upper == 'O-') {
+      return upper;
+    }
+    return _cleanMemberDetailValue(input);
+  }
+
+  (String, String) _splitPendidikanDanPekerjaan(String input) {
+    final cleaned = _cleanMemberDetailValue(input);
+    if (cleaned.isEmpty) return ('', '');
+
+    final compact = cleaned.replaceAll(RegExp(r'\s*/\s*'), '/');
+    final pendidikanPatterns = <RegExp>[
+      RegExp(r'^TIDAK/BELUM SEKOLAH\b'),
+      RegExp(r'^BELUM TAMAT SD/SEDERAJAT\b'),
+      RegExp(r'^TAMAT SD/SEDERAJAT\b'),
+      RegExp(r'^SLTP/SEDERAJAT\b'),
+      RegExp(r'^SLTA/SEDERAJAT\b'),
+      RegExp(r'^DIPLOMA I/II\b'),
+      RegExp(r'^AKADEMI/DIPLOMA III/S\.?MUDA\b'),
+      RegExp(r'^DIPLOMA IV/STRATA I\b'),
+      RegExp(r'^STRATA II\b'),
+      RegExp(r'^STRATA III\b'),
+      RegExp(r'^TIDAK/BELUM SEKOLAH\b'),
+      RegExp(r'^TIDAK BELUM SEKOLAH\b'),
+    ];
+
+    for (final pattern in pendidikanPatterns) {
+      final match = pattern.firstMatch(compact);
+      if (match == null) continue;
+      final pendidikan = compact.substring(0, match.end).trim();
+      final pekerjaan = compact.substring(match.end).trim();
+      return (
+        _cleanMemberDetailValue(pendidikan),
+        _cleanMemberDetailValue(pekerjaan),
+      );
+    }
+
+    return ('', compact);
+  }
+
+  String _cleanMemberDetailValue(String input) {
+    return input
+        .replaceAll(RegExp(r'^[\-\.:]+'), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   bool _isLikelyName(String input) {

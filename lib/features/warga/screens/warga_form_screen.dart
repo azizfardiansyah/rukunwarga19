@@ -62,14 +62,17 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
 
   Future<void> _loadData() async {
     try {
-      final record =
-          await pb.collection(AppConstants.colWarga).getOne(widget.wargaId!);
+      final record = await pb
+          .collection(AppConstants.colWarga)
+          .getOne(widget.wargaId!);
       setState(() {
+        _noKkCtrl.text = record.getStringValue('no_kk');
         _nikCtrl.text = record.getStringValue('nik');
         _namaCtrl.text = record.getStringValue('nama_lengkap');
         _tempatLahirCtrl.text = record.getStringValue('tempat_lahir');
-        _tanggalLahir =
-            DateTime.tryParse(record.getStringValue('tanggal_lahir'));
+        _tanggalLahir = DateTime.tryParse(
+          record.getStringValue('tanggal_lahir'),
+        );
         _jenisKelamin = record.getStringValue('jenis_kelamin');
         _agama = record.getStringValue('agama');
         _statusPernikahan = record.getStringValue('status_pernikahan');
@@ -85,11 +88,61 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     }
   }
 
+  Future<void> _createAnggotaKk({
+    required String kkId,
+    required String wargaId,
+    required String hubungan,
+  }) async {
+    try {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .create(
+            body: {
+              'no_kk': kkId,
+              'warga': wargaId,
+              'hubungan': hubungan,
+              'status': 'Aktif',
+            },
+          );
+    } catch (_) {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .create(
+            body: {
+              'no_kk': kkId,
+              'warga': wargaId,
+              'hubungan_': hubungan,
+              'status': 'Aktif',
+            },
+          );
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_noKkCtrl.text.trim().isEmpty) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Pilih KK dulu sebelum simpan data warga.',
+      );
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       final userId = pb.authStore.record?.id;
+      final rtNumber = int.tryParse(_rtCtrl.text.trim());
+      final rwNumber = int.tryParse(_rwCtrl.text.trim());
+      final noHpRaw = _noHpCtrl.text.trim();
+      final noHpNumber = noHpRaw.isEmpty ? null : int.tryParse(noHpRaw);
+      if (rtNumber == null ||
+          rwNumber == null ||
+          rtNumber == 0 ||
+          rwNumber == 0) {
+        throw Exception('RT/RW harus angka dan tidak boleh 0.');
+      }
+      if (noHpRaw.isNotEmpty && noHpNumber == null) {
+        throw Exception('No. HP harus angka.');
+      }
       // Hapus validasi pengecekan user_id
       final body = {
         'nik': _nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
@@ -102,42 +155,37 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         'status_pernikahan': _statusPernikahan,
         'pekerjaan': _pekerjaanCtrl.text.trim(),
         'alamat': _alamatCtrl.text.trim(),
-        'rt': _rtCtrl.text.trim(),
-        'rw': _rwCtrl.text.trim(),
-        'no_hp': _noHpCtrl.text.trim(),
+        'rt': rtNumber,
+        'rw': rwNumber,
+        'no_hp': noHpNumber,
         'email': _emailCtrl.text.trim(),
         'user_id': userId,
       };
 
       String wargaBaruId;
       if (_isEdit) {
-        await pb.collection(AppConstants.colWarga).update(widget.wargaId!, body: body);
+        await pb
+            .collection(AppConstants.colWarga)
+            .update(widget.wargaId!, body: body);
         wargaBaruId = widget.wargaId!;
       } else {
-        final wargaRecord = await pb.collection(AppConstants.colWarga).create(body: body);
+        final wargaRecord = await pb
+            .collection(AppConstants.colWarga)
+            .create(body: body);
         wargaBaruId = wargaRecord.id;
-        // Insert ke anggota_kk
-        // Cari id KK milik user
-        final kkList = await pb.collection(AppConstants.colKartuKeluarga).getList(
-          page: 1,
-          perPage: 1,
-          filter: 'no_kk = "${_noKkCtrl.text.trim()}"',
+        await _createAnggotaKk(
+          kkId: _noKkCtrl.text.trim(),
+          wargaId: wargaBaruId,
+          hubungan: _hubungan,
         );
-        if (kkList.items.isNotEmpty) {
-          final kkId = kkList.items.first.id;
-          await pb.collection(AppConstants.colAnggotaKk).create(body: {
-            'no_kk': kkId,
-            'warga': wargaBaruId,
-            'hubungan_': _hubungan,
-            'status': 'Aktif',
-          });
-        }
       }
 
       if (mounted) {
         ErrorClassifier.showSuccessSnackBar(
           context,
-          _isEdit ? 'Data warga berhasil diperbarui' : 'Data warga berhasil ditambahkan',
+          _isEdit
+              ? 'Data warga berhasil diperbarui'
+              : 'Data warga berhasil ditambahkan',
         );
         Future.microtask(() => context.go('/'));
       }
@@ -166,9 +214,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga'),
-      ),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppTheme.paddingMedium),
         child: Form(
@@ -240,8 +286,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: _statusPernikahan,
-                decoration:
-                    const InputDecoration(labelText: 'Status Pernikahan'),
+                decoration: const InputDecoration(
+                  labelText: 'Status Pernikahan',
+                ),
                 items: AppConstants.statusPernikahan
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
@@ -266,6 +313,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                       controller: _rtCtrl,
                       decoration: const InputDecoration(labelText: 'RT'),
                       keyboardType: TextInputType.number,
+                      validator: (v) {
+                        final n = int.tryParse((v ?? '').trim());
+                        if (n == null || n == 0) return 'RT tidak valid';
+                        return null;
+                      },
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -274,6 +326,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                       controller: _rwCtrl,
                       decoration: const InputDecoration(labelText: 'RW'),
                       keyboardType: TextInputType.number,
+                      validator: (v) {
+                        final n = int.tryParse((v ?? '').trim());
+                        if (n == null || n == 0) return 'RW tidak valid';
+                        return null;
+                      },
                     ),
                   ),
                 ],
@@ -293,13 +350,17 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _noKkCtrl,
-                decoration: const InputDecoration(labelText: 'No KK'),
+                decoration: const InputDecoration(
+                  labelText: 'ID Kartu Keluarga',
+                ),
                 readOnly: true,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _hubungan,
-                decoration: const InputDecoration(labelText: 'Hubungan dalam KK'),
+                decoration: const InputDecoration(
+                  labelText: 'Hubungan dalam KK',
+                ),
                 items: ['Ayah', 'Ibu', 'Anak', 'Kakak', 'Adik']
                     .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                     .toList(),
@@ -313,7 +374,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : Text(_isEdit ? 'Simpan Perubahan' : 'Tambah Warga'),
               ),
@@ -324,5 +387,3 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     );
   }
 }
-
-

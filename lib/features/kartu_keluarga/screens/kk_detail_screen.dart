@@ -18,12 +18,15 @@ class KkDetailScreen extends ConsumerWidget {
   const KkDetailScreen({super.key, required this.kkId});
 
   Future<void> _deleteKk(BuildContext context) async {
-    final shouldDelete = await showDialog<bool>(
+    final shouldDelete =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
               title: const Text('Hapus Kartu Keluarga'),
-              content: const Text('Data KK dan relasi anggota akan dihapus. Lanjutkan?'),
+              content: const Text(
+                'Data KK dan relasi anggota akan dihapus. Lanjutkan?',
+              ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, false),
@@ -56,7 +59,9 @@ class KkDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
     final userId = authState.user?.id;
-    final isAdmin = authState.role == AppConstants.roleAdmin || authState.role == AppConstants.roleSuperuser;
+    final isAdmin =
+        authState.role == AppConstants.roleAdmin ||
+        authState.role == AppConstants.roleSuperuser;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Detail Kartu Keluarga')),
@@ -87,12 +92,46 @@ class KkDetailScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('No. KK', style: AppTheme.bodySmall),
-                        Text(Formatters.formatNoKk(kk.noKk), style: AppTheme.heading3),
+                        Text(
+                          Formatters.formatNoKk(kk.noKk),
+                          style: AppTheme.heading3,
+                        ),
                         const Divider(),
                         Text('Alamat', style: AppTheme.bodySmall),
                         Text(kk.alamat, style: AppTheme.bodyMedium),
                         const SizedBox(height: 8),
-                        Text('RT ${kk.rt} / RW ${kk.rw}', style: AppTheme.bodyMedium),
+                        Text(
+                          'RT ${kk.rt} / RW ${kk.rw}',
+                          style: AppTheme.bodyMedium,
+                        ),
+                        if ((kk.desaKelurahan ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Desa/Kelurahan: ${kk.desaKelurahan}',
+                            style: AppTheme.bodyMedium,
+                          ),
+                        ],
+                        if ((kk.kecamatan ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Kecamatan: ${kk.kecamatan}',
+                            style: AppTheme.bodyMedium,
+                          ),
+                        ],
+                        if ((kk.kabupatenKota ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Kabupaten/Kota: ${kk.kabupatenKota}',
+                            style: AppTheme.bodyMedium,
+                          ),
+                        ],
+                        if ((kk.provinsi ?? '').isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Provinsi: ${kk.provinsi}',
+                            style: AppTheme.bodyMedium,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -104,12 +143,14 @@ class KkDetailScreen extends ConsumerWidget {
                     runSpacing: 8,
                     children: [
                       ElevatedButton.icon(
-                        onPressed: () => context.push('${Routes.kkForm}?id=${kk.id}'),
+                        onPressed: () =>
+                            context.push('${Routes.kkForm}?id=${kk.id}'),
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Edit KK'),
                       ),
                       ElevatedButton.icon(
-                        onPressed: () => context.push('${Routes.wargaForm}?noKk=${kk.noKk}'),
+                        onPressed: () =>
+                            context.push('${Routes.wargaForm}?noKk=${kk.id}'),
                         icon: const Icon(Icons.person_add_alt_1),
                         label: const Text('Tambah Anggota'),
                       ),
@@ -124,14 +165,17 @@ class KkDetailScreen extends ConsumerWidget {
                 ],
                 Text('Anggota Keluarga', style: AppTheme.heading3),
                 FutureBuilder(
-                  future: pb.collection(AppConstants.colAnggotaKk).getList(
-                    page: 1,
-                    perPage: 100,
-                    filter: 'no_kk = "${kk.id}"',
-                    expand: 'warga',
-                  ),
+                  future: pb
+                      .collection(AppConstants.colAnggotaKk)
+                      .getList(
+                        page: 1,
+                        perPage: 100,
+                        filter: 'no_kk = "${kk.id}"',
+                        expand: 'warga',
+                      ),
                   builder: (context, anggotaSnapshot) {
-                    if (anggotaSnapshot.connectionState == ConnectionState.waiting) {
+                    if (anggotaSnapshot.connectionState ==
+                        ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
                     if (anggotaSnapshot.hasError) {
@@ -139,7 +183,10 @@ class KkDetailScreen extends ConsumerWidget {
                     }
                     final anggotaList = anggotaSnapshot.data?.items ?? [];
                     if (anggotaList.isEmpty) {
-                      return Text('Belum ada anggota keluarga', style: AppTheme.bodySmall);
+                      return Text(
+                        'Belum ada anggota keluarga',
+                        style: AppTheme.bodySmall,
+                      );
                     }
                     return ListView.separated(
                       shrinkWrap: true,
@@ -148,10 +195,14 @@ class KkDetailScreen extends ConsumerWidget {
                       separatorBuilder: (_, _) => const Divider(),
                       itemBuilder: (context, idx) {
                         final anggota = anggotaList[idx];
-                        final hubungan = anggota.getStringValue('hubungan_');
+                        final hubungan =
+                            anggota.getStringValue('hubungan').isNotEmpty
+                            ? anggota.getStringValue('hubungan')
+                            : anggota.getStringValue('hubungan_');
                         final status = anggota.getStringValue('status');
                         final wargaExpand = anggota.expand['warga'];
-                        final namaWarga = (wargaExpand != null && wargaExpand.isNotEmpty)
+                        final namaWarga =
+                            (wargaExpand != null && wargaExpand.isNotEmpty)
                             ? wargaExpand[0].getStringValue('nama_lengkap')
                             : '-';
                         return ListTile(

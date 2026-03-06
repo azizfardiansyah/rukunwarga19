@@ -70,6 +70,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     super.dispose();
   }
 
+  String _recordFieldAsString(RecordModel record, String field) {
+    final fromGetter = record.getStringValue(field).trim();
+    if (fromGetter.isNotEmpty) return fromGetter;
+    final raw = record.data[field];
+    return raw?.toString().trim() ?? '';
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
@@ -78,13 +85,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           .getOne(widget.kkId!);
       if (!mounted) return;
       setState(() {
-        _noKkCtrl.text = record.getStringValue('no_kk');
+        _noKkCtrl.text = _recordFieldAsString(record, 'no_kk');
         _alamatCtrl.text = record.getStringValue('alamat');
-        _rtCtrl.text = record.getStringValue('rt');
-        _rwCtrl.text = record.getStringValue('rw');
-        _kelurahan = record.getStringValue('kelurahan');
+        _rtCtrl.text = _recordFieldAsString(record, 'rt');
+        _rwCtrl.text = _recordFieldAsString(record, 'rw');
+        _kelurahan = record.getStringValue('desa_kelurahan').isNotEmpty
+            ? record.getStringValue('desa_kelurahan')
+            : record.getStringValue('kelurahan');
         _kecamatan = record.getStringValue('kecamatan');
-        _kabupatenKota = record.getStringValue('kota');
+        _kabupatenKota = record.getStringValue('kabupaten_kota').isNotEmpty
+            ? record.getStringValue('kabupaten_kota')
+            : record.getStringValue('kota');
         _provinsi = record.getStringValue('provinsi');
         _existingScanKk = record.getStringValue('scan_kk');
         _headerConfirmed = true;
@@ -284,8 +295,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '').length == 16;
   bool get _isKepalaNamaValid => _kepalaNama.isNotEmpty;
   bool get _isAlamatValid => _alamatCtrl.text.trim().isNotEmpty;
-  bool get _isRtValid => RegExp(r'^[0-9]{1,3}$').hasMatch(_rtCtrl.text.trim());
-  bool get _isRwValid => RegExp(r'^[0-9]{1,3}$').hasMatch(_rwCtrl.text.trim());
+  bool get _isRtValid =>
+      RegExp(r'^(?!0+$)[0-9]{1,3}$').hasMatch(_rtCtrl.text.trim());
+  bool get _isRwValid =>
+      RegExp(r'^(?!0+$)[0-9]{1,3}$').hasMatch(_rwCtrl.text.trim());
   bool get _isKelurahanValid => _kelurahan.trim().isNotEmpty;
   bool get _isKecamatanValid => _kecamatan.trim().isNotEmpty;
   bool get _isKabupatenKotaValid => _kabupatenKota.trim().isNotEmpty;
@@ -452,6 +465,12 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     nik: nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
                     hubungan: hubungan,
                     jenisKelamin: jenisKelamin,
+                    tempatLahir: member.tempatLahir,
+                    tanggalLahir: member.tanggalLahir,
+                    agama: member.agama,
+                    pendidikan: member.pendidikan,
+                    jenisPekerjaan: member.jenisPekerjaan,
+                    golonganDarah: member.golonganDarah,
                   ),
                 );
               },
@@ -518,6 +537,88 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     return true;
   }
 
+  String? _normalizeTanggalLahirToIso(String input) {
+    final raw = input.trim();
+    if (raw.isEmpty) return null;
+
+    final match = RegExp(
+      r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$',
+    ).firstMatch(raw);
+    if (match == null) return null;
+
+    final day = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final yearRaw = int.tryParse(match.group(3) ?? '');
+    if (day == null || month == null || yearRaw == null) return null;
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+    final year = yearRaw < 100
+        ? (yearRaw <= 30 ? 2000 + yearRaw : 1900 + yearRaw)
+        : yearRaw;
+    final date = DateTime(year, month, day);
+    return date.toIso8601String();
+  }
+
+  String _mapAgamaForStorage(String input) {
+    final upper = input.trim().toUpperCase();
+    if (upper.contains('ISLAM')) return 'Islam';
+    if (upper.contains('KRISTEN')) return 'Kristen';
+    if (upper.contains('KATOLIK') || upper.contains('KATHOLIK')) {
+      return 'Katolik';
+    }
+    if (upper.contains('HINDU')) return 'Hindu';
+    if (upper.contains('BUDDHA') || upper.contains('BUDHA')) return 'Buddha';
+    if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
+      return 'Konghucu';
+    }
+    return AppConstants.daftarAgama.first;
+  }
+
+  Future<void> _createAnggotaKk({
+    required String kkId,
+    required String wargaId,
+    required String hubungan,
+  }) async {
+    try {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .create(
+            body: {
+              'no_kk': kkId,
+              'warga': wargaId,
+              'hubungan': hubungan,
+              'status': 'Aktif',
+            },
+          );
+    } catch (_) {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .create(
+            body: {
+              'no_kk': kkId,
+              'warga': wargaId,
+              'hubungan_': hubungan,
+              'status': 'Aktif',
+            },
+          );
+    }
+  }
+
+  Future<void> _updateAnggotaKkHubungan({
+    required String anggotaId,
+    required String hubungan,
+  }) async {
+    try {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .update(anggotaId, body: {'hubungan': hubungan});
+    } catch (_) {
+      await pb
+          .collection(AppConstants.colAnggotaKk)
+          .update(anggotaId, body: {'hubungan_': hubungan});
+    }
+  }
+
   String _slugFirstName(String fullName) {
     final parts = fullName
         .trim()
@@ -578,7 +679,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     throw Exception('Gagal membuat akun user otomatis untuk anggota KK.');
   }
 
-  Future<void> _syncMembersToCollections({
+  Future<String> _syncMembersToCollections({
     required String kkId,
     required String ownerUserId,
     required String ownerEmail,
@@ -589,6 +690,15 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final noHeadDetected = detectedHeadIndex < 0;
     var headIndex = detectedHeadIndex;
     if (headIndex < 0) headIndex = 0;
+    var kepalaKeluargaWargaId = '';
+    final rtNumber = int.tryParse(_rtCtrl.text.trim());
+    final rwNumber = int.tryParse(_rwCtrl.text.trim());
+    if (rtNumber == null ||
+        rwNumber == null ||
+        rtNumber == 0 ||
+        rwNumber == 0) {
+      throw Exception('RT/RW tidak valid.');
+    }
 
     for (var i = 0; i < _parsedMembers.length; i++) {
       final member = _parsedMembers[i];
@@ -614,21 +724,20 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
       final wargaBody = {
         'nik': nik,
-        'no_kk': _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'no_kk': kkId,
         'nama_lengkap': member.nama.trim(),
-        'tempat_lahir': '',
-        'tanggal_lahir': null,
+        'tempat_lahir': member.tempatLahir.trim(),
+        'tanggal_lahir': _normalizeTanggalLahirToIso(member.tanggalLahir),
         'jenis_kelamin': member.jenisKelamin,
-        'agama': AppConstants.daftarAgama.first,
+        'agama': _mapAgamaForStorage(member.agama),
         'status_pernikahan': AppConstants.statusPernikahan.first,
-        'pekerjaan': '',
+        'pekerjaan': member.jenisPekerjaan.trim(),
         'alamat': _alamatCtrl.text.trim(),
-        'rt': _rtCtrl.text.trim(),
-        'rw': _rwCtrl.text.trim(),
-        'kelurahan': _kelurahan.trim(),
-        'kecamatan': _kecamatan.trim(),
-        'kota': _kabupatenKota.trim(),
-        'no_hp': '',
+        'rt': rtNumber,
+        'rw': rwNumber,
+        'pendidikan': member.pendidikan.trim(),
+        'golongan_darah': member.golonganDarah.trim(),
+        'no_hp': null,
         'email': userEmail,
         'user_id': userId,
       };
@@ -640,13 +749,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       } else {
         await pb
             .collection(AppConstants.colWarga)
-            .update(
-              warga.id,
-              body: {
-                'user_id': userId,
-                'no_kk': _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
-              },
-            );
+            .update(warga.id, body: {'user_id': userId, 'no_kk': kkId});
+      }
+      if (i == headIndex) {
+        kepalaKeluargaWargaId = warga.id;
       }
 
       final anggotaExist = await pb
@@ -658,22 +764,77 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           );
 
       if (anggotaExist.items.isEmpty) {
-        await pb
-            .collection(AppConstants.colAnggotaKk)
-            .create(
-              body: {
-                'no_kk': kkId,
-                'warga': warga.id,
-                'hubungan_': hubungan,
-                'status': 'Aktif',
-              },
-            );
+        await _createAnggotaKk(
+          kkId: kkId,
+          wargaId: warga.id,
+          hubungan: hubungan,
+        );
       } else {
-        await pb
-            .collection(AppConstants.colAnggotaKk)
-            .update(anggotaExist.items.first.id, body: {'hubungan_': hubungan});
+        await _updateAnggotaKkHubungan(
+          anggotaId: anggotaExist.items.first.id,
+          hubungan: hubungan,
+        );
       }
     }
+    return kepalaKeluargaWargaId;
+  }
+
+  Widget _buildMemberDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 130, child: Text(label, style: AppTheme.bodySmall)),
+          const Text(': '),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: AppTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showMemberDetail(int index) async {
+    final member = _parsedMembers[index];
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Detail Anggota ${index + 1}', style: AppTheme.heading3),
+                  const SizedBox(height: 12),
+                  _buildMemberDetailRow('Nama Lengkap', member.nama),
+                  _buildMemberDetailRow('NIK', member.nik),
+                  _buildMemberDetailRow('Hubungan', member.hubungan),
+                  _buildMemberDetailRow('Jenis Kelamin', member.jenisKelamin),
+                  _buildMemberDetailRow('Tempat Lahir', member.tempatLahir),
+                  _buildMemberDetailRow('Tanggal Lahir', member.tanggalLahir),
+                  _buildMemberDetailRow('Agama', member.agama),
+                  _buildMemberDetailRow('Pendidikan', member.pendidikan),
+                  _buildMemberDetailRow(
+                    'Jenis Pekerjaan',
+                    member.jenisPekerjaan,
+                  ),
+                  _buildMemberDetailRow('Golongan Darah', member.golonganDarah),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _save() async {
@@ -688,12 +849,24 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       final ownerEmail = auth.user?.getStringValue('email') ?? '';
 
       final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+      final noKkNumber = int.tryParse(noKk);
+      final rtNumber = int.tryParse(_rtCtrl.text.trim());
+      final rwNumber = int.tryParse(_rwCtrl.text.trim());
+      if (noKkNumber == null) {
+        throw Exception('Nomor KK tidak valid.');
+      }
+      if (rtNumber == null ||
+          rwNumber == null ||
+          rtNumber == 0 ||
+          rwNumber == 0) {
+        throw Exception('RT/RW tidak valid.');
+      }
       final existing = await pb
           .collection(AppConstants.colKartuKeluarga)
           .getList(
             page: 1,
             perPage: 1,
-            filter: 'no_kk = "$noKk" && user_id = "$userId"',
+            filter: 'no_kk = $noKkNumber && user_id = "$userId"',
           );
       if (existing.items.isNotEmpty && !_isEdit) {
         if (mounted) {
@@ -704,13 +877,14 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       }
 
       final body = {
-        'no_kk': noKk,
+        'no_kk': noKkNumber,
         'alamat': _alamatCtrl.text.trim(),
-        'rt': _rtCtrl.text.trim(),
-        'rw': _rwCtrl.text.trim(),
-        'kelurahan': _kelurahan.trim(),
+        'rt': rtNumber,
+        'rw': rwNumber,
+        'desa_kelurahan': _kelurahan.trim(),
         'kecamatan': _kecamatan.trim(),
-        'kota': _kabupatenKota.trim(),
+        'kabupaten_kota': _kabupatenKota.trim(),
+        'provinsi': _provinsi.trim(),
         'user_id': userId,
       };
 
@@ -733,11 +907,19 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 .collection(AppConstants.colKartuKeluarga)
                 .create(body: body, files: files);
 
-      await _syncMembersToCollections(
+      final kepalaKeluargaWargaId = await _syncMembersToCollections(
         kkId: kkRecord.id,
         ownerUserId: userId,
         ownerEmail: ownerEmail,
       );
+      if (kepalaKeluargaWargaId.isNotEmpty) {
+        await pb
+            .collection(AppConstants.colKartuKeluarga)
+            .update(
+              kkRecord.id,
+              body: {'kepala_keluarga': kepalaKeluargaWargaId},
+            );
+      }
 
       if (mounted) {
         ErrorClassifier.showSuccessSnackBar(
@@ -930,37 +1112,41 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: _parsedMembers.length,
-                separatorBuilder: (_, _) => const Divider(),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final member = _parsedMembers[index];
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      member.nama.isEmpty ? '(Nama belum diisi)' : member.nama,
-                    ),
-                    subtitle: Text(
-                      'NIK: ${member.nik.isEmpty ? '-' : member.nik}\n'
-                      'Hubungan: ${member.hubungan} | JK: ${member.jenisKelamin}',
-                    ),
-                    isThreeLine: true,
-                    trailing: Wrap(
-                      spacing: 0,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _editMemberDialog(index),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () {
-                            setState(() {
-                              final updated = [..._parsedMembers];
-                              updated.removeAt(index);
-                              _parsedMembers = updated;
-                            });
-                          },
-                        ),
-                      ],
+                  return Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                      ),
+                      title: Text(
+                        member.nama.isEmpty
+                            ? '(Nama belum diisi)'
+                            : member.nama,
+                      ),
+                      onTap: () => _showMemberDetail(index),
+                      trailing: Wrap(
+                        spacing: 0,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _editMemberDialog(index),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () {
+                              setState(() {
+                                final updated = [..._parsedMembers];
+                                updated.removeAt(index);
+                                _parsedMembers = updated;
+                              });
+                            },
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
                     ),
                   );
                 },
