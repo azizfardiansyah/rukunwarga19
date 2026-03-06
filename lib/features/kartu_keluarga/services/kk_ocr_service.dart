@@ -1,35 +1,122 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/parsed_kk_member.dart';
 
 class KkOcrService {
+  static const String _memberTableMarker = '__KK_MEMBER_TABLE__';
+  static const String _memberStructMarker = '__KK_MEMBER_STRUCT__';
+  static const String _memberStructPrefix = 'ROW|';
+
   Future<ParsedKkData> parseKkDataFromImage(String imagePath) async {
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
       final inputImage = InputImage.fromFilePath(imagePath);
       final result = await recognizer.processImage(inputImage);
-      return parseKkDataFromText(result.text);
+      var combinedText = result.text;
+
+      try {
+        final memberTableText = await _extractMemberTableTextFromImage(
+          imagePath,
+          recognizer,
+        );
+        if (memberTableText.trim().isNotEmpty) {
+          combinedText = '$combinedText\n$_memberTableMarker\n$memberTableText';
+        }
+      } catch (_) {
+        // Jangan gagalkan proses utama jika OCR crop tabel gagal.
+      }
+
+      return parseKkDataFromText(combinedText);
     } finally {
       await recognizer.close();
     }
   }
 
   ParsedKkData parseKkDataFromText(String rawText) {
-    if (kDebugMode) {
-      debugPrint('[KK OCR] ===== RAW OCR TEXT START =====');
-      _debugPrintLong(rawText);
-      debugPrint('[KK OCR] ===== RAW OCR TEXT END =====');
+    final structIndex = rawText.indexOf(_memberStructMarker);
+    final tableIndex = rawText.indexOf(_memberTableMarker);
+
+    final markerPositions = [
+      structIndex,
+      tableIndex,
+    ].where((idx) => idx >= 0).toList()..sort();
+    final firstMarkerIndex = markerPositions.isNotEmpty
+        ? markerPositions.first
+        : -1;
+
+    final headerRaw = firstMarkerIndex >= 0
+        ? rawText.substring(0, firstMarkerIndex).trim()
+        : rawText;
+
+    String structuredMemberRaw = '';
+    if (structIndex >= 0) {
+      final start = structIndex + _memberStructMarker.length;
+      var end = rawText.length;
+      if (tableIndex >= 0 && tableIndex > start) {
+        end = tableIndex;
+      }
+      structuredMemberRaw = rawText.substring(start, end).trim();
     }
 
-    final lines = rawText
+    String memberHintRaw = '';
+    if (tableIndex >= 0) {
+      final start = tableIndex + _memberTableMarker.length;
+      var end = rawText.length;
+      if (structIndex >= 0 && structIndex > start) {
+        end = structIndex;
+      }
+      memberHintRaw = rawText.substring(start, end).trim();
+    }
+
+    if (kDebugMode) {
+      debugPrint('[KK OCR] ===== RAW OCR TEXT START =====');
+      _debugPrintLong(headerRaw);
+      debugPrint('[KK OCR] ===== RAW OCR TEXT END =====');
+      if (structuredMemberRaw.isNotEmpty) {
+        debugPrint('[KK OCR] ===== MEMBER STRUCT OCR START =====');
+        _debugPrintLong(structuredMemberRaw);
+        debugPrint('[KK OCR] ===== MEMBER STRUCT OCR END =====');
+      }
+      if (memberHintRaw.isNotEmpty) {
+        debugPrint('[KK OCR] ===== MEMBER TABLE OCR START =====');
+        _debugPrintLong(memberHintRaw);
+        debugPrint('[KK OCR] ===== MEMBER TABLE OCR END =====');
+      }
+    }
+
+    final lines = headerRaw
         .split('\n')
         .map(_normalizeLine)
         .where((line) => line.isNotEmpty)
         .toList();
 
-    final members = _parseMembers(lines);
-    final noKk = _extractNoKk(lines, rawText);
+    final noKk = _extractNoKk(lines, headerRaw);
+    final structuredLines = structuredMemberRaw
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    var members = _parseStructuredMembers(structuredLines, noKkHint: noKk);
+    if (members.isEmpty) {
+      final memberHintLines = memberHintRaw
+          .split('\n')
+          .map(_normalizeLine)
+          .where((line) => line.isNotEmpty)
+          .toList();
+      members = _parseMembers(
+        memberHintLines,
+        noKkHint: noKk,
+        requireTableHeader: false,
+      );
+    }
+    if (members.isEmpty) {
+      members = _parseMembers(lines, noKkHint: noKk);
+    }
     final namaKepalaKeluarga = _extractNamaKepalaKeluarga(lines);
     final alamat = _extractAlamat(lines);
     final rtRw = _extractRtRw(lines);
@@ -74,10 +161,74 @@ class KkOcrService {
     return parsed;
   }
 
-  List<ParsedKkMember> _parseMembers(List<String> lines) {
+  List<ParsedKkMember> _parseStructuredMembers(
+    List<String> lines, {
+    String noKkHint = '',
+  }) {
     final members = <ParsedKkMember>[];
     final seenNik = <String>{};
-    var inMemberTable = false;
+
+    for (final rawLine in lines) {
+      if (!rawLine.startsWith(_memberStructPrefix)) {
+        continue;
+      }
+      final parts = rawLine.split('|');
+      if (parts.length < 10) {
+        continue;
+      }
+
+      final nama = _normalizeStructuredName(parts[1]);
+      final nikCandidate =
+          _extract16DigitsWithOcrCorrection(parts[2]) ??
+          parts[2].replaceAll(RegExp(r'[^0-9]'), '');
+
+      if (nama.isEmpty ||
+          nikCandidate.length != 16 ||
+          seenNik.contains(nikCandidate)) {
+        continue;
+      }
+      if (!_isLikelyMemberNik(nikCandidate, noKkHint: noKkHint)) {
+        continue;
+      }
+
+      final jenisKelamin = _normalizeStructuredJenisKelamin(parts[3]);
+      final tempatLahir = _toTitleCase(_cleanStructuredField(parts[4]));
+      final tanggalLahir = _normalizeTanggalFromToken(
+        _cleanStructuredField(parts[5]),
+      );
+      final agama = _toTitleCase(_normalizeAgama(parts[6]));
+      final pendidikan = _toTitleCase(_cleanStructuredField(parts[7]));
+      final pekerjaan = _toTitleCase(_cleanStructuredField(parts[8]));
+      final golonganDarah = _normalizeGolonganDarah(parts[9]);
+
+      members.add(
+        ParsedKkMember(
+          nama: nama,
+          nik: nikCandidate,
+          hubungan: '',
+          jenisKelamin: jenisKelamin,
+          tempatLahir: tempatLahir,
+          tanggalLahir: tanggalLahir,
+          agama: agama,
+          pendidikan: pendidikan,
+          jenisPekerjaan: pekerjaan,
+          golonganDarah: golonganDarah,
+        ),
+      );
+      seenNik.add(nikCandidate);
+    }
+
+    return members;
+  }
+
+  List<ParsedKkMember> _parseMembers(
+    List<String> lines, {
+    String noKkHint = '',
+    bool requireTableHeader = true,
+  }) {
+    final members = <ParsedKkMember>[];
+    final seenNik = <String>{};
+    var inMemberTable = !requireTableHeader;
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
@@ -97,6 +248,9 @@ class KkOcrService {
       if (nik == null || seenNik.contains(nik)) {
         continue;
       }
+      if (!_isLikelyMemberNik(nik, noKkHint: noKkHint)) {
+        continue;
+      }
 
       var detailSource = line;
       if (!_containsDateToken(line) &&
@@ -113,7 +267,6 @@ class KkOcrService {
       final nama = detail.nama.isNotEmpty
           ? detail.nama
           : _extractName(line, lines, i);
-      final hubungan = _extractHubungan(lines, i);
       final jenisKelamin = detail.jenisKelamin.isNotEmpty
           ? detail.jenisKelamin
           : _extractGender(lines, i);
@@ -126,7 +279,7 @@ class KkOcrService {
         ParsedKkMember(
           nama: nama,
           nik: nik,
-          hubungan: hubungan,
+          hubungan: '',
           jenisKelamin: jenisKelamin,
           tempatLahir: _toTitleCase(detail.tempatLahir),
           tanggalLahir: detail.tanggalLahir,
@@ -153,6 +306,9 @@ class KkOcrService {
       if (nik == null || nik.length != 16 || seenNik.contains(nik)) {
         continue;
       }
+      if (!_isLikelyMemberNik(nik, noKkHint: noKkHint)) {
+        continue;
+      }
 
       final start = match.start - 80;
       final safeStart = start < 0 ? 0 : start;
@@ -171,7 +327,7 @@ class KkOcrService {
         ParsedKkMember(
           nama: _toTitleCase(nama),
           nik: nik,
-          hubungan: 'Anak',
+          hubungan: '',
           jenisKelamin: 'Laki-laki',
         ),
       );
@@ -664,27 +820,6 @@ class KkOcrService {
     return '';
   }
 
-  String _extractHubungan(List<String> lines, int index) {
-    final upperContext = [
-      lines[index],
-      if (index + 1 < lines.length) lines[index + 1],
-      if (index + 2 < lines.length) lines[index + 2],
-    ].join(' ');
-
-    if (upperContext.contains('KEPALA')) return 'Kepala Keluarga';
-    if (upperContext.contains('ISTRI')) return 'Istri';
-    if (upperContext.contains('SUAMI')) return 'Kepala Keluarga';
-    if (upperContext.contains('ANAK')) return 'Anak';
-    if (upperContext.contains('MENANTU')) return 'Menantu';
-    if (upperContext.contains('CUCU')) return 'Cucu';
-    if (upperContext.contains('ORANG TUA')) return 'Orang Tua';
-    if (upperContext.contains('MERTUA')) return 'Mertua';
-    if (upperContext.contains('PEMBANTU')) return 'Pembantu';
-    if (upperContext.contains('FAMILI')) return 'Famili Lain';
-
-    return 'Anak';
-  }
-
   String _extractGender(List<String> lines, int index) {
     final upperContext = [
       lines[index],
@@ -998,11 +1133,229 @@ class KkOcrService {
     return null;
   }
 
+  bool _isLikelyMemberNik(String nik, {String noKkHint = ''}) {
+    if (nik.length != 16) return false;
+    if (RegExp(r'^0+$').hasMatch(nik)) return false;
+    if (RegExp(r'^(\d)\1{15}$').hasMatch(nik)) return false;
+
+    if (noKkHint.length >= 6) {
+      final prefix = noKkHint.substring(0, 6);
+      if (!nik.startsWith(prefix)) {
+        return false;
+      }
+    }
+
+    var day = int.tryParse(nik.substring(6, 8)) ?? 0;
+    final month = int.tryParse(nik.substring(8, 10)) ?? 0;
+    if (day > 40) day -= 40;
+    if (day < 1 || day > 31) return false;
+    if (month < 1 || month > 12) return false;
+
+    return true;
+  }
+
+  Future<String> _extractMemberTableTextFromImage(
+    String imagePath,
+    TextRecognizer recognizer,
+  ) async {
+    final file = File(imagePath);
+    if (!await file.exists()) return '';
+
+    final bytes = await file.readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return '';
+
+    final width = decoded.width;
+    final height = decoded.height;
+    if (width <= 0 || height <= 0) return '';
+
+    final rowTexts = <String>[];
+    var emptyStreak = 0;
+    for (var rowIndex = 0; rowIndex < 10; rowIndex++) {
+      final rowRect = _memberRowRect(
+        width: width,
+        height: height,
+        rowIndex: rowIndex,
+      );
+      if (rowRect == null) {
+        continue;
+      }
+
+      final cropped = img.copyCrop(
+        decoded,
+        x: rowRect.$1,
+        y: rowRect.$2,
+        width: rowRect.$3,
+        height: rowRect.$4,
+      );
+      final upscaled = img.copyResize(
+        cropped,
+        width: rowRect.$3 * 3,
+        height: rowRect.$4 * 3,
+        interpolation: img.Interpolation.cubic,
+      );
+      final gray = img.grayscale(upscaled);
+      final enhanced = img.adjustColor(
+        gray,
+        contrast: 1.45,
+        brightness: 1.08,
+        saturation: 0.0,
+      );
+      final encoded = img.encodeJpg(enhanced, quality: 98);
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath =
+          '${tempDir.path}${Platform.pathSeparator}kk_member_row_$rowIndex.jpg';
+      final tempFile = File(tempPath);
+      await tempFile.writeAsBytes(encoded, flush: true);
+
+      try {
+        final inputImage = InputImage.fromFilePath(tempPath);
+        final result = await recognizer.processImage(inputImage);
+        final text = result.text
+            .replaceAll('\n', ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (kDebugMode) {
+          debugPrint('[KK OCR] MEMBER ROW[$rowIndex] => $text');
+        }
+
+        final digitsCount = RegExp(r'\d').allMatches(text).length;
+        final hasLikelyName = RegExp(r'[A-Z]{3,}').hasMatch(text);
+        final hasData = digitsCount >= 8 || (hasLikelyName && text.length > 12);
+        if (hasData) {
+          rowTexts.add(text);
+          emptyStreak = 0;
+        } else {
+          emptyStreak += 1;
+        }
+      } finally {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      }
+
+      if (rowIndex >= 3 && emptyStreak >= 3) {
+        break;
+      }
+    }
+
+    if (rowTexts.isNotEmpty) {
+      return rowTexts.join('\n');
+    }
+
+    final tableRect = _memberTableRect(width: width, height: height);
+    if (tableRect == null) return '';
+    final tableCrop = img.copyCrop(
+      decoded,
+      x: tableRect.$1,
+      y: tableRect.$2,
+      width: tableRect.$3,
+      height: tableRect.$4,
+    );
+    final tableUpscaled = img.copyResize(
+      tableCrop,
+      width: tableRect.$3 * 2,
+      height: tableRect.$4 * 2,
+      interpolation: img.Interpolation.cubic,
+    );
+    final tableEnhanced = img.adjustColor(
+      img.grayscale(tableUpscaled),
+      contrast: 1.35,
+      brightness: 1.06,
+      saturation: 0.0,
+    );
+    final fallbackBytes = img.encodeJpg(tableEnhanced, quality: 98);
+    final tempDir = await getTemporaryDirectory();
+    final fallbackPath =
+        '${tempDir.path}${Platform.pathSeparator}kk_member_table_crop.jpg';
+    final fallbackFile = File(fallbackPath);
+    await fallbackFile.writeAsBytes(fallbackBytes, flush: true);
+    try {
+      final inputImage = InputImage.fromFilePath(fallbackPath);
+      final result = await recognizer.processImage(inputImage);
+      return result.text;
+    } finally {
+      if (await fallbackFile.exists()) {
+        await fallbackFile.delete();
+      }
+    }
+  }
+
+  (int, int, int, int)? _memberTableRect({
+    required int width,
+    required int height,
+  }) {
+    final x = (width * 0.015).round();
+    final y = (height * 0.165).round();
+    final w = (width * 0.97).round();
+    final h = (height * 0.275).round();
+    if (w <= 0 || h <= 0) return null;
+    final safeX = x.clamp(0, width - 1);
+    final safeY = y.clamp(0, height - 1);
+    final safeW = w.clamp(1, width - safeX);
+    final safeH = h.clamp(1, height - safeY);
+    return (safeX, safeY, safeW, safeH);
+  }
+
+  (int, int, int, int)? _memberRowRect({
+    required int width,
+    required int height,
+    required int rowIndex,
+  }) {
+    final table = _memberTableRect(width: width, height: height);
+    if (table == null) return null;
+
+    final tableX = table.$1;
+    final tableY = table.$2;
+    final tableW = table.$3;
+    final tableH = table.$4;
+
+    final dataX = tableX + (tableW * 0.03).round();
+    final dataW = (tableW * 0.96).round();
+    final dataStartY = tableY + (tableH * 0.22).round();
+    final rowHeight = (tableH * 0.073).round();
+    final dataY = dataStartY + (rowIndex * rowHeight);
+
+    if (dataW <= 0 || rowHeight <= 0) return null;
+    final safeX = dataX.clamp(0, width - 1);
+    final safeY = dataY.clamp(0, height - 1);
+    final safeW = dataW.clamp(1, width - safeX);
+    final safeH = rowHeight.clamp(1, height - safeY);
+    return (safeX, safeY, safeW, safeH);
+  }
+
   String _cleanMemberDetailValue(String input) {
     return input
         .replaceAll(RegExp(r'^[\-\.:]+'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  String _cleanStructuredField(String input) {
+    return input
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9/\-\+\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  String _normalizeStructuredName(String input) {
+    final upper = input
+        .toUpperCase()
+        .replaceAll(RegExp(r"[^A-Z\s'.-]"), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (upper.isEmpty || !_isLikelyName(upper)) return '';
+    return _toTitleCase(upper);
+  }
+
+  String _normalizeStructuredJenisKelamin(String input) {
+    final upper = input.toUpperCase();
+    if (upper.contains('PEREMPUAN') || upper.contains('PR')) {
+      return 'Perempuan';
+    }
+    return 'Laki-laki';
   }
 
   bool _isLikelyName(String input) {

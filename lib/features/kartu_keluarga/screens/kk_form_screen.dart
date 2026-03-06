@@ -366,127 +366,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         ParsedKkMember(
           nama: '',
           nik: '',
-          hubungan: _parsedMembers.isEmpty ? 'Kepala Keluarga' : 'Anak',
+          hubungan: '',
           jenisKelamin: 'Laki-laki',
         ),
       ];
-    });
-  }
-
-  Future<void> _editMemberDialog(int index) async {
-    final member = _parsedMembers[index];
-    final namaCtrl = TextEditingController(text: member.nama);
-    final nikCtrl = TextEditingController(text: member.nik);
-    var hubungan = member.hubungan;
-    var jenisKelamin = member.jenisKelamin;
-
-    final updated = await showDialog<ParsedKkMember>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text('Edit Anggota ${index + 1}'),
-          content: StatefulBuilder(
-            builder: (context, setLocalState) {
-              return SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: namaCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nama Lengkap',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: nikCtrl,
-                      keyboardType: TextInputType.number,
-                      maxLength: 16,
-                      decoration: const InputDecoration(labelText: 'NIK'),
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue:
-                          AppConstants.hubunganKeluarga.contains(hubungan)
-                          ? hubungan
-                          : 'Anak',
-                      decoration: const InputDecoration(labelText: 'Hubungan'),
-                      items: AppConstants.hubunganKeluarga
-                          .map(
-                            (item) => DropdownMenuItem(
-                              value: item,
-                              child: Text(item),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setLocalState(() => hubungan = value);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue:
-                          AppConstants.jenisKelamin.contains(jenisKelamin)
-                          ? jenisKelamin
-                          : 'Laki-laki',
-                      decoration: const InputDecoration(
-                        labelText: 'Jenis Kelamin',
-                      ),
-                      items: AppConstants.jenisKelamin
-                          .map(
-                            (item) => DropdownMenuItem(
-                              value: item,
-                              child: Text(item),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setLocalState(() => jenisKelamin = value);
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  ParsedKkMember(
-                    nama: namaCtrl.text.trim(),
-                    nik: nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
-                    hubungan: hubungan,
-                    jenisKelamin: jenisKelamin,
-                    tempatLahir: member.tempatLahir,
-                    tanggalLahir: member.tanggalLahir,
-                    agama: member.agama,
-                    pendidikan: member.pendidikan,
-                    jenisPekerjaan: member.jenisPekerjaan,
-                    golonganDarah: member.golonganDarah,
-                  ),
-                );
-              },
-              child: const Text('Simpan'),
-            ),
-          ],
-        );
-      },
-    );
-
-    namaCtrl.dispose();
-    nikCtrl.dispose();
-
-    if (updated == null || !mounted) return;
-    setState(() {
-      _parsedMembers[index] = updated;
     });
   }
 
@@ -529,6 +412,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         ErrorClassifier.showErrorSnackBar(
           context,
           'NIK anggota ke-${i + 1} harus 16 digit.',
+        );
+        return false;
+      }
+      if (member.hubungan.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Hubungan anggota ke-${i + 1} wajib diisi manual.',
         );
         return false;
       }
@@ -687,7 +577,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final detectedHeadIndex = _parsedMembers.indexWhere(
       (member) => member.hubungan.toLowerCase().contains('kepala'),
     );
-    final noHeadDetected = detectedHeadIndex < 0;
     var headIndex = detectedHeadIndex;
     if (headIndex < 0) headIndex = 0;
     var kepalaKeluargaWargaId = '';
@@ -703,9 +592,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     for (var i = 0; i < _parsedMembers.length; i++) {
       final member = _parsedMembers[i];
       final nik = member.nik.replaceAll(RegExp(r'[^0-9]'), '');
-      final hubungan = (i == headIndex && noHeadDetected)
-          ? 'Kepala Keluarga'
-          : (member.hubungan.trim().isEmpty ? 'Anak' : member.hubungan);
+      final hubungan = member.hubungan.trim();
 
       RecordModel? warga = await _findWargaByNik(nik);
 
@@ -779,62 +666,258 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     return kepalaKeluargaWargaId;
   }
 
-  Widget _buildMemberDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 130, child: Text(label, style: AppTheme.bodySmall)),
-          const Text(': '),
-          Expanded(
-            child: Text(
-              value.isEmpty ? '-' : value,
-              style: AppTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _showMemberDetail(int index) async {
     final member = _parsedMembers[index];
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Detail Anggota ${index + 1}', style: AppTheme.heading3),
-                  const SizedBox(height: 12),
-                  _buildMemberDetailRow('Nama Lengkap', member.nama),
-                  _buildMemberDetailRow('NIK', member.nik),
-                  _buildMemberDetailRow('Hubungan', member.hubungan),
-                  _buildMemberDetailRow('Jenis Kelamin', member.jenisKelamin),
-                  _buildMemberDetailRow('Tempat Lahir', member.tempatLahir),
-                  _buildMemberDetailRow('Tanggal Lahir', member.tanggalLahir),
-                  _buildMemberDetailRow('Agama', member.agama),
-                  _buildMemberDetailRow('Pendidikan', member.pendidikan),
-                  _buildMemberDetailRow(
-                    'Jenis Pekerjaan',
-                    member.jenisPekerjaan,
+    final namaCtrl = TextEditingController(text: member.nama);
+    final nikCtrl = TextEditingController(text: member.nik);
+    final hubunganCtrl = TextEditingController(text: member.hubungan);
+    final tempatLahirCtrl = TextEditingController(text: member.tempatLahir);
+    final tanggalLahirCtrl = TextEditingController(text: member.tanggalLahir);
+    final agamaCtrl = TextEditingController(text: member.agama);
+    final pendidikanCtrl = TextEditingController(text: member.pendidikan);
+    final pekerjaanCtrl = TextEditingController(text: member.jenisPekerjaan);
+    final golonganDarahCtrl = TextEditingController(text: member.golonganDarah);
+
+    var jenisKelamin = member.jenisKelamin.trim().toLowerCase() == 'perempuan'
+        ? 'Perempuan'
+        : 'Laki-laki';
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          var isEditing = false;
+          return StatefulBuilder(
+            builder: (context, setSheetState) {
+              Widget buildInputField({
+                required String label,
+                required TextEditingController controller,
+                TextInputType keyboardType = TextInputType.text,
+                String? hintText,
+              }) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: TextField(
+                    controller: controller,
+                    enabled: isEditing,
+                    keyboardType: keyboardType,
+                    decoration: InputDecoration(
+                      labelText: label,
+                      hintText: hintText,
+                    ),
                   ),
-                  _buildMemberDetailRow('Golongan Darah', member.golonganDarah),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
+                );
+              }
+
+              Future<void> saveMember() async {
+                final nama = namaCtrl.text.trim();
+                final nik = nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                final hubungan = hubunganCtrl.text.trim();
+                if (nama.isEmpty) {
+                  ErrorClassifier.showErrorSnackBar(
+                    context,
+                    'Nama anggota wajib diisi.',
+                  );
+                  return;
+                }
+                if (nik.length != 16) {
+                  ErrorClassifier.showErrorSnackBar(
+                    context,
+                    'NIK anggota harus 16 digit.',
+                  );
+                  return;
+                }
+                if (hubungan.isEmpty) {
+                  ErrorClassifier.showErrorSnackBar(
+                    context,
+                    'Hubungan wajib diisi manual.',
+                  );
+                  return;
+                }
+
+                final updatedMember = member.copyWith(
+                  nama: nama,
+                  nik: nik,
+                  hubungan: hubungan,
+                  jenisKelamin: jenisKelamin,
+                  tempatLahir: tempatLahirCtrl.text.trim(),
+                  tanggalLahir: tanggalLahirCtrl.text.trim(),
+                  agama: agamaCtrl.text.trim(),
+                  pendidikan: pendidikanCtrl.text.trim(),
+                  jenisPekerjaan: pekerjaanCtrl.text.trim(),
+                  golonganDarah: golonganDarahCtrl.text.trim(),
+                );
+                setState(() {
+                  final updated = [..._parsedMembers];
+                  updated[index] = updatedMember;
+                  _parsedMembers = updated;
+                });
+                if (mounted) {
+                  ErrorClassifier.showSuccessSnackBar(
+                    this.context,
+                    'Detail anggota diperbarui.',
+                  );
+                }
+                if (sheetContext.mounted) Navigator.pop(sheetContext);
+              }
+
+              void cancelEdit() {
+                if (!isEditing) {
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  return;
+                }
+                namaCtrl.text = member.nama;
+                nikCtrl.text = member.nik;
+                hubunganCtrl.text = member.hubungan;
+                tempatLahirCtrl.text = member.tempatLahir;
+                tanggalLahirCtrl.text = member.tanggalLahir;
+                agamaCtrl.text = member.agama;
+                pendidikanCtrl.text = member.pendidikan;
+                pekerjaanCtrl.text = member.jenisPekerjaan;
+                golonganDarahCtrl.text = member.golonganDarah;
+                jenisKelamin =
+                    member.jenisKelamin.trim().toLowerCase() == 'perempuan'
+                    ? 'Perempuan'
+                    : 'Laki-laki';
+                setSheetState(() => isEditing = false);
+              }
+
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Detail Anggota ${index + 1}',
+                          style: AppTheme.heading3,
+                        ),
+                        const SizedBox(height: 12),
+                        buildInputField(
+                          label: 'Nama Lengkap',
+                          controller: namaCtrl,
+                        ),
+                        buildInputField(
+                          label: 'NIK',
+                          controller: nikCtrl,
+                          keyboardType: TextInputType.number,
+                        ),
+                        buildInputField(
+                          label: 'Hubungan',
+                          controller: hubunganCtrl,
+                          hintText: 'Wajib isi manual',
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Jenis Kelamin',
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: jenisKelamin,
+                                isExpanded: true,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'Laki-laki',
+                                    child: Text('Laki-laki'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'Perempuan',
+                                    child: Text('Perempuan'),
+                                  ),
+                                ],
+                                onChanged: isEditing
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setSheetState(
+                                          () => jenisKelamin = value,
+                                        );
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        buildInputField(
+                          label: 'Tempat Lahir',
+                          controller: tempatLahirCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Tanggal Lahir',
+                          controller: tanggalLahirCtrl,
+                          hintText: 'DD-MM-YYYY',
+                        ),
+                        buildInputField(label: 'Agama', controller: agamaCtrl),
+                        buildInputField(
+                          label: 'Pendidikan',
+                          controller: pendidikanCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Jenis Pekerjaan',
+                          controller: pekerjaanCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Golongan Darah',
+                          controller: golonganDarahCtrl,
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: isEditing
+                                    ? null
+                                    : () =>
+                                          setSheetState(() => isEditing = true),
+                                child: const Text('Edit'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: isEditing ? saveMember : null,
+                                child: const Text('Save'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextButton(
+                                onPressed: cancelEdit,
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      namaCtrl.dispose();
+      nikCtrl.dispose();
+      hubunganCtrl.dispose();
+      tempatLahirCtrl.dispose();
+      tanggalLahirCtrl.dispose();
+      agamaCtrl.dispose();
+      pendidikanCtrl.dispose();
+      pekerjaanCtrl.dispose();
+      golonganDarahCtrl.dispose();
+    }
   }
 
   Future<void> _save() async {
@@ -1144,26 +1227,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                             ? '(Nama belum diisi)'
                             : member.nama,
                       ),
-                      onTap: () => _showMemberDetail(index),
-                      trailing: Wrap(
-                        spacing: 0,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => _editMemberDialog(index),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () {
-                              setState(() {
-                                final updated = [..._parsedMembers];
-                                updated.removeAt(index);
-                                _parsedMembers = updated;
-                              });
-                            },
-                          ),
-                          const Icon(Icons.chevron_right),
-                        ],
+                      trailing: IconButton(
+                        icon: const Icon(Icons.edit_outlined),
+                        tooltip: 'Detail Anggota',
+                        onPressed: () => _showMemberDetail(index),
                       ),
                     ),
                   );
