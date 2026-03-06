@@ -32,17 +32,23 @@ class KkFormScreen extends ConsumerStatefulWidget {
 class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   final _noKkCtrl = TextEditingController();
   final _alamatCtrl = TextEditingController();
-  final _rtCtrl = TextEditingController(text: '19');
-  final _rwCtrl = TextEditingController(text: '19');
+  final _rtCtrl = TextEditingController();
+  final _rwCtrl = TextEditingController();
   final _ocrService = KkOcrService();
   final _picker = ImagePicker();
 
   bool _isLoading = false;
   bool _isScanning = false;
+  bool _headerConfirmed = false;
   String? _existingScanKk;
   Uint8List? _scanBytes;
   String? _scanFilename;
   String? _selectedImagePath;
+  String _namaKepalaKeluarga = '';
+  String _kelurahan = '';
+  String _kecamatan = '';
+  String _kabupatenKota = '';
+  String _provinsi = '';
   List<ParsedKkMember> _parsedMembers = [];
 
   bool get _isEdit => widget.kkId != null;
@@ -67,14 +73,21 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final record = await pb.collection(AppConstants.colKartuKeluarga).getOne(widget.kkId!);
+      final record = await pb
+          .collection(AppConstants.colKartuKeluarga)
+          .getOne(widget.kkId!);
       if (!mounted) return;
       setState(() {
         _noKkCtrl.text = record.getStringValue('no_kk');
         _alamatCtrl.text = record.getStringValue('alamat');
-        _rtCtrl.text = record.getStringValue('rt').isEmpty ? '19' : record.getStringValue('rt');
-        _rwCtrl.text = record.getStringValue('rw').isEmpty ? '19' : record.getStringValue('rw');
+        _rtCtrl.text = record.getStringValue('rt');
+        _rwCtrl.text = record.getStringValue('rw');
+        _kelurahan = record.getStringValue('kelurahan');
+        _kecamatan = record.getStringValue('kecamatan');
+        _kabupatenKota = record.getStringValue('kota');
+        _provinsi = record.getStringValue('provinsi');
         _existingScanKk = record.getStringValue('scan_kk');
+        _headerConfirmed = true;
       });
     } catch (e) {
       if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
@@ -84,28 +97,34 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   }
 
   Future<void> _pickImageFromDevice(ImageSource source) async {
-    final picked = await _picker.pickImage(
-      source: source,
-      imageQuality: 90,
-      maxWidth: 2400,
-    );
-    if (picked == null) return;
+    try {
+      final picked = await _picker.pickImage(
+        source: source,
+        imageQuality: 90,
+        maxWidth: 2400,
+      );
+      if (picked == null) return;
 
-    final bytes = await picked.readAsBytes();
-    if (!mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
 
-    setState(() {
-      _scanBytes = bytes;
-      _scanFilename = picked.path.split(RegExp(r'[\\/]')).last;
-      _selectedImagePath = picked.path;
-    });
+      setState(() {
+        _scanBytes = bytes;
+        _scanFilename = picked.path.split(RegExp(r'[\\/]')).last;
+        _selectedImagePath = picked.path;
+        _headerConfirmed = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final sourceLabel = source == ImageSource.camera ? 'kamera' : 'galeri';
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Gagal mengambil gambar dari $sourceLabel: $e',
+      );
+    }
   }
 
   Future<void> _scanFromCamera() async {
-    if (kIsWeb) {
-      ErrorClassifier.showErrorSnackBar(context, 'Kamera tidak didukung pada mode PWA.');
-      return;
-    }
     await _pickImageFromDevice(ImageSource.camera);
   }
 
@@ -119,7 +138,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       if (result == null || result.files.isEmpty) return;
       final file = result.files.first;
       if (file.bytes == null || file.bytes!.isEmpty) {
-        ErrorClassifier.showErrorSnackBar(context, 'Gagal membaca file galeri.');
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Gagal membaca file galeri.',
+        );
         return;
       }
       if (!mounted) return;
@@ -127,6 +149,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         _scanBytes = file.bytes;
         _scanFilename = file.name;
         _selectedImagePath = null;
+        _headerConfirmed = false;
       });
       return;
     }
@@ -134,9 +157,46 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     await _pickImageFromDevice(ImageSource.gallery);
   }
 
+  Future<void> _pickKkFile() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Galeri'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Foto'),
+                onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null || !mounted) return;
+
+    if (source == ImageSource.gallery) {
+      await _addFromGallery();
+      return;
+    }
+    await _scanFromCamera();
+  }
+
   Future<void> _runParser() async {
     if (_scanBytes == null || (_scanFilename ?? '').isEmpty) {
-      ErrorClassifier.showErrorSnackBar(context, 'Pilih gambar KK dulu dari kamera/galeri.');
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Pilih gambar KK dulu dari kamera/galeri.',
+      );
       return;
     }
 
@@ -147,7 +207,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         final rawText = await runWebOcr(_scanBytes!);
         if (!mounted) return;
         if (rawText.trim().isEmpty) {
-          ErrorClassifier.showErrorSnackBar(context, 'OCR web tidak menemukan teks pada gambar.');
+          ErrorClassifier.showErrorSnackBar(
+            context,
+            'OCR web tidak menemukan teks pada gambar.',
+          );
           return;
         }
 
@@ -163,13 +226,18 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     }
 
     if ((_selectedImagePath ?? '').isEmpty) {
-      ErrorClassifier.showErrorSnackBar(context, 'Path gambar tidak tersedia untuk parser.');
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Path gambar tidak tersedia untuk parser.',
+      );
       setState(() => _isScanning = false);
       return;
     }
 
     try {
-      final parsed = await _ocrService.parseKkDataFromImage(_selectedImagePath!);
+      final parsed = await _ocrService.parseKkDataFromImage(
+        _selectedImagePath!,
+      );
       if (!mounted) return;
       _applyParsedData(parsed);
       _showParserResult();
@@ -183,23 +251,88 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   void _applyParsedData(ParsedKkData parsed) {
     setState(() {
       final noKk = parsed.noKk.replaceAll(RegExp(r'[^0-9]'), '');
-      if (noKk.length == 16) {
-        _noKkCtrl.text = noKk;
-      }
-      if (parsed.alamat.trim().isNotEmpty) {
-        _alamatCtrl.text = parsed.alamat.trim();
-      }
-      if (parsed.rt.trim().isNotEmpty) {
-        _rtCtrl.text = parsed.rt.trim();
-      }
-      if (parsed.rw.trim().isNotEmpty) {
-        _rwCtrl.text = parsed.rw.trim();
-      }
+      _noKkCtrl.text = noKk;
+      _alamatCtrl.text = parsed.alamat.trim();
+      _rtCtrl.text = parsed.rt.trim();
+      _rwCtrl.text = parsed.rw.trim();
+      _namaKepalaKeluarga = parsed.namaKepalaKeluarga.trim().isNotEmpty
+          ? parsed.namaKepalaKeluarga.trim()
+          : _deriveKepalaKeluargaNama(parsed.members);
+      _kelurahan = parsed.kelurahan.trim();
+      _kecamatan = parsed.kecamatan.trim();
+      _kabupatenKota = parsed.kabupatenKota.trim();
+      _provinsi = parsed.provinsi.trim();
       _parsedMembers = parsed.members;
+      _headerConfirmed = false;
     });
   }
 
+  String _deriveKepalaKeluargaNama(List<ParsedKkMember> members) {
+    if (members.isEmpty) return '';
+    final kepala = members.firstWhere(
+      (m) => m.hubungan.toLowerCase().contains('kepala'),
+      orElse: () => members.first,
+    );
+    return kepala.nama.trim();
+  }
+
+  String get _kepalaNama => _namaKepalaKeluarga.trim().isNotEmpty
+      ? _namaKepalaKeluarga.trim()
+      : _deriveKepalaKeluargaNama(_parsedMembers);
+
+  bool get _isNoKkValid =>
+      _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '').length == 16;
+  bool get _isKepalaNamaValid => _kepalaNama.isNotEmpty;
+  bool get _isAlamatValid => _alamatCtrl.text.trim().isNotEmpty;
+  bool get _isRtValid => RegExp(r'^[0-9]{1,3}$').hasMatch(_rtCtrl.text.trim());
+  bool get _isRwValid => RegExp(r'^[0-9]{1,3}$').hasMatch(_rwCtrl.text.trim());
+  bool get _isKelurahanValid => _kelurahan.trim().isNotEmpty;
+  bool get _isKecamatanValid => _kecamatan.trim().isNotEmpty;
+  bool get _isKabupatenKotaValid => _kabupatenKota.trim().isNotEmpty;
+  bool get _isProvinsiValid => _provinsi.trim().isNotEmpty;
+
+  List<String> _getHeaderIssues() {
+    final issues = <String>[];
+    if (!_isNoKkValid) {
+      issues.add('Nomor KK belum valid (harus 16 digit).');
+    }
+    if (!_isKepalaNamaValid) {
+      issues.add('Nama kepala keluarga belum terbaca.');
+    }
+    if (!_isAlamatValid) {
+      issues.add('Alamat belum terbaca dari OCR.');
+    }
+    if (!_isRtValid) {
+      issues.add('RT belum valid.');
+    }
+    if (!_isRwValid) {
+      issues.add('RW belum valid.');
+    }
+    if (!_isKelurahanValid) {
+      issues.add('Desa/Kelurahan belum terbaca.');
+    }
+    if (!_isKecamatanValid) {
+      issues.add('Kecamatan belum terbaca.');
+    }
+    if (!_isKabupatenKotaValid) {
+      issues.add('Kabupaten/Kota belum terbaca.');
+    }
+    if (!_isProvinsiValid) {
+      issues.add('Provinsi belum terbaca.');
+    }
+
+    return issues;
+  }
+
   void _showParserResult() {
+    final headerIssues = _getHeaderIssues();
+    if (headerIssues.isNotEmpty) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Header OCR belum lengkap: ${headerIssues.first}',
+      );
+      return;
+    }
     if (_parsedMembers.isEmpty) {
       ErrorClassifier.showErrorSnackBar(
         context,
@@ -247,7 +380,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   children: [
                     TextField(
                       controller: namaCtrl,
-                      decoration: const InputDecoration(labelText: 'Nama Lengkap'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lengkap',
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
@@ -258,12 +393,18 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      initialValue: AppConstants.hubunganKeluarga.contains(hubungan)
+                      initialValue:
+                          AppConstants.hubunganKeluarga.contains(hubungan)
                           ? hubungan
                           : 'Anak',
                       decoration: const InputDecoration(labelText: 'Hubungan'),
                       items: AppConstants.hubunganKeluarga
-                          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                          .map(
+                            (item) => DropdownMenuItem(
+                              value: item,
+                              child: Text(item),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value == null) return;
@@ -272,12 +413,20 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      initialValue: AppConstants.jenisKelamin.contains(jenisKelamin)
+                      initialValue:
+                          AppConstants.jenisKelamin.contains(jenisKelamin)
                           ? jenisKelamin
                           : 'Laki-laki',
-                      decoration: const InputDecoration(labelText: 'Jenis Kelamin'),
+                      decoration: const InputDecoration(
+                        labelText: 'Jenis Kelamin',
+                      ),
                       items: AppConstants.jenisKelamin
-                          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+                          .map(
+                            (item) => DropdownMenuItem(
+                              value: item,
+                              child: Text(item),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value == null) return;
@@ -323,27 +472,27 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   }
 
   bool _validateHeaderFromParser() {
-    final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (noKk.length != 16) {
-      ErrorClassifier.showErrorSnackBar(context, 'Nomor KK harus hasil OCR 16 digit.');
+    final issues = _getHeaderIssues();
+    if (issues.isNotEmpty) {
+      ErrorClassifier.showErrorSnackBar(context, issues.first);
       return false;
     }
-    if (_alamatCtrl.text.trim().isEmpty) {
-      ErrorClassifier.showErrorSnackBar(context, 'Alamat belum terbaca dari OCR.');
+    if (!_headerConfirmed) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Pastikan area header OCR yang ditandai merah sudah benar, lalu konfirmasi header.',
+      );
       return false;
-    }
-    if (_rtCtrl.text.trim().isEmpty) {
-      _rtCtrl.text = '19';
-    }
-    if (_rwCtrl.text.trim().isEmpty) {
-      _rwCtrl.text = '19';
     }
     return true;
   }
 
   bool _validateParsedMembers() {
     if (_parsedMembers.isEmpty) {
-      ErrorClassifier.showErrorSnackBar(context, 'Anggota keluarga belum ada. Jalankan scan atau tambah manual.');
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Anggota keluarga belum ada. Jalankan scan atau tambah manual.',
+      );
       return false;
     }
 
@@ -351,11 +500,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       final member = _parsedMembers[i];
       final nik = member.nik.replaceAll(RegExp(r'[^0-9]'), '');
       if (member.nama.trim().isEmpty) {
-        ErrorClassifier.showErrorSnackBar(context, 'Nama anggota ke-${i + 1} belum diisi.');
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Nama anggota ke-${i + 1} belum diisi.',
+        );
         return false;
       }
       if (nik.length != 16) {
-        ErrorClassifier.showErrorSnackBar(context, 'NIK anggota ke-${i + 1} harus 16 digit.');
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'NIK anggota ke-${i + 1} harus 16 digit.',
+        );
         return false;
       }
     }
@@ -378,7 +533,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   Future<RecordModel?> _findUserByEmail(String email) async {
     try {
-      return await pb.collection(AppConstants.colUsers).getFirstListItem('email = "$email"');
+      return await pb
+          .collection(AppConstants.colUsers)
+          .getFirstListItem('email = "$email"');
     } catch (_) {
       return null;
     }
@@ -386,7 +543,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   Future<RecordModel?> _findWargaByNik(String nik) async {
     try {
-      return await pb.collection(AppConstants.colWarga).getFirstListItem('nik = "$nik"');
+      return await pb
+          .collection(AppConstants.colWarga)
+          .getFirstListItem('nik = "$nik"');
     } catch (_) {
       return null;
     }
@@ -401,15 +560,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       final existing = await _findUserByEmail(email);
       if (existing != null) continue;
       try {
-        return await pb.collection(AppConstants.colUsers).create(
-          body: {
-            'email': email,
-            'password': defaultPassword,
-            'passwordConfirm': defaultPassword,
-            'name': fullName,
-            'role': AppConstants.roleUser,
-          },
-        );
+        return await pb
+            .collection(AppConstants.colUsers)
+            .create(
+              body: {
+                'email': email,
+                'password': defaultPassword,
+                'passwordConfirm': defaultPassword,
+                'name': fullName,
+                'role': AppConstants.roleUser,
+              },
+            );
       } catch (_) {
         continue;
       }
@@ -464,42 +625,53 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'alamat': _alamatCtrl.text.trim(),
         'rt': _rtCtrl.text.trim(),
         'rw': _rwCtrl.text.trim(),
+        'kelurahan': _kelurahan.trim(),
+        'kecamatan': _kecamatan.trim(),
+        'kota': _kabupatenKota.trim(),
         'no_hp': '',
         'email': userEmail,
         'user_id': userId,
       };
 
       if (warga == null) {
-        warga = await pb.collection(AppConstants.colWarga).create(body: wargaBody);
+        warga = await pb
+            .collection(AppConstants.colWarga)
+            .create(body: wargaBody);
       } else {
-        await pb.collection(AppConstants.colWarga).update(warga.id, body: {
-          'user_id': userId,
-          'no_kk': _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
-        });
+        await pb
+            .collection(AppConstants.colWarga)
+            .update(
+              warga.id,
+              body: {
+                'user_id': userId,
+                'no_kk': _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+              },
+            );
       }
 
-      final anggotaExist = await pb.collection(AppConstants.colAnggotaKk).getList(
-        page: 1,
-        perPage: 1,
-        filter: 'no_kk = "$kkId" && warga = "${warga.id}"',
-      );
+      final anggotaExist = await pb
+          .collection(AppConstants.colAnggotaKk)
+          .getList(
+            page: 1,
+            perPage: 1,
+            filter: 'no_kk = "$kkId" && warga = "${warga.id}"',
+          );
 
       if (anggotaExist.items.isEmpty) {
-        await pb.collection(AppConstants.colAnggotaKk).create(
-          body: {
-            'no_kk': kkId,
-            'warga': warga.id,
-            'hubungan_': hubungan,
-            'status': 'Aktif',
-          },
-        );
+        await pb
+            .collection(AppConstants.colAnggotaKk)
+            .create(
+              body: {
+                'no_kk': kkId,
+                'warga': warga.id,
+                'hubungan_': hubungan,
+                'status': 'Aktif',
+              },
+            );
       } else {
-        await pb.collection(AppConstants.colAnggotaKk).update(
-          anggotaExist.items.first.id,
-          body: {
-            'hubungan_': hubungan,
-          },
-        );
+        await pb
+            .collection(AppConstants.colAnggotaKk)
+            .update(anggotaExist.items.first.id, body: {'hubungan_': hubungan});
       }
     }
   }
@@ -516,13 +688,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       final ownerEmail = auth.user?.getStringValue('email') ?? '';
 
       final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-      final existing = await pb.collection(AppConstants.colKartuKeluarga).getList(
-        page: 1,
-        perPage: 1,
-        filter: 'no_kk = "$noKk" && user_id = "$userId"',
-      );
+      final existing = await pb
+          .collection(AppConstants.colKartuKeluarga)
+          .getList(
+            page: 1,
+            perPage: 1,
+            filter: 'no_kk = "$noKk" && user_id = "$userId"',
+          );
       if (existing.items.isNotEmpty && !_isEdit) {
-        if (mounted) ErrorClassifier.showErrorSnackBar(context, 'KK sudah terdaftar');
+        if (mounted) {
+          ErrorClassifier.showErrorSnackBar(context, 'KK sudah terdaftar');
+        }
         setState(() => _isLoading = false);
         return;
       }
@@ -532,24 +708,30 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'alamat': _alamatCtrl.text.trim(),
         'rt': _rtCtrl.text.trim(),
         'rw': _rwCtrl.text.trim(),
+        'kelurahan': _kelurahan.trim(),
+        'kecamatan': _kecamatan.trim(),
+        'kota': _kabupatenKota.trim(),
         'user_id': userId,
       };
 
       final files = <http.MultipartFile>[];
       if (_scanBytes != null && (_scanFilename ?? '').isNotEmpty) {
-        files.add(http.MultipartFile.fromBytes('scan_kk', _scanBytes!, filename: _scanFilename));
+        files.add(
+          http.MultipartFile.fromBytes(
+            'scan_kk',
+            _scanBytes!,
+            filename: _scanFilename,
+          ),
+        );
       }
 
       final kkRecord = _isEdit
-          ? await pb.collection(AppConstants.colKartuKeluarga).update(
-              widget.kkId!,
-              body: body,
-              files: files,
-            )
-          : await pb.collection(AppConstants.colKartuKeluarga).create(
-              body: body,
-              files: files,
-            );
+          ? await pb
+                .collection(AppConstants.colKartuKeluarga)
+                .update(widget.kkId!, body: body, files: files)
+          : await pb
+                .collection(AppConstants.colKartuKeluarga)
+                .create(body: body, files: files);
 
       await _syncMembersToCollections(
         kkId: kkRecord.id,
@@ -577,24 +759,36 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     }
   }
 
-  Widget _buildReadonlyField(String label, String value) {
+  Widget _buildReadonlyField(
+    String label,
+    String value, {
+    required bool isValid,
+  }) {
+    final color = isValid ? Colors.green : Colors.red;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade400),
+        border: Border.all(color: color.withValues(alpha: 0.8)),
         borderRadius: BorderRadius.circular(10),
+        color: color.withValues(alpha: 0.05),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppTheme.bodySmall),
-          const SizedBox(height: 2),
-          Text(
-            value.isEmpty ? '-' : value,
-            style: AppTheme.bodyMedium,
+          Row(
+            children: [
+              Expanded(child: Text(label, style: AppTheme.bodySmall)),
+              Icon(
+                isValid ? Icons.check_circle_outline : Icons.error_outline,
+                size: 16,
+                color: color,
+              ),
+            ],
           ),
+          const SizedBox(height: 2),
+          Text(value.isEmpty ? '-' : value, style: AppTheme.bodyMedium),
         ],
       ),
     );
@@ -602,28 +796,112 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   Widget _buildOcrHeaderSection() {
     final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-    final formattedNoKk = noKk.length == 16 ? Formatters.formatNoKk(noKk) : _noKkCtrl.text;
+    final formattedNoKk = noKk.length == 16
+        ? Formatters.formatNoKk(noKk)
+        : _noKkCtrl.text;
+    final kepalaNama = _kepalaNama;
+    final headerIssues = _getHeaderIssues();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.paddingMedium),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Hasil OCR Data KK', style: AppTheme.heading3),
+            Text('Hasil Scan Data Kartu Keluarga', style: AppTheme.heading3),
             const SizedBox(height: 8),
             Text(
-              'Area ini read-only, diisi dari hasil parser OCR.',
+              'Pastikan area merah (No KK, alamat, dan wilayah) sudah benar sebelum simpan.',
               style: AppTheme.bodySmall,
             ),
             const SizedBox(height: 10),
-            _buildReadonlyField('Nomor KK', formattedNoKk),
-            _buildReadonlyField('Alamat', _alamatCtrl.text),
+            _buildReadonlyField(
+              'Nama Kepala Keluarga',
+              kepalaNama,
+              isValid: _isKepalaNamaValid,
+            ),
+            _buildReadonlyField(
+              'Nomor KK',
+              formattedNoKk,
+              isValid: _isNoKkValid,
+            ),
+            _buildReadonlyField(
+              'Alamat',
+              _alamatCtrl.text,
+              isValid: _isAlamatValid,
+            ),
             Row(
               children: [
-                Expanded(child: _buildReadonlyField('RT', _rtCtrl.text)),
+                Expanded(
+                  child: _buildReadonlyField(
+                    'RT',
+                    _rtCtrl.text,
+                    isValid: _isRtValid,
+                  ),
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: _buildReadonlyField('RW', _rwCtrl.text)),
+                Expanded(
+                  child: _buildReadonlyField(
+                    'RW',
+                    _rwCtrl.text,
+                    isValid: _isRwValid,
+                  ),
+                ),
               ],
+            ),
+            _buildReadonlyField(
+              'Desa/Kelurahan',
+              _kelurahan,
+              isValid: _isKelurahanValid,
+            ),
+            _buildReadonlyField(
+              'Kecamatan',
+              _kecamatan,
+              isValid: _isKecamatanValid,
+            ),
+            _buildReadonlyField(
+              'Kabupaten/Kota',
+              _kabupatenKota,
+              isValid: _isKabupatenKotaValid,
+            ),
+            _buildReadonlyField(
+              'Provinsi',
+              _provinsi,
+              isValid: _isProvinsiValid,
+            ),
+            if (headerIssues.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Header belum valid', style: AppTheme.bodyMedium),
+                    const SizedBox(height: 4),
+                    ...headerIssues.map(
+                      (issue) => Text('- $issue', style: AppTheme.bodySmall),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: headerIssues.isEmpty
+                  ? () => setState(() {
+                      _headerConfirmed = true;
+                    })
+                  : null,
+              icon: Icon(
+                _headerConfirmed
+                    ? Icons.verified_outlined
+                    : Icons.fact_check_outlined,
+              ),
+              label: const Text('Konfirmasi Data'),
             ),
           ],
         ),
@@ -657,7 +935,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   final member = _parsedMembers[index];
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(member.nama.isEmpty ? '(Nama belum diisi)' : member.nama),
+                    title: Text(
+                      member.nama.isEmpty ? '(Nama belum diisi)' : member.nama,
+                    ),
                     subtitle: Text(
                       'NIK: ${member.nik.isEmpty ? '-' : member.nik}\n'
                       'Hubungan: ${member.hubungan} | JK: ${member.jenisKelamin}',
@@ -711,7 +991,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit KK + Scan Anggota' : 'Tambah KK + Scan Anggota')),
+      appBar: AppBar(
+        title: Text(
+          _isEdit ? 'Edit KK + Scan Anggota' : 'Tambah KK + Scan Anggota',
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppTheme.paddingMedium),
         child: Column(
@@ -728,7 +1012,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     Text('Upload Scan KK', style: AppTheme.heading3),
                     const SizedBox(height: 8),
                     Text(
-                      'Pilih gambar KK, lalu tekan tombol Scan untuk proses parser.',
+                      'Pilih file KK dari galeri atau foto langsung, lalu tekan tombol Scan.',
                       style: AppTheme.bodySmall,
                     ),
                     const SizedBox(height: 12),
@@ -736,25 +1020,24 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        if (!kIsWeb)
-                          ElevatedButton.icon(
-                            onPressed: _isScanning || _isLoading ? null : _scanFromCamera,
-                            icon: const Icon(Icons.photo_camera_outlined),
-                            label: const Text('Kamera'),
-                          ),
                         ElevatedButton.icon(
-                          onPressed: _isScanning || _isLoading ? null : _addFromGallery,
-                          icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('Tambah dari Galeri'),
+                          onPressed: _isScanning || _isLoading
+                              ? null
+                              : _pickKkFile,
+                          icon: const Icon(Icons.upload_file_outlined),
+                          label: const Text('Tambah File KK'),
                         ),
                         ElevatedButton.icon(
-                          onPressed: _isScanning || _isLoading ? null : _runParser,
+                          onPressed: _isScanning || _isLoading
+                              ? null
+                              : _runParser,
                           icon: const Icon(Icons.document_scanner_outlined),
                           label: const Text('Scan'),
                         ),
                       ],
                     ),
-                    if (_existingScanKk != null && (_scanFilename ?? '').isEmpty) ...[
+                    if (_existingScanKk != null &&
+                        (_scanFilename ?? '').isEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
                         'Scan KK tersimpan: $_existingScanKk',
@@ -785,7 +1068,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   ? const SizedBox(
                       height: 20,
                       width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Text('Simpan KK + Anggota'),
             ),
