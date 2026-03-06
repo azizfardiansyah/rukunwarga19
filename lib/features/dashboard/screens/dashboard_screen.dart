@@ -58,19 +58,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _checkKartuKeluarga() {
     if (_hasNavigatedToKkForm || !mounted) return;
-    ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
-      if (_hasNavigatedToKkForm || !mounted) return;
-      next.whenData((hasData) {
-        if (!hasData && mounted && !_hasNavigatedToKkForm) {
-          _hasNavigatedToKkForm = true;
-          debugPrint(
-            '[DEBUG CALLBACK] hasKartuKeluarga: false — navigating to KK form',
-          );
-          context.go(Routes.kkForm);
-        }
-      });
-    });
-    // Also check current value immediately
+    // Use ref.read instead of ref.listen since we're outside build method
     final current = ref.read(hasKartuKeluargaProvider);
     current.whenData((hasData) {
       if (!hasData && mounted && !_hasNavigatedToKkForm) {
@@ -92,8 +80,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ? authState.user!.getStringValue('nama')
               : 'User');
     final role = authState.role;
-    // Watch to trigger re-fetch, but don't navigate in build.
-    ref.watch(hasKartuKeluargaProvider);
+
+    // Listen for hasKartuKeluarga changes - must be in build method
+    ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
+      if (_hasNavigatedToKkForm || !mounted) return;
+      next.whenData((hasData) {
+        if (!hasData && mounted && !_hasNavigatedToKkForm) {
+          _hasNavigatedToKkForm = true;
+          debugPrint(
+            '[DEBUG LISTEN] hasKartuKeluarga: false — navigating to KK form',
+          );
+          context.go(Routes.kkForm);
+        }
+      });
+    });
 
     return Scaffold(
       body: CustomScrollView(

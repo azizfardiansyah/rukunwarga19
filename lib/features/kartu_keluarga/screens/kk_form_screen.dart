@@ -1427,12 +1427,12 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final color = isValid ? AppTheme.successColor : AppTheme.errorColor;
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        color: color.withValues(alpha: 0.06),
-        border: Border.all(color: color.withValues(alpha: 0.3), width: 1.2),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+        color: color.withValues(alpha: 0.05),
+        border: Border.all(color: color.withValues(alpha: 0.25), width: 1),
       ),
       child: Row(
         children: [
@@ -1444,14 +1444,14 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   label,
                   style: AppTheme.caption.copyWith(
                     color: AppTheme.textSecondary,
+                    fontSize: 10,
                     fontWeight: FontWeight.w500,
-                    letterSpacing: 0.3,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   value.isEmpty ? '-' : value,
-                  style: AppTheme.bodyMedium.copyWith(
+                  style: AppTheme.bodySmall.copyWith(
                     fontWeight: FontWeight.w500,
                     color: value.isEmpty
                         ? AppTheme.textSecondary
@@ -1461,17 +1461,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isValid ? Icons.check_circle_rounded : Icons.error_rounded,
-              size: 18,
-              color: color,
-            ),
+          Icon(
+            isValid ? Icons.check_circle_rounded : Icons.error_rounded,
+            size: 16,
+            color: color,
           ),
         ],
       ),
@@ -1490,10 +1483,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with gradient
+          // Compact header with gradient
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: const BoxDecoration(
               gradient: AppTheme.headerGradient,
               borderRadius: BorderRadius.only(
@@ -1503,32 +1496,28 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                  ),
-                  child: const Icon(
-                    Icons.document_scanner_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
+                const Icon(
+                  Icons.document_scanner_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Hasil Scan Kartu Keluarga',
-                        style: AppTheme.heading3.copyWith(color: Colors.white),
+                        style: AppTheme.bodyMedium.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      const SizedBox(height: 2),
                       Text(
                         'Pastikan data sudah benar sebelum simpan',
                         style: AppTheme.caption.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 10,
                         ),
                       ),
                     ],
@@ -1538,25 +1527,39 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildReadonlyField(
-                  'Nama Kepala Keluarga',
-                  kepalaNama,
-                  isValid: _isKepalaNamaValid,
+                // Row 1: Nama KK + No KK
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: _buildReadonlyField(
+                        'Nama Kepala Keluarga',
+                        kepalaNama,
+                        isValid: _isKepalaNamaValid,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: _buildReadonlyField(
+                        'Nomor KK',
+                        formattedNoKk,
+                        isValid: _isNoKkValid,
+                      ),
+                    ),
+                  ],
                 ),
-                _buildReadonlyField(
-                  'Nomor KK',
-                  formattedNoKk,
-                  isValid: _isNoKkValid,
-                ),
+                // Row 2: Alamat
                 _buildReadonlyField(
                   'Alamat',
                   _alamatCtrl.text,
                   isValid: _isAlamatValid,
                 ),
+                // Row 3: RT, RW, Kelurahan, Kecamatan
                 Row(
                   children: [
                     Expanded(
@@ -1566,7 +1569,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isRtValid,
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _buildReadonlyField(
                         'RW',
@@ -1574,19 +1577,18 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isRwValid,
                       ),
                     ),
-                  ],
-                ),
-                Row(
-                  children: [
+                    const SizedBox(width: 8),
                     Expanded(
+                      flex: 2,
                       child: _buildReadonlyField(
                         'Desa/Kelurahan',
                         _kelurahan,
                         isValid: _isKelurahanValid,
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
+                      flex: 2,
                       child: _buildReadonlyField(
                         'Kecamatan',
                         _kecamatan,
@@ -1595,6 +1597,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ),
                   ],
                 ),
+                // Row 4: Kabupaten + Provinsi
                 Row(
                   children: [
                     Expanded(
@@ -1604,7 +1607,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKabupatenKotaValid,
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: _buildReadonlyField(
                         'Provinsi',
@@ -1615,14 +1618,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   ],
                 ),
                 if (headerIssues.isNotEmpty) ...[
-                  const SizedBox(height: 6),
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: AppTheme.warningColor.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(
-                        AppTheme.radiusMedium,
-                      ),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
                       border: Border.all(
                         color: AppTheme.warningColor.withValues(alpha: 0.3),
                       ),
@@ -1633,29 +1633,27 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         Icon(
                           Icons.warning_amber_rounded,
                           color: Colors.orange.shade700,
-                          size: 20,
+                          size: 18,
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Data belum lengkap',
-                                style: AppTheme.bodyMedium.copyWith(
+                                style: AppTheme.bodySmall.copyWith(
                                   fontWeight: FontWeight.w600,
                                   color: Colors.orange.shade800,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 2),
                               ...headerIssues.map(
-                                (issue) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 2),
-                                  child: Text(
-                                    '• $issue',
-                                    style: AppTheme.caption.copyWith(
-                                      color: Colors.orange.shade700,
-                                    ),
+                                (issue) => Text(
+                                  '• $issue',
+                                  style: AppTheme.caption.copyWith(
+                                    color: Colors.orange.shade700,
+                                    fontSize: 10,
                                   ),
                                 ),
                               ),
@@ -1666,7 +1664,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -1679,10 +1677,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       backgroundColor: _headerConfirmed
                           ? AppTheme.successColor
                           : AppTheme.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
-                          AppTheme.radiusMedium,
+                          AppTheme.radiusSmall,
                         ),
                       ),
                     ),
@@ -1690,11 +1688,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       _headerConfirmed
                           ? Icons.verified_rounded
                           : Icons.fact_check_rounded,
+                      size: 18,
                     ),
                     label: Text(
                       _headerConfirmed
                           ? 'Data Terkonfirmasi ✓'
                           : 'Konfirmasi Data',
+                      style: const TextStyle(fontSize: 13),
                     ),
                   ),
                 ),
@@ -1715,7 +1715,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           // Header
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
@@ -1732,34 +1732,26 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                  ),
-                  child: const Icon(
-                    Icons.people_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
+                const Icon(Icons.people_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Anggota Keluarga',
-                        style: AppTheme.heading3.copyWith(color: Colors.white),
+                        style: AppTheme.bodyMedium.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      const SizedBox(height: 2),
                       Text(
                         _parsedMembers.isEmpty
                             ? 'Belum ada anggota terdeteksi'
                             : '${_parsedMembers.length} anggota terdeteksi',
                         style: AppTheme.caption.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 10,
                         ),
                       ),
                     ],
@@ -1768,8 +1760,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 if (_parsedMembers.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+                      horizontal: 10,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.25),
@@ -1779,7 +1771,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ),
                     child: Text(
                       '${_parsedMembers.length}',
-                      style: AppTheme.bodyMedium.copyWith(
+                      style: AppTheme.bodySmall.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1789,7 +1781,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
