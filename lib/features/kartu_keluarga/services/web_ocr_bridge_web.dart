@@ -249,7 +249,7 @@ Future<String> _extractStructuredMemberRows({
         nama = _extractNameBeforeDigits(rowRaw);
       }
       final jenisKelamin = _normalizeGenderCandidate('$jkRaw $rowRaw');
-      final tempatLahir = _normalizeTextField(tempatRaw);
+      final tempatLahir = _normalizeTempatLahirCandidate(tempatRaw);
       final tanggalLahir = _normalizeDateCandidate('$tglRaw $rowRaw');
       final agama = _normalizeAgamaCandidate('$agamaRaw $rowRaw');
       // Also try to read pendidikan and pekerjaan columns
@@ -455,6 +455,70 @@ String _normalizeTextField(String input) {
       .trim();
 }
 
+/// Normalize tempat lahir from OCR column crop.
+/// Filters out garbled text like "22091", "G 2505 1", "J DARA IU MIA 18-08-2"
+String _normalizeTempatLahirCandidate(String input) {
+  var cleaned = _normalizeTextField(input);
+  if (cleaned.isEmpty) return '';
+
+  // Remove embedded dates
+  cleaned = cleaned
+      .replaceAll(RegExp(r'\b\d{1,2}[-/.]\d{1,2}[-/.]\d{1,4}\b'), '')
+      .trim();
+
+  // If purely numeric, it's garbled
+  if (RegExp(r'^[\d\s]+$').hasMatch(cleaned)) return '';
+
+  // Filter noise tokens
+  const noise = {
+    'IU',
+    'MIA',
+    'DD',
+    'RR',
+    'OW',
+    'RE',
+    'OL',
+    'EF',
+    'FR',
+    'SE',
+    'AP',
+    'FE',
+    'AW',
+    'EV',
+    'AN',
+    'OO',
+    'HE',
+    'DE',
+    'BII',
+    'BI',
+    'BH',
+    'CE',
+    'NP',
+    'SS',
+    'WS',
+    'SO',
+    'WA',
+    'WN',
+    'WNI',
+  };
+  final words = cleaned.split(' ').where((w) {
+    if (w.isEmpty) return false;
+    if (RegExp(r'^[\d]+$').hasMatch(w)) return false;
+    if (w.length <= 1) return false;
+    if (w.length <= 2 && RegExp(r'\d').hasMatch(w)) return false;
+    if (noise.contains(w)) return false;
+    return true;
+  }).toList();
+
+  if (words.isEmpty) return '';
+  final result = words.join(' ').trim();
+  if (result.length < 3) return '';
+  final alphaCount = result.replaceAll(RegExp(r'[^A-Z]'), '').length;
+  if (alphaCount < 3) return '';
+
+  return result;
+}
+
 String _normalizeNameCandidate(String input) {
   final cleaned = _normalizeTextField(input);
   if (cleaned.isEmpty) return '';
@@ -487,15 +551,68 @@ String _normalizeNameCandidate(String input) {
   };
   // Also filter out short OCR noise fragments
   const ocrNoise = {
-    'YE', 'EL', 'EE', 'WS', 'SO', 'CE', 'NP', 'SS', 'FOO', 'DIN', 'MAL',
-    'TNVAU', 'TOMA', 'IU', 'MIA', 'DD', 'RR', 'OW', 'RE', 'OL', 'EF',
-    'FR', 'RV', 'SE', 'AP', 'FE', 'AW', 'EV', 'AN', 'OO', 'HE', 'DE',
-    'WA', 'WN', 'WNI', 'II', 'TT', 'PP', 'NW', 'RI',
+    'YE',
+    'EL',
+    'EE',
+    'WS',
+    'SO',
+    'CE',
+    'NP',
+    'SS',
+    'FOO',
+    'DIN',
+    'MAL',
+    'TNVAU',
+    'TOMA',
+    'IU',
+    'MIA',
+    'DD',
+    'RR',
+    'OW',
+    'RE',
+    'OL',
+    'EF',
+    'FR',
+    'RV',
+    'SE',
+    'AP',
+    'FE',
+    'AW',
+    'EV',
+    'AN',
+    'OO',
+    'HE',
+    'DE',
+    'WA',
+    'WN',
+    'WNI',
+    'II',
+    'TT',
+    'PP',
+    'NW',
+    'RI',
+    'BH',
+    'BI',
+    'BII',
+    'IVIUT',
+    'IAIVHIIVI',
+    'ALYOTNAL',
+    'IVAU',
+    'OMANTET',
+    'IVA',
+    'IVI',
+    'OMA',
+    'OMT',
   };
   final words = cleaned
       .split(' ')
       .where(
-        (w) => w.length >= 2 && !blocked.contains(w) && !ocrNoise.contains(w),
+        (w) =>
+            w.length >= 2 &&
+            !blocked.contains(w) &&
+            !ocrNoise.contains(w) &&
+            !(w.length <= 3 && RegExp(r'^(.)\1+$').hasMatch(w)) &&
+            !(w.length >= 4 && !_hasReasonableVowelRatio(w)),
       )
       .toList();
   if (words.isEmpty) return '';
@@ -668,7 +785,20 @@ String _normalizeGolDarahCandidate(String input) {
   if (upper.isEmpty) return '';
   if (upper.contains('TIDAKTAHU')) return 'TIDAK TAHU';
   // Check for blood type patterns
-  for (final bt in ['AB+', 'AB-', 'AB', 'A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'A', 'B', 'O']) {
+  for (final bt in [
+    'AB+',
+    'AB-',
+    'AB',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'O+',
+    'O-',
+    'A',
+    'B',
+    'O',
+  ]) {
     if (upper == bt) return bt;
   }
   return '';
@@ -697,12 +827,16 @@ String _normalizePendidikanCandidate(String input) {
     if (matchCount >= words.length - 1 && words.length >= 2) return p;
   }
   // Partial matches
-  if (upper.contains('AKADEMI') || upper.contains('DIPLOMA III') || upper.contains('SARJANA MUDA')) {
+  if (upper.contains('AKADEMI') ||
+      upper.contains('DIPLOMA III') ||
+      upper.contains('SARJANA MUDA')) {
     return 'AKADEMI/DIPLOMA III/SARJANA MUDA';
   }
   if (upper.contains('SLTA')) return 'SLTA/SEDERAJAT';
   if (upper.contains('SLTP')) return 'SLTP/SEDERAJAT';
-  if (upper.contains('BELUM') && upper.contains('SEKOLAH')) return 'TIDAK/BELUM SEKOLAH';
+  if (upper.contains('BELUM') && upper.contains('SEKOLAH')) {
+    return 'TIDAK/BELUM SEKOLAH';
+  }
   return upper;
 }
 
@@ -730,8 +864,12 @@ String _normalizePekerjaanCandidate(String input) {
   }
   if (upper.contains('WIRASWASTA')) return 'WIRASWASTA';
   if (upper.contains('KARYAWAN')) return 'KARYAWAN SWASTA';
-  if (upper.contains('BELUM') && upper.contains('BEKERJA')) return 'BELUM/TIDAK BEKERJA';
-  if (upper.contains('TIDAK') && upper.contains('BEKERJA')) return 'BELUM/TIDAK BEKERJA';
+  if (upper.contains('BELUM') && upper.contains('BEKERJA')) {
+    return 'BELUM/TIDAK BEKERJA';
+  }
+  if (upper.contains('TIDAK') && upper.contains('BEKERJA')) {
+    return 'BELUM/TIDAK BEKERJA';
+  }
   if (upper.contains('PELAJAR')) return 'PELAJAR/MAHASISWA';
   return upper;
 }
@@ -814,4 +952,16 @@ String _cropDataUrlFromImage({
   }
 
   return canvas.toDataUrl('image/jpeg', 0.98);
+}
+
+/// Check if a word has a reasonable vowel-to-consonant ratio for a name.
+bool _hasReasonableVowelRatio(String word) {
+  if (word.length < 4) return true;
+  const vowels = {'A', 'E', 'I', 'O', 'U'};
+  final upper = word.toUpperCase();
+  final vowelCount = upper.split('').where((c) => vowels.contains(c)).length;
+  final ratio = vowelCount / upper.length;
+  if (ratio < 0.15) return false;
+  if (RegExp(r'[^AEIOU]{5,}').hasMatch(upper)) return false;
+  return true;
 }

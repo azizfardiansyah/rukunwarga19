@@ -52,9 +52,6 @@ class Routes {
   static const String settings = '/settings';
 }
 
-final _rootNavigatorKey = GlobalKey<NavigatorState>();
-final _shellNavigatorKey = GlobalKey<NavigatorState>();
-
 /// A [ChangeNotifier] bridge so that [GoRouter.refreshListenable] re-evaluates
 /// its redirect whenever the Riverpod auth state changes.
 class _AuthChangeNotifier extends ChangeNotifier {
@@ -67,8 +64,14 @@ class _AuthChangeNotifier extends ChangeNotifier {
 final routerProvider = Provider<GoRouter>((ref) {
   final notifier = _AuthChangeNotifier(ref);
 
+  // Create keys inside the provider closure so each GoRouter instance
+  // gets its own keys — prevents "Duplicate GlobalKey" on hot restart
+  // or provider invalidation.
+  final rootNavigatorKey = GlobalKey<NavigatorState>();
+  final shellNavigatorKey = GlobalKey<NavigatorState>();
+
   return GoRouter(
-    navigatorKey: _rootNavigatorKey,
+    navigatorKey: rootNavigatorKey,
     refreshListenable: notifier,
     initialLocation: Routes.dashboard,
     redirect: (context, state) {
@@ -100,7 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // Main app routes (dengan bottom nav shell)
       ShellRoute(
-        navigatorKey: _shellNavigatorKey,
+        navigatorKey: shellNavigatorKey,
         builder: (context, state, child) => MainScaffold(child: child),
         routes: [
           GoRoute(

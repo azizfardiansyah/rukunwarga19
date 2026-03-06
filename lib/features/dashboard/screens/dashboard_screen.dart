@@ -37,11 +37,54 @@ final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
   return result.items.isNotEmpty;
 });
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  bool _hasNavigatedToKkForm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Schedule KK check after the first frame to avoid navigating during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkKartuKeluarga();
+    });
+  }
+
+  void _checkKartuKeluarga() {
+    if (_hasNavigatedToKkForm || !mounted) return;
+    ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
+      if (_hasNavigatedToKkForm || !mounted) return;
+      next.whenData((hasData) {
+        if (!hasData && mounted && !_hasNavigatedToKkForm) {
+          _hasNavigatedToKkForm = true;
+          debugPrint(
+            '[DEBUG CALLBACK] hasKartuKeluarga: false — navigating to KK form',
+          );
+          context.go(Routes.kkForm);
+        }
+      });
+    });
+    // Also check current value immediately
+    final current = ref.read(hasKartuKeluargaProvider);
+    current.whenData((hasData) {
+      if (!hasData && mounted && !_hasNavigatedToKkForm) {
+        _hasNavigatedToKkForm = true;
+        debugPrint(
+          '[DEBUG CALLBACK] hasKartuKeluarga: false — navigating to KK form',
+        );
+        context.go(Routes.kkForm);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final userName = authState.user?.getStringValue('name').isNotEmpty == true
         ? authState.user!.getStringValue('name')
@@ -49,24 +92,8 @@ class DashboardScreen extends ConsumerWidget {
               ? authState.user!.getStringValue('nama')
               : 'User');
     final role = authState.role;
-    final hasKartuKeluarga = ref.watch(hasKartuKeluargaProvider);
-
-    hasKartuKeluarga.when(
-      data: (hasData) {
-        debugPrint(
-          '[DEBUG CALLBACK] hasKartuKeluarga: $hasData, userId: ${authState.user?.id}',
-        );
-        if (!hasData) {
-          Future.microtask(() => context.go(Routes.kkForm));
-        }
-      },
-      error: (err, stack) {
-        debugPrint('[DEBUG ERROR] hasKartuKeluargaProvider error: $err');
-      },
-      loading: () {
-        debugPrint('[DEBUG LOADING] hasKartuKeluargaProvider loading');
-      },
-    );
+    // Watch to trigger re-fetch, but don't navigate in build.
+    ref.watch(hasKartuKeluargaProvider);
 
     return Scaffold(
       body: CustomScrollView(

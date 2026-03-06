@@ -256,13 +256,13 @@ class KkOcrService {
                 nik: '',
                 hubungan: '',
                 jenisKelamin: _normalizeStructuredJenisKelamin(parts[3]),
-                tempatLahir: _toTitleCase(_cleanStructuredField(parts[4])),
+                tempatLahir: _normalizeTempatLahir(parts[4]),
                 tanggalLahir: _normalizeTanggalFromToken(
                   _cleanStructuredField(parts[5]),
                 ),
                 agama: _toTitleCase(_normalizeAgama(parts[6])),
-                pendidikan: _toTitleCase(_cleanStructuredField(parts[7])),
-                jenisPekerjaan: _toTitleCase(_cleanStructuredField(parts[8])),
+                pendidikan: _normalizePendidikanField(parts[7]),
+                jenisPekerjaan: _normalizePekerjaanField(parts[8]),
                 golonganDarah: _normalizeGolonganDarah(parts[9]),
               ),
             );
@@ -272,13 +272,13 @@ class KkOcrService {
       }
 
       final jenisKelamin = _normalizeStructuredJenisKelamin(parts[3]);
-      final tempatLahir = _toTitleCase(_cleanStructuredField(parts[4]));
+      final tempatLahir = _normalizeTempatLahir(parts[4]);
       final tanggalLahir = _normalizeTanggalFromToken(
         _cleanStructuredField(parts[5]),
       );
       final agama = _toTitleCase(_normalizeAgama(parts[6]));
-      final pendidikan = _toTitleCase(_cleanStructuredField(parts[7]));
-      final pekerjaan = _toTitleCase(_cleanStructuredField(parts[8]));
+      final pendidikan = _normalizePendidikanField(parts[7]);
+      final pekerjaan = _normalizePekerjaanField(parts[8]);
       final golonganDarah = _normalizeGolonganDarah(parts[9]);
 
       final nikToStore = hasValidNik ? nikCandidate : '';
@@ -604,18 +604,31 @@ class KkOcrService {
       if (place.isNotEmpty && date.isNotEmpty) {
         // Skip if place is a known non-location word
         const skip = {
-          'TANGGAL', 'STATUS', 'DIKELUARKAN', 'KAWIN', 'TERCATAT',
-          'DOKUMEN', 'SERTIFIKASI', 'ELEKTRONIK',
+          'TANGGAL',
+          'STATUS',
+          'DIKELUARKAN',
+          'KAWIN',
+          'TERCATAT',
+          'DOKUMEN',
+          'SERTIFIKASI',
+          'ELEKTRONIK',
         };
         if (!skip.contains(place)) {
-          birthInfoList.add((_toTitleCase(place), _normalizeTanggalFromToken(date)));
+          birthInfoList.add((
+            _toTitleCase(place),
+            _normalizeTanggalFromToken(date),
+          ));
         }
       }
     }
 
     // Assign birth info to members missing it, in order
     var birthIdx = 0;
-    for (var i = 0; i < members.length && birthIdx < birthInfoList.length; i++) {
+    for (
+      var i = 0;
+      i < members.length && birthIdx < birthInfoList.length;
+      i++
+    ) {
       if (members[i].tempatLahir.isEmpty && members[i].tanggalLahir.isEmpty) {
         members[i].tempatLahir = birthInfoList[birthIdx].$1;
         members[i].tanggalLahir = birthInfoList[birthIdx].$2;
@@ -1662,6 +1675,191 @@ class KkOcrService {
         .trim();
   }
 
+  /// Normalize tempat lahir from OCR structured field.
+  /// Filters out garbled text like "22091", "G 2505 1", "J DARA IU MIA 18-08-2"
+  String _normalizeTempatLahir(String input) {
+    var cleaned = _cleanStructuredField(input);
+    if (cleaned.isEmpty) return '';
+
+    // Remove embedded dates (e.g., "18-08-2" or "01-11-2001")
+    cleaned = cleaned
+        .replaceAll(RegExp(r'\b\d{1,2}[-/.]\d{1,2}[-/.]\d{1,4}\b'), '')
+        .trim();
+
+    // If it's purely numeric (e.g., "22091"), it's garbled — clear it
+    if (RegExp(r'^[\d\s]+$').hasMatch(cleaned)) return '';
+
+    // Filter out individual noise tokens
+    final words = cleaned.split(' ').where((w) {
+      if (w.isEmpty) return false;
+      // Pure numbers
+      if (RegExp(r'^[\d]+$').hasMatch(w)) return false;
+      // Single letter or very short tokens with digits
+      if (w.length <= 1) return false;
+      if (w.length <= 2 && RegExp(r'\d').hasMatch(w)) return false;
+      // Common OCR noise
+      const noise = {
+        'IU',
+        'MIA',
+        'DD',
+        'RR',
+        'OW',
+        'RE',
+        'OL',
+        'EF',
+        'FR',
+        'SE',
+        'AP',
+        'FE',
+        'AW',
+        'EV',
+        'AN',
+        'OO',
+        'HE',
+        'DE',
+        'BII',
+        'BI',
+        'BH',
+        'CE',
+        'NP',
+        'SS',
+        'WS',
+        'SO',
+        'WA',
+        'WN',
+        'WNI',
+      };
+      if (noise.contains(w)) return false;
+      return true;
+    }).toList();
+
+    if (words.isEmpty) return '';
+
+    // If remaining text is too short or looks garbled, clear it
+    final result = words.join(' ').trim();
+    if (result.length < 3) return '';
+    // Must contain at least 3 alpha characters to be a real place name
+    final alphaCount = result.replaceAll(RegExp(r'[^A-Z]'), '').length;
+    if (alphaCount < 3) return '';
+
+    return _toTitleCase(result);
+  }
+
+  /// Normalize pendidikan from OCR structured field.
+  /// Maps garbled OCR text to known pendidikan values.
+  String _normalizePendidikanField(String input) {
+    final cleaned = _cleanStructuredField(input);
+    if (cleaned.isEmpty) return '';
+
+    final upper = cleaned.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // Try exact and fuzzy matching against known values
+    const knownPendidikan = [
+      'TIDAK/BELUM SEKOLAH',
+      'BELUM TAMAT SD/SEDERAJAT',
+      'TAMAT SD/SEDERAJAT',
+      'SLTP/SEDERAJAT',
+      'SLTA/SEDERAJAT',
+      'DIPLOMA I/II',
+      'AKADEMI/DIPLOMA III/SARJANA MUDA',
+      'DIPLOMA IV/STRATA I',
+      'STRATA II',
+      'STRATA III',
+    ];
+
+    for (final p in knownPendidikan) {
+      if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
+        return _toTitleCase(p);
+      }
+      final words = p.split(RegExp(r'[\s/]+'));
+      final matchCount = words.where((w) => upper.contains(w)).length;
+      if (matchCount >= words.length - 1 && words.length >= 2) {
+        return _toTitleCase(p);
+      }
+    }
+
+    // Partial / garbled matches
+    if (upper.contains('AKADEMI') ||
+        upper.contains('DIPLOMA III') ||
+        upper.contains('SARJANA MUDA')) {
+      return _toTitleCase('AKADEMI/DIPLOMA III/SARJANA MUDA');
+    }
+    if (upper.contains('SLTA')) return _toTitleCase('SLTA/SEDERAJAT');
+    if (upper.contains('SLTP')) return _toTitleCase('SLTP/SEDERAJAT');
+    if (upper.contains('SD') && !upper.contains('SL')) {
+      return _toTitleCase('TAMAT SD/SEDERAJAT');
+    }
+    if (upper.contains('STRATA I') || upper.contains('DIPLOMA IV')) {
+      return _toTitleCase('DIPLOMA IV/STRATA I');
+    }
+    if (upper.contains('BELUM') && upper.contains('SEKOLAH')) {
+      return _toTitleCase('TIDAK/BELUM SEKOLAH');
+    }
+
+    // If it's just noise (mostly garbled short words), clear it
+    final alphaCount = upper.replaceAll(RegExp(r'[^A-Z]'), '').length;
+    if (alphaCount < 4) return '';
+
+    // Check if it's too garbled to be meaningful
+    final words = upper.split(' ');
+    final garbledCount = words
+        .where((w) => w.length >= 4 && !_hasReasonableVowelRatio(w))
+        .length;
+    if (words.isNotEmpty && garbledCount / words.length > 0.5) return '';
+
+    return _toTitleCase(cleaned);
+  }
+
+  /// Normalize pekerjaan from OCR structured field.
+  String _normalizePekerjaanField(String input) {
+    final cleaned = _cleanStructuredField(input);
+    if (cleaned.isEmpty) return '';
+
+    final upper = cleaned.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    const knownPekerjaan = [
+      'WIRASWASTA',
+      'KARYAWAN SWASTA',
+      'BELUM/TIDAK BEKERJA',
+      'PELAJAR/MAHASISWA',
+      'PNS',
+      'PETANI',
+      'PEDAGANG',
+      'BURUH',
+      'NELAYAN',
+      'PENSIUNAN',
+      'MENGURUS RUMAH TANGGA',
+    ];
+
+    for (final p in knownPekerjaan) {
+      if (upper.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
+        return _toTitleCase(p);
+      }
+      final words = p.split(RegExp(r'[\s/]+'));
+      final matchCount = words.where((w) => upper.contains(w)).length;
+      if (matchCount >= words.length - 1 && words.length >= 2) {
+        return _toTitleCase(p);
+      }
+    }
+
+    // Partial matches
+    if (upper.contains('WIRASWASTA')) return _toTitleCase('WIRASWASTA');
+    if (upper.contains('KARYAWAN')) return _toTitleCase('KARYAWAN SWASTA');
+    if (upper.contains('BELUM') && upper.contains('BEKERJA')) {
+      return _toTitleCase('BELUM/TIDAK BEKERJA');
+    }
+    if (upper.contains('TIDAK') && upper.contains('BEKERJA')) {
+      return _toTitleCase('BELUM/TIDAK BEKERJA');
+    }
+    if (upper.contains('PELAJAR')) return _toTitleCase('PELAJAR/MAHASISWA');
+
+    // If it's just noise, clear it
+    final alphaCount = upper.replaceAll(RegExp(r'[^A-Z]'), '').length;
+    if (alphaCount < 3) return '';
+
+    return _toTitleCase(cleaned);
+  }
+
   String _cleanStructuredField(String input) {
     return input
         .toUpperCase()
@@ -1690,6 +1888,7 @@ class KkOcrService {
     var cleaned = input
         .toUpperCase()
         .replaceAll(RegExp(r'[0-9]'), '')
+        .replaceAll('/', ' ')
         .replaceAll(RegExp(r"[^A-Z\s'.-]"), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -1697,20 +1896,106 @@ class KkOcrService {
 
     // Remove common OCR noise words (short nonsense fragments)
     const ocrNoise = {
-      'TVS', 'LVI', 'JLT', 'BL', 'BD', 'BSNS', 'TAM', 'TAP', 'FP',
-      'PAI', 'NF', 'IF', 'MD', 'NON', 'NA', 'OA', 'GA', 'EE', 'DA',
-      'HE', 'DE', 'DAN', 'NETT', 'AALT', 'TAMNI', 'AMOVGONGA',
-      'YE', 'EL', 'WS', 'SO', 'CE', 'NP', 'SS', 'FOO', 'DIN', 'MAL',
-      'TNVAU', 'TOMA', 'IU', 'MIA', 'DD', 'RR', 'OW', 'RE', 'OL',
-      'EF', 'FR', 'RV', 'SE', 'AP', 'FE', 'AW', 'EV', 'AN', 'OO',
-      'WA', 'WNI', 'WN', 'II', 'TT', 'PP',
+      'TVS',
+      'LVI',
+      'JLT',
+      'BL',
+      'BD',
+      'BSNS',
+      'TAM',
+      'TAP',
+      'FP',
+      'PAI',
+      'NF',
+      'IF',
+      'MD',
+      'NON',
+      'NA',
+      'OA',
+      'GA',
+      'EE',
+      'DA',
+      'HE',
+      'DE',
+      'DAN',
+      'NETT',
+      'AALT',
+      'TAMNI',
+      'AMOVGONGA',
+      'YE',
+      'EL',
+      'WS',
+      'SO',
+      'CE',
+      'NP',
+      'SS',
+      'FOO',
+      'DIN',
+      'MAL',
+      'TNVAU',
+      'TOMA',
+      'IU',
+      'MIA',
+      'DD',
+      'RR',
+      'OW',
+      'RE',
+      'OL',
+      'EF',
+      'FR',
+      'RV',
+      'SE',
+      'AP',
+      'FE',
+      'AW',
+      'EV',
+      'AN',
+      'OO',
+      'WA',
+      'WNI',
+      'WN',
+      'II',
+      'TT',
+      'PP',
+      'BH',
+      'BI',
+      'BII',
+      'IVIUT',
+      'IAIVHIIVI',
+      'ALYOTNAL',
+      'IVAU',
+      'OMANTET',
+      'IVA',
+      'IVI',
+      'OMA',
+      'OMT',
     };
     // Also reject KK-specific column header words
     const columnHeaders = {
-      'NAMA', 'LENGKAP', 'NIK', 'JENIS', 'KELAMIN', 'TEMPAT', 'LAHIR',
-      'AGAMA', 'PENDIDIKAN', 'PEKERJAAN', 'GOLONGAN', 'DARAH', 'TANGGAL',
-      'STATUS', 'ISLAM', 'KRISTEN', 'LAKI', 'PEREMPUAN', 'KARYAWAN',
-      'SWASTA', 'WIRASWASTA', 'HUBUNGAN', 'KELUARGA', 'KEPALA',
+      'NAMA',
+      'LENGKAP',
+      'NIK',
+      'JENIS',
+      'KELAMIN',
+      'TEMPAT',
+      'LAHIR',
+      'AGAMA',
+      'PENDIDIKAN',
+      'PEKERJAAN',
+      'GOLONGAN',
+      'DARAH',
+      'TANGGAL',
+      'STATUS',
+      'ISLAM',
+      'KRISTEN',
+      'LAKI',
+      'PEREMPUAN',
+      'KARYAWAN',
+      'SWASTA',
+      'WIRASWASTA',
+      'HUBUNGAN',
+      'KELUARGA',
+      'KEPALA',
     };
     final words = cleaned.split(' ').where((w) {
       if (w.length < 2) return false;
@@ -1718,6 +2003,8 @@ class KkOcrService {
       if (columnHeaders.contains(w)) return false;
       // Filter out words that are all the same character repeated (e.g., "SS", "RR")
       if (w.length <= 3 && RegExp(r'^(.)\1+$').hasMatch(w)) return false;
+      // Filter words that look like garbled OCR (heavy consonant clusters, no vowels)
+      if (w.length >= 4 && !_hasReasonableVowelRatio(w)) return false;
       return true;
     }).toList();
 
@@ -1731,6 +2018,10 @@ class KkOcrService {
     final shortCount = words.where((w) => w.length <= 2).length;
     if (words.length >= 3 && shortCount / words.length > 0.6) return '';
 
+    // If more than half the words look garbled, reject
+    final garbledCount = words.where((w) => _looksGarbled(w)).length;
+    if (words.isNotEmpty && garbledCount / words.length > 0.5) return '';
+
     // Try to merge broken name fragments: e.g. "FARDIANS YAH" → "FARDIANSYAH"
     // This happens when OCR splits a word at a random position
     final merged = _mergeFragmentedWords(words);
@@ -1738,6 +2029,44 @@ class KkOcrService {
     final result = merged.join(' ');
     if (!_isLikelyName(result)) return '';
     return _toTitleCase(result);
+  }
+
+  /// Check if a word has a reasonable vowel-to-consonant ratio.
+  /// Real Indonesian names have vowels; garbled OCR like "IAIVHIIVI" has
+  /// unusual patterns.
+  bool _hasReasonableVowelRatio(String word) {
+    if (word.length < 4) return true;
+    const vowels = {'A', 'E', 'I', 'O', 'U'};
+    final vowelCount = word.split('').where((c) => vowels.contains(c)).length;
+    final ratio = vowelCount / word.length;
+    // Indonesian names typically have 30-60% vowels
+    // Reject if too few vowels (all consonants) or too many vowels
+    if (ratio < 0.15) return false;
+    // Check for excessive consecutive consonants (> 3 in a row)
+    if (RegExp(r'[^AEIOU]{5,}').hasMatch(word)) return false;
+    return true;
+  }
+
+  /// Check if a word looks garbled (not a plausible Indonesian name part).
+  bool _looksGarbled(String word) {
+    if (word.length < 4) return false;
+    // Check if the word has no common Indonesian syllable patterns
+    // Garbled words often have unusual letter combinations
+    const vowels = {'A', 'E', 'I', 'O', 'U'};
+    final vowelCount = word.split('').where((c) => vowels.contains(c)).length;
+    final ratio = vowelCount / word.length;
+    // Too many vowels (> 70%) or too few (< 20%) suggests garbled text
+    if (ratio > 0.70 || ratio < 0.20) return true;
+    // Excessive repetition of same 2-char bigram
+    for (var i = 0; i < word.length - 3; i++) {
+      final bigram = word.substring(i, i + 2);
+      var count = 0;
+      for (var j = 0; j < word.length - 1; j++) {
+        if (word.substring(j, j + 2) == bigram) count++;
+      }
+      if (count >= 3) return true;
+    }
+    return false;
   }
 
   /// Merge OCR-fragmented words back together.

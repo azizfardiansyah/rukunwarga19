@@ -677,6 +677,12 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   Future<void> _showMemberDetail(int index) async {
     final member = _parsedMembers[index];
+    // Local controllers for the bottom sheet — NOT manually disposed.
+    // They are method-scoped and will be GC'd when the method returns.
+    // Disposing them in a `finally` block causes "disposed controller"
+    // errors because the bottom sheet's close animation may still read
+    // the controllers after `Navigator.pop` returns but before the
+    // animation finishes.
     final namaCtrl = TextEditingController(text: member.nama);
     final nikCtrl = TextEditingController(text: member.nik);
     final tempatLahirCtrl = TextEditingController(text: member.tempatLahir);
@@ -705,449 +711,432 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       agama = AppConstants.daftarAgama.first;
     }
 
-    try {
-      await showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (sheetContext) {
-          var isEditing = false;
-          return StatefulBuilder(
-            builder: (context, setSheetState) {
-              Widget buildInputField({
-                required String label,
-                required TextEditingController controller,
-                TextInputType keyboardType = TextInputType.text,
-                String? hintText,
-                IconData? prefixIcon,
-              }) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: TextField(
-                    controller: controller,
-                    enabled: isEditing,
-                    keyboardType: keyboardType,
-                    decoration: InputDecoration(
-                      labelText: label,
-                      hintText: hintText,
-                      prefixIcon: prefixIcon != null
-                          ? Icon(prefixIcon, size: 20)
-                          : null,
-                      filled: true,
-                      fillColor: isEditing
-                          ? Colors.white
-                          : AppTheme.backgroundColor,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppTheme.radiusMedium,
-                        ),
-                        borderSide: BorderSide(color: AppTheme.dividerColor),
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        var isEditing = false;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Widget buildInputField({
+              required String label,
+              required TextEditingController controller,
+              TextInputType keyboardType = TextInputType.text,
+              String? hintText,
+              IconData? prefixIcon,
+            }) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextField(
+                  controller: controller,
+                  enabled: isEditing,
+                  keyboardType: keyboardType,
+                  decoration: InputDecoration(
+                    labelText: label,
+                    hintText: hintText,
+                    prefixIcon: prefixIcon != null
+                        ? Icon(prefixIcon, size: 20)
+                        : null,
+                    filled: true,
+                    fillColor: isEditing
+                        ? Colors.white
+                        : AppTheme.backgroundColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppTheme.radiusMedium,
-                        ),
-                        borderSide: BorderSide(color: AppTheme.dividerColor),
+                      borderSide: BorderSide(color: AppTheme.dividerColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
                       ),
-                    ),
-                  ),
-                );
-              }
-
-              Future<void> saveMember() async {
-                final nama = namaCtrl.text.trim();
-                final nik = nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-                if (nama.isEmpty) {
-                  ErrorClassifier.showErrorSnackBar(
-                    sheetContext,
-                    'Nama anggota wajib diisi.',
-                  );
-                  return;
-                }
-                if (nik.length != 16) {
-                  ErrorClassifier.showErrorSnackBar(
-                    sheetContext,
-                    'NIK anggota harus 16 digit.',
-                  );
-                  return;
-                }
-                if (hubungan.isEmpty) {
-                  ErrorClassifier.showErrorSnackBar(
-                    sheetContext,
-                    'Hubungan wajib dipilih.',
-                  );
-                  return;
-                }
-
-                final updatedMember = member.copyWith(
-                  nama: nama,
-                  nik: nik,
-                  hubungan: hubungan,
-                  jenisKelamin: jenisKelamin,
-                  tempatLahir: tempatLahirCtrl.text.trim(),
-                  tanggalLahir: tanggalLahirCtrl.text.trim(),
-                  agama: agama,
-                  pendidikan: pendidikanCtrl.text.trim(),
-                  jenisPekerjaan: pekerjaanCtrl.text.trim(),
-                  golonganDarah: golonganDarahCtrl.text.trim(),
-                );
-                setState(() {
-                  final updated = [..._parsedMembers];
-                  updated[index] = updatedMember;
-                  _parsedMembers = updated;
-                });
-                if (mounted) {
-                  ErrorClassifier.showSuccessSnackBar(
-                    this.context,
-                    'Detail anggota diperbarui.',
-                  );
-                }
-                if (sheetContext.mounted) Navigator.pop(sheetContext);
-              }
-
-              void cancelEdit() {
-                if (!isEditing) {
-                  if (sheetContext.mounted) Navigator.pop(sheetContext);
-                  return;
-                }
-                namaCtrl.text = member.nama;
-                nikCtrl.text = member.nik;
-                tempatLahirCtrl.text = member.tempatLahir;
-                tanggalLahirCtrl.text = member.tanggalLahir;
-                pendidikanCtrl.text = member.pendidikan;
-                pekerjaanCtrl.text = member.jenisPekerjaan;
-                golonganDarahCtrl.text = member.golonganDarah;
-                jenisKelamin =
-                    member.jenisKelamin.trim().toLowerCase() == 'perempuan'
-                    ? 'Perempuan'
-                    : 'Laki-laki';
-                hubungan = _mapHubunganForStorage(
-                  member.hubungan.isNotEmpty ? member.hubungan : '',
-                );
-                agama = _mapAgamaForStorage(
-                  member.agama.isNotEmpty ? member.agama : '',
-                );
-                setSheetState(() => isEditing = false);
-              }
-
-              return SafeArea(
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(AppTheme.radiusXLarge),
-                      topRight: Radius.circular(AppTheme.radiusXLarge),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      20,
-                      8,
-                      20,
-                      20 + MediaQuery.of(sheetContext).viewInsets.bottom,
-                    ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  gradient: AppTheme.primaryGradient,
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusMedium,
-                                  ),
-                                ),
-                                child: const Icon(
-                                  Icons.person_rounded,
-                                  color: Colors.white,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Detail Anggota ${index + 1}',
-                                  style: AppTheme.heading3,
-                                ),
-                              ),
-                              if (isEditing)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.accentColor.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    borderRadius: BorderRadius.circular(
-                                      AppTheme.radiusXLarge,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    'Editing',
-                                    style: AppTheme.caption.copyWith(
-                                      color: AppTheme.accentColor,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          buildInputField(
-                            label: 'Nama Lengkap',
-                            controller: namaCtrl,
-                            prefixIcon: Icons.badge_rounded,
-                          ),
-                          buildInputField(
-                            label: 'NIK',
-                            controller: nikCtrl,
-                            keyboardType: TextInputType.number,
-                            prefixIcon: Icons.credit_card_rounded,
-                          ),
-                          // Hubungan dropdown (sesuai PB select: Ayah/Ibu/Anak)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: 'Hubungan',
-                                prefixIcon: const Icon(
-                                  Icons.family_restroom_rounded,
-                                  size: 20,
-                                ),
-                                filled: true,
-                                fillColor: isEditing
-                                    ? Colors.white
-                                    : AppTheme.backgroundColor,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusMedium,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: AppTheme.dividerColor,
-                                  ),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusMedium,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: AppTheme.dividerColor,
-                                  ),
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: hubungan,
-                                  isExpanded: true,
-                                  items: AppConstants.hubunganKeluarga
-                                      .map(
-                                        (h) => DropdownMenuItem(
-                                          value: h,
-                                          child: Text(h),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: isEditing
-                                      ? (value) {
-                                          if (value == null) return;
-                                          setSheetState(() => hubungan = value);
-                                        }
-                                      : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Jenis Kelamin',
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: jenisKelamin,
-                                  isExpanded: true,
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'Laki-laki',
-                                      child: Text('Laki-laki'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'Perempuan',
-                                      child: Text('Perempuan'),
-                                    ),
-                                  ],
-                                  onChanged: isEditing
-                                      ? (value) {
-                                          if (value == null) return;
-                                          setSheetState(
-                                            () => jenisKelamin = value,
-                                          );
-                                        }
-                                      : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          buildInputField(
-                            label: 'Tempat Lahir',
-                            controller: tempatLahirCtrl,
-                          ),
-                          buildInputField(
-                            label: 'Tanggal Lahir',
-                            controller: tanggalLahirCtrl,
-                            hintText: 'DD-MM-YYYY',
-                          ),
-                          // Agama dropdown (sesuai PB select: Islam/Kristen/Budha/Khatolik)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: 'Agama',
-                                filled: true,
-                                fillColor: isEditing
-                                    ? Colors.white
-                                    : AppTheme.backgroundColor,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusMedium,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: AppTheme.dividerColor,
-                                  ),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusMedium,
-                                  ),
-                                  borderSide: BorderSide(
-                                    color: AppTheme.dividerColor,
-                                  ),
-                                ),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: agama,
-                                  isExpanded: true,
-                                  items: AppConstants.daftarAgama
-                                      .map(
-                                        (a) => DropdownMenuItem(
-                                          value: a,
-                                          child: Text(a),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: isEditing
-                                      ? (value) {
-                                          if (value == null) return;
-                                          setSheetState(() => agama = value);
-                                        }
-                                      : null,
-                                ),
-                              ),
-                            ),
-                          ),
-                          buildInputField(
-                            label: 'Pendidikan',
-                            controller: pendidikanCtrl,
-                          ),
-                          buildInputField(
-                            label: 'Jenis Pekerjaan',
-                            controller: pekerjaanCtrl,
-                          ),
-                          buildInputField(
-                            label: 'Golongan Darah',
-                            controller: golonganDarahCtrl,
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: isEditing
-                                      ? null
-                                      : () => setSheetState(
-                                          () => isEditing = true,
-                                        ),
-                                  style: OutlinedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppTheme.radiusMedium,
-                                      ),
-                                    ),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.edit_rounded,
-                                    size: 18,
-                                  ),
-                                  label: const Text('Edit'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: isEditing ? saveMember : null,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppTheme.successColor,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppTheme.radiusMedium,
-                                      ),
-                                    ),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.save_rounded,
-                                    size: 18,
-                                  ),
-                                  label: const Text('Simpan'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: TextButton(
-                                  onPressed: cancelEdit,
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                  child: const Text('Batal'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                      borderSide: BorderSide(color: AppTheme.dividerColor),
                     ),
                   ),
                 ),
               );
-            },
-          );
-        },
-      );
-    } finally {
-      namaCtrl.dispose();
-      nikCtrl.dispose();
-      tempatLahirCtrl.dispose();
-      tanggalLahirCtrl.dispose();
-      pendidikanCtrl.dispose();
-      pekerjaanCtrl.dispose();
-      golonganDarahCtrl.dispose();
-    }
+            }
+
+            Future<void> saveMember() async {
+              final nama = namaCtrl.text.trim();
+              final nik = nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+              if (nama.isEmpty) {
+                ErrorClassifier.showErrorSnackBar(
+                  sheetContext,
+                  'Nama anggota wajib diisi.',
+                );
+                return;
+              }
+              if (nik.length != 16) {
+                ErrorClassifier.showErrorSnackBar(
+                  sheetContext,
+                  'NIK anggota harus 16 digit.',
+                );
+                return;
+              }
+              if (hubungan.isEmpty) {
+                ErrorClassifier.showErrorSnackBar(
+                  sheetContext,
+                  'Hubungan wajib dipilih.',
+                );
+                return;
+              }
+
+              final updatedMember = member.copyWith(
+                nama: nama,
+                nik: nik,
+                hubungan: hubungan,
+                jenisKelamin: jenisKelamin,
+                tempatLahir: tempatLahirCtrl.text.trim(),
+                tanggalLahir: tanggalLahirCtrl.text.trim(),
+                agama: agama,
+                pendidikan: pendidikanCtrl.text.trim(),
+                jenisPekerjaan: pekerjaanCtrl.text.trim(),
+                golonganDarah: golonganDarahCtrl.text.trim(),
+              );
+              setState(() {
+                final updated = [..._parsedMembers];
+                updated[index] = updatedMember;
+                _parsedMembers = updated;
+              });
+              if (mounted) {
+                ErrorClassifier.showSuccessSnackBar(
+                  this.context,
+                  'Detail anggota diperbarui.',
+                );
+              }
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
+            }
+
+            void cancelEdit() {
+              if (!isEditing) {
+                if (sheetContext.mounted) Navigator.pop(sheetContext);
+                return;
+              }
+              namaCtrl.text = member.nama;
+              nikCtrl.text = member.nik;
+              tempatLahirCtrl.text = member.tempatLahir;
+              tanggalLahirCtrl.text = member.tanggalLahir;
+              pendidikanCtrl.text = member.pendidikan;
+              pekerjaanCtrl.text = member.jenisPekerjaan;
+              golonganDarahCtrl.text = member.golonganDarah;
+              jenisKelamin =
+                  member.jenisKelamin.trim().toLowerCase() == 'perempuan'
+                  ? 'Perempuan'
+                  : 'Laki-laki';
+              hubungan = _mapHubunganForStorage(
+                member.hubungan.isNotEmpty ? member.hubungan : '',
+              );
+              agama = _mapAgamaForStorage(
+                member.agama.isNotEmpty ? member.agama : '',
+              );
+              setSheetState(() => isEditing = false);
+            }
+
+            return SafeArea(
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(AppTheme.radiusXLarge),
+                    topRight: Radius.circular(AppTheme.radiusXLarge),
+                  ),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    8,
+                    20,
+                    20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                gradient: AppTheme.primaryGradient,
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.person_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Detail Anggota ${index + 1}',
+                                style: AppTheme.heading3,
+                              ),
+                            ),
+                            if (isEditing)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.accentColor.withValues(
+                                    alpha: 0.15,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusXLarge,
+                                  ),
+                                ),
+                                child: Text(
+                                  'Editing',
+                                  style: AppTheme.caption.copyWith(
+                                    color: AppTheme.accentColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        buildInputField(
+                          label: 'Nama Lengkap',
+                          controller: namaCtrl,
+                          prefixIcon: Icons.badge_rounded,
+                        ),
+                        buildInputField(
+                          label: 'NIK',
+                          controller: nikCtrl,
+                          keyboardType: TextInputType.number,
+                          prefixIcon: Icons.credit_card_rounded,
+                        ),
+                        // Hubungan dropdown (sesuai PB select: Ayah/Ibu/Anak)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Hubungan',
+                              prefixIcon: const Icon(
+                                Icons.family_restroom_rounded,
+                                size: 20,
+                              ),
+                              filled: true,
+                              fillColor: isEditing
+                                  ? Colors.white
+                                  : AppTheme.backgroundColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor,
+                                ),
+                              ),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: hubungan,
+                                isExpanded: true,
+                                items: AppConstants.hubunganKeluarga
+                                    .map(
+                                      (h) => DropdownMenuItem(
+                                        value: h,
+                                        child: Text(h),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: isEditing
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setSheetState(() => hubungan = value);
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Jenis Kelamin',
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: jenisKelamin,
+                                isExpanded: true,
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'Laki-laki',
+                                    child: Text('Laki-laki'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'Perempuan',
+                                    child: Text('Perempuan'),
+                                  ),
+                                ],
+                                onChanged: isEditing
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setSheetState(
+                                          () => jenisKelamin = value,
+                                        );
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        buildInputField(
+                          label: 'Tempat Lahir',
+                          controller: tempatLahirCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Tanggal Lahir',
+                          controller: tanggalLahirCtrl,
+                          hintText: 'DD-MM-YYYY',
+                        ),
+                        // Agama dropdown (sesuai PB select: Islam/Kristen/Budha/Khatolik)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Agama',
+                              filled: true,
+                              fillColor: isEditing
+                                  ? Colors.white
+                                  : AppTheme.backgroundColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                  AppTheme.radiusMedium,
+                                ),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor,
+                                ),
+                              ),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: agama,
+                                isExpanded: true,
+                                items: AppConstants.daftarAgama
+                                    .map(
+                                      (a) => DropdownMenuItem(
+                                        value: a,
+                                        child: Text(a),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: isEditing
+                                    ? (value) {
+                                        if (value == null) return;
+                                        setSheetState(() => agama = value);
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        buildInputField(
+                          label: 'Pendidikan',
+                          controller: pendidikanCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Jenis Pekerjaan',
+                          controller: pekerjaanCtrl,
+                        ),
+                        buildInputField(
+                          label: 'Golongan Darah',
+                          controller: golonganDarahCtrl,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: isEditing
+                                    ? null
+                                    : () =>
+                                          setSheetState(() => isEditing = true),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusMedium,
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.edit_rounded, size: 18),
+                                label: const Text('Edit'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: isEditing ? saveMember : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.successColor,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusMedium,
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.save_rounded, size: 18),
+                                label: const Text('Simpan'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextButton(
+                                onPressed: cancelEdit,
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                                child: const Text('Batal'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _save() async {
