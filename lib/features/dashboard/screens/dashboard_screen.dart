@@ -3,11 +3,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pocketbase/pocketbase.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
+
+class DashboardStats {
+  const DashboardStats({required this.totalWarga, required this.totalKk});
+
+  final int totalWarga;
+  final int totalKk;
+}
+
+class _DashboardAreaScope {
+  const _DashboardAreaScope({required this.rt, required this.rw});
+
+  final int rt;
+  final int rw;
+}
 
 // Tambahkan provider untuk cek data warga user
 final hasWargaDataProvider = FutureProvider<bool>((ref) async {
@@ -37,6 +52,73 @@ final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
   return result.items.isNotEmpty;
 });
 
+int? _recordNumericField(RecordModel record, String field) {
+  final raw = record.data[field];
+  if (raw is int) return raw;
+  return int.tryParse(record.getStringValue(field));
+}
+
+Future<_DashboardAreaScope?> _resolveDashboardScope(AuthState auth) async {
+  if (auth.user == null) return null;
+
+  final userRt = _recordNumericField(auth.user!, 'rt');
+  final userRw = _recordNumericField(auth.user!, 'rw');
+  if (userRt != null && userRw != null && userRt > 0 && userRw > 0) {
+    return _DashboardAreaScope(rt: userRt, rw: userRw);
+  }
+
+  try {
+    final warga = await pb
+        .collection(AppConstants.colWarga)
+        .getFirstListItem('user_id = "${auth.user!.id}"');
+    final rt = _recordNumericField(warga, 'rt');
+    final rw = _recordNumericField(warga, 'rw');
+    if (rt != null && rw != null && rt > 0 && rw > 0) {
+      return _DashboardAreaScope(rt: rt, rw: rw);
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+String _dashboardScopeFilter(
+  AuthState auth, {
+  required _DashboardAreaScope? scope,
+}) {
+  if (auth.role == AppConstants.roleSuperuser || auth.role == 'sysadmin') {
+    return '';
+  }
+  if (scope == null) {
+    return 'id = ""';
+  }
+  if (auth.role == AppConstants.roleAdmin) {
+    return 'rw = ${scope.rw}';
+  }
+  return 'rt = ${scope.rt} && rw = ${scope.rw}';
+}
+
+final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
+  final auth = ref.watch(authProvider);
+  if (auth.user == null) {
+    return const DashboardStats(totalWarga: 0, totalKk: 0);
+  }
+
+  final scope = await _resolveDashboardScope(auth);
+  final filter = _dashboardScopeFilter(auth, scope: scope);
+
+  final wargaResult = await pb
+      .collection(AppConstants.colWarga)
+      .getList(page: 1, perPage: 1, filter: filter);
+  final kkResult = await pb
+      .collection(AppConstants.colKartuKeluarga)
+      .getList(page: 1, perPage: 1, filter: filter);
+
+  return DashboardStats(
+    totalWarga: wargaResult.totalItems,
+    totalKk: kkResult.totalItems,
+  );
+});
+
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -47,33 +129,17 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _hasNavigatedToKkForm = false;
 
-  @override
-  void initState() {
-    super.initState();
-    // Schedule KK check after the first frame to avoid navigating during build.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkKartuKeluarga();
-    });
-  }
-
-  void _checkKartuKeluarga() {
-    if (_hasNavigatedToKkForm || !mounted) return;
-    // Use ref.read instead of ref.listen since we're outside build method
-    final current = ref.read(hasKartuKeluargaProvider);
-    current.whenData((hasData) {
-      if (!hasData && mounted && !_hasNavigatedToKkForm) {
-        _hasNavigatedToKkForm = true;
-        debugPrint(
-          '[DEBUG CALLBACK] hasKartuKeluarga: false — navigating to KK form',
-        );
-        context.go(Routes.kkForm);
-      }
-    });
+  void _navigateToKkFormIfNeeded(bool hasKartuKeluarga) {
+    if (_hasNavigatedToKkForm || !mounted || hasKartuKeluarga) return;
+    _hasNavigatedToKkForm = true;
+    debugPrint('[DEBUG] No KK data — navigating to KK form');
+    context.go(Routes.kkForm);
   }
 
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final statsAsync = ref.watch(dashboardStatsProvider);
     final userName = authState.user?.getStringValue('name').isNotEmpty == true
         ? authState.user!.getStringValue('name')
         : (authState.user?.getStringValue('nama').isNotEmpty == true
@@ -81,19 +147,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               : 'User');
     final role = authState.role;
 
-    // Listen for hasKartuKeluarga changes - must be in build method
+    // Listen for hasKartuKeluarga changes and navigate if needed
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
-      if (_hasNavigatedToKkForm || !mounted) return;
-      next.whenData((hasData) {
-        if (!hasData && mounted && !_hasNavigatedToKkForm) {
-          _hasNavigatedToKkForm = true;
-          debugPrint(
-            '[DEBUG LISTEN] hasKartuKeluarga: false — navigating to KK form',
-          );
-          context.go(Routes.kkForm);
-        }
-      });
+      next.whenData(_navigateToKkFormIfNeeded);
     });
+
+    // Also check current value on first build
+    final hasKkAsync = ref.watch(hasKartuKeluargaProvider);
+    hasKkAsync.whenData(_navigateToKkFormIfNeeded);
 
     return Scaffold(
       body: CustomScrollView(
@@ -218,14 +279,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     _StatCard(
                       icon: Icons.people_rounded,
                       label: 'Warga',
-                      value: '-',
+                      value: statsAsync.maybeWhen(
+                        data: (stats) => stats.totalWarga.toString(),
+                        orElse: () => '...',
+                      ),
                       color: AppTheme.primaryColor,
                     ),
                     const SizedBox(width: 10),
                     _StatCard(
                       icon: Icons.family_restroom_rounded,
                       label: 'KK',
-                      value: '-',
+                      value: statsAsync.maybeWhen(
+                        data: (stats) => stats.totalKk.toString(),
+                        orElse: () => '...',
+                      ),
                       color: AppTheme.secondaryColor,
                     ),
                     const SizedBox(width: 10),

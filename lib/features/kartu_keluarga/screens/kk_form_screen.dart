@@ -487,6 +487,57 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         );
         return false;
       }
+      if (member.jenisKelamin.trim().isEmpty ||
+          !AppConstants.jenisKelamin.contains(member.jenisKelamin.trim())) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Jenis kelamin anggota ke-${i + 1} belum lengkap.',
+        );
+        return false;
+      }
+      if (member.tempatLahir.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Tempat lahir anggota ke-${i + 1} belum diisi.',
+        );
+        return false;
+      }
+      if (member.tanggalLahir.trim().isEmpty ||
+          _normalizeTanggalLahirToIso(member.tanggalLahir) == null) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Tanggal lahir anggota ke-${i + 1} belum lengkap atau tidak valid.',
+        );
+        return false;
+      }
+      if (member.agama.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Agama anggota ke-${i + 1} belum diisi.',
+        );
+        return false;
+      }
+      if (member.pendidikan.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Pendidikan anggota ke-${i + 1} belum diisi.',
+        );
+        return false;
+      }
+      if (member.jenisPekerjaan.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Jenis pekerjaan anggota ke-${i + 1} belum diisi.',
+        );
+        return false;
+      }
+      if (member.golonganDarah.trim().isEmpty) {
+        ErrorClassifier.showErrorSnackBar(
+          context,
+          'Golongan darah anggota ke-${i + 1} belum diisi.',
+        );
+        return false;
+      }
     }
 
     return true;
