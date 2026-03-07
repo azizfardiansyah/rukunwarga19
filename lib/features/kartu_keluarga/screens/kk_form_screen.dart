@@ -2169,39 +2169,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Image preview
-                        if (_scanBytes != null) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(
-                              AppTheme.radiusMedium,
-                            ),
-                            child: Container(
-                              width: double.infinity,
-                              constraints: const BoxConstraints(maxHeight: 200),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF0F4F8),
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
-                                ),
-                              ),
-                              child: Image.memory(
-                                _scanBytes!,
-                                fit: BoxFit.contain,
-                                errorBuilder: (ctx, err, st) => const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(24),
-                                    child: Icon(
-                                      Icons.broken_image_rounded,
-                                      size: 48,
-                                      color: AppTheme.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
                         Row(
                           children: [
                             Expanded(
@@ -2222,7 +2189,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                 icon: const Icon(
                                   Icons.add_photo_alternate_rounded,
                                 ),
-                                label: const Text('Pilih Gambar'),
+                                label: Text(
+                                  _scanBytes != null
+                                      ? 'Ganti Gambar'
+                                      : 'Pilih Gambar',
+                                ),
                               ),
                             ),
                             const SizedBox(width: 10),

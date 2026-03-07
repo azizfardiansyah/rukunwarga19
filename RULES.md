@@ -140,21 +140,6 @@ Jika ada transaksi baru / flow transaksi baru yang belum menulis ke collection `
 - Jika action belum tersedia, tambahkan action baru di `AppLogActions`.
 - Beritahu programmer bahwa ada perubahan logging yang ditambahkan.
 
-## 14. Aturan Notifikasi Transaksi Baru
-
-Jika ada transaksi baru / flow baru yang menurut agent perlu notifikasi dan belum ada:
-- Tambahkan notifikasi langsung mengikuti referensi implementasi di folder `lib/notification/`.
-- Gunakan fungsi/service notifikasi yang sudah tersedia, jangan membuat pola baru jika yang lama masih relevan.
-- Saat membuat notifikasi, wajib create record ke collection `notifications` (sesuai schema PocketBase pada gambar) dengan field:
-  - `user_id`
-  - `title`
-  - `body`
-  - `type` (gunakan tipe yang valid dari model/service notifikasi)
-  - `is_read` (default `false`)
-  - `related_id` (opsional)
-  - `notification_key` (opsional, untuk deduplikasi)
-  - `data` (opsional, json payload)
-- Beritahu programmer bahwa ada perubahan notifikasi yang ditambahkan.
 
 ## 15. Trigger Build Android
 

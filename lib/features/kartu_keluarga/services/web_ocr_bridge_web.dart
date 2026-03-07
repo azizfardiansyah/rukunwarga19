@@ -9,6 +9,12 @@ import 'package:flutter/foundation.dart';
 const _memberTableMarker = '__KK_MEMBER_TABLE__';
 const _memberStructMarker = '__KK_MEMBER_STRUCT__';
 const _memberStructPrefix = 'ROW|';
+const _memberTableLeftRatio = 0.012;
+const _memberTableTopRatio = 0.156;
+const _memberTableWidthRatio = 0.976;
+const _memberTableHeightRatio = 0.292;
+const _memberTableHeaderHeightRatio = 0.19;
+const _memberTableRowHeightRatio = 0.079;
 
 Future<String> runWebOcrImpl(
   Uint8List imageBytes, {
@@ -41,26 +47,66 @@ Future<String> runWebOcrImpl(
       tesseract: tesseract,
       lang: lang,
     );
-    if (nikAnchorRows.trim().isNotEmpty) {
-      if (kDebugMode) {
-        debugPrint('[KK OCR WEB] Using NIK-Anchor method');
-      }
-      return '${fullText.trim()}\n$_memberStructMarker\n${nikAnchorRows.trim()}';
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // STRATEGY 2: Per-row structured extraction (original method)
     // ═══════════════════════════════════════════════════════════════════════
-    final structuredMemberRows = await _extractStructuredMemberRows(
-      objectUrl: objectUrl,
-      tesseract: tesseract,
-      lang: lang,
-    );
-    if (structuredMemberRows.trim().isNotEmpty) {
+    final memberCropDataUrl = await _createMemberTableCropDataUrl(objectUrl);
+    var memberTableText = '';
+    if (memberCropDataUrl != null) {
+      memberTableText = await _recognizeText(
+        tesseract: tesseract,
+        source: memberCropDataUrl,
+        lang: lang,
+      );
+    }
+
+    var structuredMemberRows = '';
+    if (_countStructuredRows(nikAnchorRows) <= 1 &&
+        memberTableText.trim().isEmpty) {
+      structuredMemberRows = await _extractStructuredMemberRows(
+        objectUrl: objectUrl,
+        tesseract: tesseract,
+        lang: lang,
+      );
+    }
+    final mergedStructuredRows = _mergeStructuredMemberRows([
+      nikAnchorRows,
+      structuredMemberRows,
+    ]);
+    if (mergedStructuredRows.trim().isNotEmpty ||
+        memberTableText.trim().isNotEmpty) {
       if (kDebugMode) {
-        debugPrint('[KK OCR WEB] Using structured row method');
+        if (mergedStructuredRows.trim().isNotEmpty &&
+            memberTableText.trim().isNotEmpty) {
+          debugPrint('[KK OCR WEB] Using NIK-Anchor + member-table text');
+        } else if (mergedStructuredRows.trim().isNotEmpty) {
+          if (nikAnchorRows.trim().isNotEmpty &&
+              structuredMemberRows.trim().isNotEmpty) {
+            debugPrint(
+              '[KK OCR WEB] Using merged NIK-Anchor + structured rows',
+            );
+          } else if (nikAnchorRows.trim().isNotEmpty) {
+            debugPrint('[KK OCR WEB] Using NIK-Anchor method');
+          } else {
+            debugPrint('[KK OCR WEB] Using structured row method');
+          }
+        } else {
+          debugPrint('[KK OCR WEB] Using member-table crop text');
+        }
       }
-      return '${fullText.trim()}\n$_memberStructMarker\n${structuredMemberRows.trim()}';
+      final sections = <String>[fullText.trim()];
+      if (mergedStructuredRows.trim().isNotEmpty) {
+        sections
+          ..add(_memberStructMarker)
+          ..add(mergedStructuredRows.trim());
+      }
+      if (memberTableText.trim().isNotEmpty) {
+        sections
+          ..add(_memberTableMarker)
+          ..add(memberTableText.trim());
+      }
+      return sections.where((section) => section.isNotEmpty).join('\n');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -78,15 +124,7 @@ Future<String> runWebOcrImpl(
     // ═══════════════════════════════════════════════════════════════════════
     // STRATEGY 4: Simple crop fallback
     // ═══════════════════════════════════════════════════════════════════════
-    final memberCropDataUrl = await _createMemberTableCropDataUrl(objectUrl);
-    if (memberCropDataUrl == null) return fullText.trim();
-    final memberText = await _recognizeText(
-      tesseract: tesseract,
-      source: memberCropDataUrl,
-      lang: lang,
-    );
-    if (memberText.trim().isEmpty) return fullText.trim();
-    return '${fullText.trim()}\n$_memberTableMarker\n${memberText.trim()}';
+    return fullText.trim();
   } finally {
     html.Url.revokeObjectUrl(objectUrl);
   }
@@ -113,6 +151,86 @@ Future<String> _recognizeText({
   final textAny = data.getProperty<JSAny?>('text'.toJS);
   if (textAny == null || !textAny.isA<JSString>()) return '';
   return (textAny as JSString).toDart;
+}
+
+String _mergeStructuredMemberRows(List<String> sources) {
+  final merged = <String, String>{};
+  final order = <String>[];
+
+  for (final source in sources) {
+    final lines = source
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.startsWith(_memberStructPrefix))
+        .toList();
+    for (final line in lines) {
+      final parts = line.split('|');
+      if (parts.length < 10) continue;
+
+      final name = parts[1].trim();
+      final nik = parts[2].replaceAll(RegExp(r'[^0-9]'), '');
+      final key = nik.length == 16 ? 'nik:$nik' : 'name:${name.toUpperCase()}';
+      if (!merged.containsKey(key)) {
+        merged[key] = line;
+        order.add(key);
+        continue;
+      }
+
+      final existing = merged[key]!;
+      if (_structuredRowScore(line) > _structuredRowScore(existing)) {
+        merged[key] = line;
+      }
+    }
+  }
+
+  return order.map((key) => merged[key]!).join('\n');
+}
+
+int _structuredRowScore(String rowLine) {
+  final parts = rowLine.split('|');
+  if (parts.length < 10) return 0;
+
+  final name = parts[1].trim();
+  final nik = parts[2].replaceAll(RegExp(r'[^0-9]'), '');
+  final filledFieldCount = parts
+      .skip(1)
+      .where((part) => part.trim().isNotEmpty)
+      .length;
+
+  var score = filledFieldCount * 5;
+  if (nik.length == 16 && _looksLikeNik(nik)) {
+    score += 20;
+  }
+  score += name.replaceAll(RegExp(r'[^A-Z]'), '').length;
+  return score;
+}
+
+int _countStructuredRows(String rows) {
+  if (rows.trim().isEmpty) return 0;
+  return rows
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.startsWith(_memberStructPrefix))
+      .length;
+}
+
+int _rowCandidateScore(String rowText) {
+  final upper = rowText.toUpperCase();
+  var score = 0;
+
+  score += RegExp(r'\d').allMatches(upper).length * 2;
+  score += upper.length ~/ 8;
+  if (RegExp(r'\d{16}').hasMatch(upper)) {
+    score += 25;
+  }
+  if (upper.contains('LAKI') || upper.contains('PEREMPUAN')) {
+    score += 8;
+  }
+  if (upper.contains('ISLAM')) {
+    score += 4;
+  }
+
+  return score;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -142,42 +260,90 @@ Future<String> _extractMembersUsingNikAnchor({
     var emptyStreak = 0;
 
     for (var rowIndex = 0; rowIndex < 10; rowIndex++) {
-      final rowRect = _memberRowRect(
+      final rowRects = _memberRowRectVariants(
         imageWidth: width,
         imageHeight: height,
         rowIndex: rowIndex,
       );
-      if (rowRect == null) continue;
+      if (rowRects.isEmpty) continue;
 
-      // Preprocess and OCR the entire row
-      final rowDataUrl = _cropAndPreprocessForOcr(
-        image: image,
-        sx: rowRect.$1,
-        sy: rowRect.$2,
-        sw: rowRect.$3,
-        sh: rowRect.$4,
-        scale: 4,
-        removeGridLines: true,
-      );
+      Map<String, String>? member;
+      var bestRowNormalized = '';
+      var bestScore = -1;
 
-      final rowText = await _recognizeText(
-        tesseract: tesseract,
-        source: rowDataUrl,
-        lang: lang,
-      );
+      for (
+        var variantIndex = 0;
+        variantIndex < rowRects.length;
+        variantIndex++
+      ) {
+        final rowRect = rowRects[variantIndex];
+        final rowDataUrl = _cropAndPreprocessForOcr(
+          image: image,
+          sx: rowRect.$1,
+          sy: rowRect.$2,
+          sw: rowRect.$3,
+          sh: rowRect.$4,
+          scale: 4,
+          removeGridLines: true,
+        );
 
-      final rowNormalized = rowText
-          .replaceAll('\n', ' ')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim()
-          .toUpperCase();
+        final rowText = await _recognizeText(
+          tesseract: tesseract,
+          source: rowDataUrl,
+          lang: lang,
+        );
 
-      if (kDebugMode) {
-        debugPrint('[KK OCR WEB] ROW[$rowIndex] raw: $rowNormalized');
+        final rowNormalized = rowText
+            .replaceAll('\n', ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim()
+            .toUpperCase();
+        final candidateScore = _rowCandidateScore(rowNormalized);
+        if (candidateScore > bestScore) {
+          bestScore = candidateScore;
+          bestRowNormalized = rowNormalized;
+        }
+
+        member = _parseRowUsingNikAnchor(rowNormalized);
+        if (member != null) {
+          bestRowNormalized = rowNormalized;
+          break;
+        }
       }
 
-      // Parse the row using NIK as anchor
-      final member = _parseRowUsingNikAnchor(rowNormalized);
+      if (member == null && bestScore < 55) {
+        final fallbackRect = rowRects.first;
+        final fallbackUrl = _cropAndPreprocessForOcr(
+          image: image,
+          sx: fallbackRect.$1,
+          sy: fallbackRect.$2,
+          sw: fallbackRect.$3,
+          sh: fallbackRect.$4,
+          scale: 5,
+          removeGridLines: false,
+        );
+        final fallbackText = await _recognizeText(
+          tesseract: tesseract,
+          source: fallbackUrl,
+          lang: lang,
+        );
+        final fallbackNormalized = fallbackText
+            .replaceAll('\n', ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim()
+            .toUpperCase();
+        if (_rowCandidateScore(fallbackNormalized) > bestScore) {
+          bestRowNormalized = fallbackNormalized;
+        }
+        member = _parseRowUsingNikAnchor(fallbackNormalized);
+        if (member != null) {
+          bestRowNormalized = fallbackNormalized;
+        }
+      }
+
+      if (kDebugMode) {
+        debugPrint('[KK OCR WEB] ROW[$rowIndex] raw: $bestRowNormalized');
+      }
 
       if (member != null) {
         if (kDebugMode) {
@@ -229,8 +395,10 @@ Future<String> _extractMembersUsingNikAnchor({
 Map<String, String>? _parseRowUsingNikAnchor(String rowText) {
   if (rowText.isEmpty) return null;
 
+  final nikAnchor = _findNikAnchorInText(rowText);
+
   // Skip rows that are clearly header/label rows
-  if (_looksLikeHeaderRow(rowText)) {
+  if (nikAnchor == null && _looksLikeHeaderRow(rowText)) {
     if (kDebugMode) {
       debugPrint('[KK OCR WEB] Skipped header row: ${_truncate(rowText, 50)}');
     }
@@ -238,9 +406,9 @@ Map<String, String>? _parseRowUsingNikAnchor(String rowText) {
   }
 
   // Find NIK in this row using multiple strategies
-  String? nik;
-  int nikStart = -1;
-  int nikEnd = -1;
+  String? nik = nikAnchor?.nik;
+  int nikStart = nikAnchor?.start ?? -1;
+  int nikEnd = nikAnchor?.end ?? -1;
 
   // Strategy 1: Look for 16 consecutive digits (ideal case)
   final pureDigitMatch = RegExp(r'(\d{16})').firstMatch(rowText);
@@ -332,13 +500,21 @@ Map<String, String>? _parseRowUsingNikAnchor(String rowText) {
   final pekerjaan = _extractPekerjaanFromRowText(afterNik);
   final goldar = _extractGolDarahFromRowText(afterNik);
 
-  // Validate: need either good name or good NIK
   final hasGoodName = nama.replaceAll(RegExp(r'[^A-Za-z]'), '').length >= 3;
   final hasGoodNik = nik.length == 16;
+  final informativeFieldCount = [
+    jenisKelamin,
+    tempatLahir,
+    tanggalLahir,
+    agama,
+    pendidikan,
+    pekerjaan,
+    goldar,
+  ].where((value) => value.trim().isNotEmpty).length;
 
-  if (!hasGoodName && !hasGoodNik) {
+  if (!hasGoodNik || (!hasGoodName && informativeFieldCount < 3)) {
     if (kDebugMode) {
-      debugPrint('[KK OCR WEB] Rejected: no good name or NIK');
+      debugPrint('[KK OCR WEB] Rejected: row data is too weak');
     }
     return null;
   }
@@ -354,6 +530,50 @@ Map<String, String>? _parseRowUsingNikAnchor(String rowText) {
     'pekerjaan': pekerjaan,
     'goldar': goldar,
   };
+}
+
+({String nik, int start, int end})? _findNikAnchorInText(String rowText) {
+  final pureDigitMatches = RegExp(r'(\d{16})').allMatches(rowText);
+  for (final match in pureDigitMatches) {
+    final candidate = match.group(1)!;
+    if (_looksLikeNik(candidate)) {
+      if (kDebugMode) {
+        debugPrint('[KK OCR WEB] Found pure digit NIK: $candidate');
+      }
+      return (nik: candidate, start: match.start, end: match.end);
+    }
+  }
+
+  final clusterPattern = RegExp(
+    r'([0-9OQDILZSTBEGAFRHYP][0-9OQDILZSTBEGAFRHYP\s\-:./]{14,30}[0-9OQDILZSTBEGAFRHYP])',
+    caseSensitive: false,
+  );
+  for (final match in clusterPattern.allMatches(rowText)) {
+    final candidate = _extractNikFromDigitCluster(match.group(1)!);
+    if (candidate == null) continue;
+    if (kDebugMode) {
+      debugPrint('[KK OCR WEB] Found OCR-corrected NIK: $candidate');
+    }
+    return (nik: candidate, start: match.start, end: match.end);
+  }
+
+  return null;
+}
+
+String? _extractNikFromDigitCluster(String cluster) {
+  final normalized = _normalizeOcrDigits(
+    cluster,
+  ).replaceAll(RegExp(r'[^0-9]'), '');
+  if (normalized.length < 16) return null;
+
+  for (var i = 0; i <= normalized.length - 16; i++) {
+    final candidate = normalized.substring(i, i + 16);
+    if (_looksLikeNik(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 /// Extract name from text before NIK in a row
@@ -489,8 +709,15 @@ String _extractNameFromRowText(String text) {
   // Take the last N words if there are too many (names are usually at the end)
   // But first, detect and remove leading noise
   final cleanedWords = _removeLeadingNoise(merged);
+  final bestCandidate = _pickBestNameWindow(cleanedWords);
+  if (bestCandidate.isNotEmpty) {
+    return bestCandidate;
+  }
 
-  return cleanedWords.take(5).join(' ');
+  final fallback = cleanedWords.length <= 4
+      ? cleanedWords
+      : cleanedWords.sublist(cleanedWords.length - 4);
+  return fallback.join(' ');
 }
 
 /// Check if a short word is likely part of a name
@@ -524,6 +751,98 @@ List<String> _removeLeadingNoise(List<String> words) {
 
   if (startIdx >= words.length) return words;
   return words.sublist(startIdx);
+}
+
+String _pickBestNameWindow(List<String> words) {
+  if (words.isEmpty) return '';
+
+  var bestCandidate = '';
+  var bestScore = double.negativeInfinity;
+
+  for (var start = 0; start < words.length; start++) {
+    for (
+      var length = 1;
+      length <= 4 && start + length <= words.length;
+      length++
+    ) {
+      final candidateWords = words.sublist(start, start + length);
+      final candidate = _normalizeNameCandidate(candidateWords.join(' '));
+      if (candidate.isEmpty) continue;
+
+      final score = _scoreNameWindow(
+        candidateWords,
+        start: start,
+        totalWords: words.length,
+      );
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+  }
+
+  return bestCandidate;
+}
+
+double _scoreNameWindow(
+  List<String> words, {
+  required int start,
+  required int totalWords,
+}) {
+  if (words.isEmpty) return double.negativeInfinity;
+
+  final distanceFromEnd = totalWords - (start + words.length);
+  var score = 0.0;
+
+  if (words.length >= 2) {
+    score += 4;
+  } else {
+    score -= 1;
+  }
+  if (words.length == 2) {
+    score += 2;
+  }
+  if (words.length <= 3) {
+    score += 1.5;
+  }
+  if (words.length >= 3 &&
+      words.first.length <= 4 &&
+      !_isLikelyNamePart(words.first)) {
+    score -= 4;
+  }
+
+  if (distanceFromEnd == 0) {
+    score += 3;
+  } else if (distanceFromEnd == 1) {
+    score += 2;
+  } else if (distanceFromEnd == 2) {
+    score += 1;
+  }
+
+  for (final word in words) {
+    if (word.length >= 3 && word.length <= 12) {
+      score += 2;
+    }
+    if (word.length > 15) {
+      score -= 3;
+    }
+    if (_hasReasonableVowelRatio(word)) {
+      score += 1;
+    } else {
+      score -= 2;
+    }
+    if (RegExp(r'(.)\1{3,}').hasMatch(word)) {
+      score -= 2;
+    }
+    if (RegExp(r'[AEIOU]{4,}').hasMatch(word)) {
+      score -= 2;
+    }
+    if (RegExp(r'[^AEIOU]{6,}').hasMatch(word)) {
+      score -= 2;
+    }
+  }
+
+  return score;
 }
 
 /// Extract gender from row text (after NIK)
@@ -633,7 +952,16 @@ String _extractTempatLahirFromRowText(String text, String gender) {
 
   // Try fuzzy match
   final fuzzy = _fuzzyMatchTempatLahirWeb(result);
-  return fuzzy ?? (result.length >= 4 ? result : '');
+  if (fuzzy != null) return fuzzy;
+
+  if (words.length >= 2 && words.every((w) => w.length <= 3)) {
+    return '';
+  }
+  if (words.length == 1 && words.first.length <= 3) {
+    return '';
+  }
+
+  return result.length >= 4 ? result : '';
 }
 
 /// Extract pendidikan from row text
@@ -1366,31 +1694,18 @@ Future<String?> _createMemberTableCropDataUrl(String objectUrl) async {
     final height = image.naturalHeight;
     if (width <= 0 || height <= 0) return null;
 
-    final sx = (width * 0.015).round();
-    final sy = (height * 0.165).round();
-    final sw = (width * 0.97).round();
-    final sh = (height * 0.275).round();
-    if (sw <= 0 || sh <= 0) return null;
+    final rect = _memberTableRect(imageWidth: width, imageHeight: height);
+    if (rect == null) return null;
 
-    final safeX = sx.clamp(0, width - 1);
-    final safeY = sy.clamp(0, height - 1);
-    final safeW = sw.clamp(1, width - safeX);
-    final safeH = sh.clamp(1, height - safeY);
-
-    final canvas = html.CanvasElement(width: safeW * 2, height: safeH * 2);
-    final ctx = canvas.context2D;
-    ctx.drawImageScaledFromSource(
-      image,
-      safeX.toDouble(),
-      safeY.toDouble(),
-      safeW.toDouble(),
-      safeH.toDouble(),
-      0,
-      0,
-      (safeW * 2).toDouble(),
-      (safeH * 2).toDouble(),
+    return _cropAndPreprocessForOcr(
+      image: image,
+      sx: rect.$1,
+      sy: rect.$2,
+      sw: rect.$3,
+      sh: rect.$4,
+      scale: 3,
+      removeGridLines: true,
     );
-    return canvas.toDataUrl('image/jpeg', 0.98);
   } catch (_) {
     return null;
   }
@@ -1412,168 +1727,190 @@ Future<String> _extractStructuredMemberRows({
     var emptyStreak = 0;
 
     for (var rowIndex = 0; rowIndex < 10; rowIndex++) {
-      final rowRect = _memberRowRect(
+      final rowRects = _memberRowRectVariants(
         imageWidth: width,
         imageHeight: height,
         rowIndex: rowIndex,
       );
-      if (rowRect == null) continue;
+      if (rowRects.isEmpty) continue;
 
-      Future<String> readColumn({
-        required double startRatio,
-        required double widthRatio,
-        int scale = 3,
-        bool binarize = true,
-        String? forceLang,
-      }) async {
-        final colRect = _columnRectInRow(
-          rowRect: rowRect,
-          startRatio: startRatio,
-          widthRatio: widthRatio,
-          imageWidth: width,
-          imageHeight: height,
+      Future<({String line, int score, bool hasData})> readCandidate(
+        (int, int, int, int) rowRect,
+      ) async {
+        Future<String> readColumn({
+          required double startRatio,
+          required double widthRatio,
+          int scale = 3,
+          bool binarize = true,
+          String? forceLang,
+        }) async {
+          final colRect = _columnRectInRow(
+            rowRect: rowRect,
+            startRatio: startRatio,
+            widthRatio: widthRatio,
+            imageWidth: width,
+            imageHeight: height,
+          );
+          if (colRect == null) return '';
+          final dataUrl = _cropDataUrlFromImage(
+            image: image,
+            sx: colRect.$1,
+            sy: colRect.$2,
+            sw: colRect.$3,
+            sh: colRect.$4,
+            scale: scale,
+            binarize: binarize,
+          );
+          final text = await _recognizeText(
+            tesseract: tesseract,
+            source: dataUrl,
+            lang: forceLang ?? lang,
+          );
+          return text
+              .replaceAll('\n', ' ')
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .trim();
+        }
+
+        final rowRaw = await readColumn(
+          startRatio: 0.0,
+          widthRatio: 1.0,
+          scale: 3,
+          binarize: true,
         );
-        if (colRect == null) return '';
-        final dataUrl = _cropDataUrlFromImage(
-          image: image,
-          sx: colRect.$1,
-          sy: colRect.$2,
-          sw: colRect.$3,
-          sh: colRect.$4,
-          scale: scale,
-          binarize: binarize,
+        final nameRaw = await readColumn(
+          startRatio: 0.01,
+          widthRatio: 0.20,
+          scale: 4,
+          binarize: true,
         );
-        final text = await _recognizeText(
-          tesseract: tesseract,
-          source: dataUrl,
-          lang: forceLang ?? lang,
+        final nikRaw = await readColumn(
+          startRatio: 0.20,
+          widthRatio: 0.16,
+          scale: 4,
+          binarize: true,
+          forceLang: 'eng',
         );
-        return text
-            .replaceAll('\n', ' ')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
+        final jkRaw = await readColumn(
+          startRatio: 0.35,
+          widthRatio: 0.08,
+          scale: 4,
+          binarize: true,
+        );
+        final tempatRaw = await readColumn(
+          startRatio: 0.43,
+          widthRatio: 0.10,
+          scale: 3,
+          binarize: true,
+        );
+        final tglRaw = await readColumn(
+          startRatio: 0.53,
+          widthRatio: 0.08,
+          scale: 4,
+          binarize: true,
+          forceLang: 'eng',
+        );
+        final agamaRaw = await readColumn(
+          startRatio: 0.61,
+          widthRatio: 0.07,
+          scale: 3,
+          binarize: true,
+        );
+        final pendidikanRaw = await readColumn(
+          startRatio: 0.68,
+          widthRatio: 0.13,
+          scale: 3,
+          binarize: true,
+        );
+        final pekerjaanRaw = await readColumn(
+          startRatio: 0.81,
+          widthRatio: 0.11,
+          scale: 3,
+          binarize: true,
+        );
+        final goldarRaw = await readColumn(
+          startRatio: 0.92,
+          widthRatio: 0.08,
+          scale: 3,
+          binarize: true,
+        );
+
+        final nik = _normalizeNikCandidate('$nikRaw $rowRaw');
+        var nama = _normalizeNameCandidate(nameRaw);
+        if (nama.isEmpty) {
+          nama = _extractNameFromRowRaw(rowRaw);
+        }
+        if (nama.isEmpty) {
+          nama = _extractNameBeforeDigits(rowRaw);
+        }
+        final jenisKelamin = _normalizeGenderCandidate('$jkRaw $rowRaw');
+        final tempatLahir = _normalizeTempatLahirCandidate(tempatRaw);
+        var tanggalLahir = _normalizeDateCandidate(tglRaw);
+        if (tanggalLahir.isEmpty) {
+          tanggalLahir = _normalizeDateCandidate(rowRaw);
+        }
+        var agama = _normalizeAgamaCandidate(agamaRaw);
+        if (agama.isEmpty) {
+          agama = _normalizeAgamaCandidate(rowRaw);
+        }
+        final pendidikan = _normalizePendidikanCandidate(pendidikanRaw);
+        final pekerjaan = _normalizePekerjaanCandidate(pekerjaanRaw);
+        final goldar = _normalizeGolDarahCandidate('$goldarRaw $rowRaw');
+
+        final nameAlphaLen = nama.replaceAll(RegExp(r'[^A-Za-z]'), '').length;
+        final hasGoodName = nama.isNotEmpty && nameAlphaLen >= 4;
+        final hasGoodNik = nik.length == 16 && _looksLikeNik(nik);
+        final filledFields = [
+          nama,
+          nik,
+          jenisKelamin,
+          tempatLahir,
+          tanggalLahir,
+          agama,
+          pendidikan,
+          pekerjaan,
+          goldar,
+        ].where((value) => value.trim().isNotEmpty).length;
+        final line =
+            '$_memberStructPrefix$nama|$nik|$jenisKelamin|$tempatLahir|'
+            '$tanggalLahir|$agama|$pendidikan|$pekerjaan|$goldar';
+        return (
+          line: line,
+          score:
+              (hasGoodNik ? 30 : 0) + (hasGoodName ? 10 : 0) + filledFields * 4,
+          hasData: hasGoodName || hasGoodNik,
+        );
       }
 
-      // Read the full row first for fallback data
-      final rowRaw = await readColumn(
-        startRatio: 0.0,
-        widthRatio: 1.0,
-        scale: 3,
-        binarize: true,
-      );
+      String bestLine = '';
+      var bestScore = -1;
+      var hasData = false;
 
-      // Column ratios adjusted to match typical KK layout:
-      // Nama Lengkap: ~0-20% of table width
-      // NIK: ~20-35%
-      // Jenis Kelamin: ~35-43%
-      // Tempat Lahir: ~43-53%
-      // Tanggal Lahir: ~53-61%
-      // Agama: ~61-68%
-      // Pendidikan: ~68-80%
-      // Pekerjaan: ~80-92%
-      // Golongan Darah: ~92-100%
-      final nameRaw = await readColumn(
-        startRatio: 0.01,
-        widthRatio: 0.20,
-        scale: 4,
-        binarize: true,
-      );
-      final nikRaw = await readColumn(
-        startRatio: 0.20,
-        widthRatio: 0.16,
-        scale: 4,
-        binarize: true,
-        forceLang: 'eng',
-      );
-      final jkRaw = await readColumn(
-        startRatio: 0.35,
-        widthRatio: 0.08,
-        scale: 4,
-        binarize: true,
-      );
-      final tempatRaw = await readColumn(
-        startRatio: 0.43,
-        widthRatio: 0.10,
-        scale: 3,
-        binarize: true,
-      );
-      final tglRaw = await readColumn(
-        startRatio: 0.53,
-        widthRatio: 0.08,
-        scale: 4,
-        binarize: true,
-        forceLang: 'eng',
-      );
-      final agamaRaw = await readColumn(
-        startRatio: 0.61,
-        widthRatio: 0.07,
-        scale: 3,
-        binarize: true,
-      );
+      for (final rowRect in rowRects.take(2)) {
+        final candidate = await readCandidate(rowRect);
+        if (candidate.score > bestScore) {
+          bestScore = candidate.score;
+          bestLine = candidate.line;
+        }
+        if (candidate.hasData) {
+          hasData = true;
+          if (candidate.score >= 48) {
+            break;
+          }
+        }
+      }
 
-      final nik = _normalizeNikCandidate('$nikRaw $rowRaw');
-      var nama = _normalizeNameCandidate(nameRaw);
-      if (nama.isEmpty) {
-        nama = _extractNameFromRowRaw(rowRaw);
-      }
-      // If still empty, try extracting the name from the beginning of the full row
-      if (nama.isEmpty) {
-        nama = _extractNameBeforeDigits(rowRaw);
-      }
-      final jenisKelamin = _normalizeGenderCandidate('$jkRaw $rowRaw');
-      final tempatLahir = _normalizeTempatLahirCandidate(tempatRaw);
-      // Prefer date from dedicated column; fallback to rowRaw only if column fails
-      var tanggalLahir = _normalizeDateCandidate(tglRaw);
-      if (tanggalLahir.isEmpty) {
-        tanggalLahir = _normalizeDateCandidate(rowRaw);
-      }
-      // Prefer agama from dedicated column; fallback to rowRaw
-      var agama = _normalizeAgamaCandidate(agamaRaw);
-      if (agama.isEmpty) {
-        agama = _normalizeAgamaCandidate(rowRaw);
-      }
-      // Also try to read pendidikan and pekerjaan columns
-      final pendidikanRaw = await readColumn(
-        startRatio: 0.68,
-        widthRatio: 0.13,
-        scale: 3,
-        binarize: true,
-      );
-      final pekerjaanRaw = await readColumn(
-        startRatio: 0.81,
-        widthRatio: 0.11,
-        scale: 3,
-        binarize: true,
-      );
-      final goldarRaw = await readColumn(
-        startRatio: 0.92,
-        widthRatio: 0.08,
-        scale: 3,
-        binarize: true,
-      );
-      final pendidikan = _normalizePendidikanCandidate(pendidikanRaw);
-      final pekerjaan = _normalizePekerjaanCandidate(pekerjaanRaw);
-      final goldar = _normalizeGolDarahCandidate('$goldarRaw $rowRaw');
-
-      // Stricter validation: need a meaningful name (>= 4 alpha chars)
-      // OR a valid-looking 16-digit NIK. Reject short noise names.
-      final nameAlphaLen = nama.replaceAll(RegExp(r'[^A-Za-z]'), '').length;
-      final hasGoodName = nama.isNotEmpty && nameAlphaLen >= 4;
-      final hasGoodNik = nik.length == 16 && _looksLikeNik(nik);
-      final hasData = hasGoodName || hasGoodNik;
-      if (kDebugMode) {
+      if (kDebugMode && bestLine.isNotEmpty) {
+        final parts = bestLine.split('|');
         debugPrint(
-          '[KK OCR WEB] MEMBER STRUCT[$rowIndex] => nama=$nama, nik=$nik, '
-          'jk=$jenisKelamin, tempat=$tempatLahir, tgl=$tanggalLahir, '
-          'agama=$agama, pendidikan=$pendidikan, pekerjaan=$pekerjaan, goldar=$goldar',
+          '[KK OCR WEB] MEMBER STRUCT[$rowIndex] => nama=${parts[1]}, nik=${parts[2]}, '
+          'jk=${parts[3]}, tempat=${parts[4]}, tgl=${parts[5]}, '
+          'agama=${parts[6]}, pendidikan=${parts[7]}, pekerjaan=${parts[8]}, goldar=${parts[9]}',
         );
       }
 
-      if (hasData) {
-        rows.add(
-          '$_memberStructPrefix$nama|$nik|$jenisKelamin|$tempatLahir|$tanggalLahir|'
-          '$agama|$pendidikan|$pekerjaan|$goldar',
-        );
+      if (hasData && bestLine.isNotEmpty) {
+        rows.add(bestLine);
         emptyStreak = 0;
       } else {
         emptyStreak += 1;
@@ -1681,18 +2018,10 @@ Future<String> _extractMemberRowsText({
   required int imageWidth,
   required int imageHeight,
 }) {
-  // KK member data table analysis:
-  // - KK header (logo, No KK, alamat): 0-12% of image height
-  // - Member table starts at: ~12-13% of image height
-  // - Member table ends at: ~55-58% of image height (extended for safety)
-  // - Table header row (No, Nama Lengkap, NIK...): ~4-5% of table
-  // - Each data row: ~7-8% of table
-  // Extended to 45% height to ensure we capture all rows including
-  // families with 5+ members
-  final x = (imageWidth * 0.005).round();
-  final y = (imageHeight * 0.125).round(); // Start at 12.5%
-  final w = (imageWidth * 0.99).round();
-  final h = (imageHeight * 0.45).round(); // End at ~57.5% - extended
+  final x = (imageWidth * _memberTableLeftRatio).round();
+  final y = (imageHeight * _memberTableTopRatio).round();
+  final w = (imageWidth * _memberTableWidthRatio).round();
+  final h = (imageHeight * _memberTableHeightRatio).round();
   if (w <= 0 || h <= 0) return null;
   final safeX = x.clamp(0, imageWidth - 1);
   final safeY = y.clamp(0, imageHeight - 1);
@@ -1705,6 +2034,7 @@ Future<String> _extractMemberRowsText({
   required int imageWidth,
   required int imageHeight,
   required int rowIndex,
+  double rowShift = 0,
 }) {
   final table = _memberTableRect(
     imageWidth: imageWidth,
@@ -1717,23 +2047,12 @@ Future<String> _extractMemberRowsText({
   final tableW = table.$3;
   final tableH = table.$4;
 
-  // Skip the header rows:
-  // - Row 0: "Jenis Kelamin, Tempat Lahir..." labels (~5%)
-  // - Row 1: "(1) (2) (3)..." numbers (~3%)
-  // Total header = ~8% of table height
   final dataX = tableX + (tableW * 0.005).round();
   final dataW = (tableW * 0.99).round();
-  final headerHeight = (tableH * 0.085).round(); // 8.5% for header rows
+  final headerHeight = (tableH * _memberTableHeaderHeightRatio).round();
   final dataStartY = tableY + headerHeight;
-
-  // Each data row is about 8.5% of table height
-  // Standard KK has 10 data rows visible, 10 * 8.5% = 85% + 8.5% header ≈ 93.5%
-  // Using 8.5% gives more overlap between rows which helps capture text
-  // that might span row boundaries
-  final rowHeight = (tableH * 0.085).round();
-
-  // Add small vertical offset to center text within capture area
-  final rowOffset = (rowIndex * rowHeight * 0.95).round();
+  final rowHeight = (tableH * _memberTableRowHeightRatio).round();
+  final rowOffset = ((rowIndex + rowShift) * rowHeight).round();
   final dataY = dataStartY + rowOffset;
 
   if (dataW <= 0 || rowHeight <= 0) return null;
@@ -1741,9 +2060,32 @@ Future<String> _extractMemberRowsText({
   final safeX = dataX.clamp(0, imageWidth - 1);
   final safeY = dataY.clamp(0, imageHeight - 1);
   final safeW = dataW.clamp(1, imageWidth - safeX);
-  // Add padding to ensure full row capture - use 10% extra height
-  final safeH = (rowHeight * 1.1).round().clamp(1, imageHeight - safeY);
+  final safeH = (rowHeight * 1.05).round().clamp(1, imageHeight - safeY);
   return (safeX, safeY, safeW, safeH);
+}
+
+List<(int, int, int, int)> _memberRowRectVariants({
+  required int imageWidth,
+  required int imageHeight,
+  required int rowIndex,
+}) {
+  const shifts = [0.0, 0.16, -0.12, 0.28];
+  final variants = <(int, int, int, int)>[];
+
+  for (final shift in shifts) {
+    final rect = _memberRowRect(
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
+      rowIndex: rowIndex,
+      rowShift: shift,
+    );
+    if (rect == null) continue;
+    if (!variants.contains(rect)) {
+      variants.add(rect);
+    }
+  }
+
+  return variants;
 }
 
 String _normalizeTextField(String input) {
@@ -2071,6 +2413,16 @@ String _truncate(String text, int maxLen) {
 /// Check if row text looks like a header row (not data)
 bool _looksLikeHeaderRow(String rowText) {
   final upper = rowText.toUpperCase();
+
+  final nikLikeClusters = RegExp(
+    r'([0-9OQDILZSTBEGAFRHYP][0-9OQDILZSTBEGAFRHYP\s\-:./]{14,30}[0-9OQDILZSTBEGAFRHYP])',
+    caseSensitive: false,
+  ).allMatches(upper);
+  for (final match in nikLikeClusters) {
+    if (_extractNikFromDigitCluster(match.group(1)!) != null) {
+      return false;
+    }
+  }
 
   // Header rows typically contain column labels
   const headerKeywords = [

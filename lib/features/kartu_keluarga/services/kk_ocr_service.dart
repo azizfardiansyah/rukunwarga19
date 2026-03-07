@@ -11,6 +11,12 @@ class KkOcrService {
   static const String _memberTableMarker = '__KK_MEMBER_TABLE__';
   static const String _memberStructMarker = '__KK_MEMBER_STRUCT__';
   static const String _memberStructPrefix = 'ROW|';
+  static const double _memberTableLeftRatio = 0.012;
+  static const double _memberTableTopRatio = 0.156;
+  static const double _memberTableWidthRatio = 0.976;
+  static const double _memberTableHeightRatio = 0.292;
+  static const double _memberTableHeaderHeightRatio = 0.19;
+  static const double _memberTableRowHeightRatio = 0.079;
 
   Future<ParsedKkData> parseKkDataFromImage(String imagePath) async {
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
@@ -96,24 +102,28 @@ class KkOcrService {
         .toList();
 
     final noKk = _extractNoKk(lines, headerRaw);
+    final namaKepalaKeluarga = _extractNamaKepalaKeluarga(lines);
     final structuredLines = structuredMemberRaw
         .split('\n')
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
         .toList();
-    var members = _parseStructuredMembers(structuredLines, noKkHint: noKk);
-    if (members.isEmpty) {
-      final memberHintLines = memberHintRaw
-          .split('\n')
-          .map(_normalizeLine)
-          .where((line) => line.isNotEmpty)
-          .toList();
-      members = _parseMembers(
-        memberHintLines,
-        noKkHint: noKk,
-        requireTableHeader: false,
-      );
-    }
+    final memberHintLines = memberHintRaw
+        .split('\n')
+        .map(_normalizeLine)
+        .where((line) => line.isNotEmpty)
+        .toList();
+    final structuredMembers = _parseStructuredMembers(
+      structuredLines,
+      noKkHint: noKk,
+    );
+    final memberHintMembers = _parseMembers(
+      memberHintLines,
+      noKkHint: noKk,
+      requireTableHeader: false,
+    );
+    var members = _mergeMemberSources([structuredMembers, memberHintMembers]);
+    members = _orderMembersByReference(members, memberHintMembers);
     if (members.isEmpty) {
       members = _parseMembers(lines, noKkHint: noKk);
     }
@@ -127,12 +137,16 @@ class KkOcrService {
     if (members.isNotEmpty && members.every((m) => m.nik.isEmpty)) {
       _tryFillNiksFromRawText(members, headerRaw, noKkHint: noKk);
     }
+    if (members.isNotEmpty) {
+      _enrichMembersFromNik(members);
+    }
 
     // Post-process: enrich members with hubungan & names from the bottom
     // section of the KK (which has cleaner text for names + hubungan).
     final bottomMembers = _parseMembersFromHubunganSection(
       lines,
       noKkHint: noKk,
+      requireRelationship: true,
     );
     if (bottomMembers.isNotEmpty && members.isNotEmpty) {
       _enrichMembersFromBottomSection(members, bottomMembers);
@@ -142,11 +156,15 @@ class KkOcrService {
     if (members.isNotEmpty && members.any((m) => m.nik.isEmpty)) {
       _tryFillNiksFromRawText(members, headerRaw, noKkHint: noKk);
     }
+    if (members.isNotEmpty) {
+      _enrichMembersFromNik(members);
+      _ensureHeadMemberFromHeader(members, namaKepalaKeluarga);
+      _inferRemainingHubungan(members);
+    }
 
     // Post-process: try to fill missing detail fields from raw text
     _tryFillMemberDetailsFromRawText(members, headerRaw);
 
-    final namaKepalaKeluarga = _extractNamaKepalaKeluarga(lines);
     final alamat = _extractAlamat(lines);
     final rtRw = _extractRtRw(lines);
     final kelurahan = _extractKelurahan(lines);
@@ -217,11 +235,6 @@ class KkOcrService {
           !RegExp(r'^0+$').hasMatch(nikCandidate) &&
           !RegExp(r'^(\d)\1{15}$').hasMatch(nikCandidate);
 
-      // Accept member if name is present even with bad/missing NIK.
-      // OCR frequently garbles digits — don't lose real members.
-      if (nama.isEmpty && !hasValidNik) {
-        continue;
-      }
       if (nikCandidate.length == 16 && seenNik.contains(nikCandidate)) {
         continue;
       }
@@ -246,18 +259,41 @@ class KkOcrService {
       final pendidikan = _normalizePendidikanField(parts[7]);
       final pekerjaan = _normalizePekerjaanField(parts[8]);
       final golonganDarah = _normalizeGolonganDarah(parts[9]);
+      final informativeFieldCount = [
+        jenisKelamin,
+        tempatLahir,
+        tanggalLahir,
+        agama,
+        pendidikan,
+        pekerjaan,
+        golonganDarah,
+      ].where((value) => value.trim().isNotEmpty).length;
+
+      if (nama.isEmpty && !hasValidNik) {
+        continue;
+      }
+      if (nama.isEmpty && informativeFieldCount == 0) {
+        continue;
+      }
 
       // Store NIK only if it passes all checks
       final nikToStore = (hasValidNik && nikDateOk) ? nikCandidate : '';
+      final nikForInference = nikToStore.isNotEmpty ? nikToStore : nikCandidate;
+      final inferredJenisKelamin = _inferJenisKelaminFromNik(nikForInference);
+      final inferredTanggalLahir = _inferTanggalLahirFromNik(nikForInference);
 
       members.add(
         ParsedKkMember(
           nama: nama.isNotEmpty ? nama : '(Nama tidak terbaca)',
           nik: nikToStore,
           hubungan: '',
-          jenisKelamin: jenisKelamin,
+          jenisKelamin: jenisKelamin.isNotEmpty
+              ? jenisKelamin
+              : inferredJenisKelamin,
           tempatLahir: tempatLahir,
-          tanggalLahir: tanggalLahir,
+          tanggalLahir: tanggalLahir.isNotEmpty
+              ? tanggalLahir
+              : inferredTanggalLahir,
           agama: agama,
           pendidikan: pendidikan,
           jenisPekerjaan: pekerjaan,
@@ -268,6 +304,286 @@ class KkOcrService {
     }
 
     return members;
+  }
+
+  List<ParsedKkMember> _mergeMemberSources(List<List<ParsedKkMember>> sources) {
+    final merged = <ParsedKkMember>[];
+
+    for (final source in sources) {
+      for (final member in source) {
+        final normalizedName = member.nama.trim();
+        final normalizedNik = _validNikDigits(member.nik);
+        if (normalizedName.isEmpty && normalizedNik.isEmpty) {
+          continue;
+        }
+
+        final candidate = member.copyWith();
+        final existingIndex = merged.indexWhere(
+          (existing) => _isLikelySameMember(existing, candidate),
+        );
+        if (existingIndex < 0) {
+          merged.add(candidate);
+          continue;
+        }
+
+        merged[existingIndex] = _mergeMemberPair(
+          merged[existingIndex],
+          candidate,
+        );
+      }
+    }
+
+    return merged;
+  }
+
+  List<ParsedKkMember> _orderMembersByReference(
+    List<ParsedKkMember> members,
+    List<ParsedKkMember> reference,
+  ) {
+    if (members.length <= 1 || reference.isEmpty) {
+      return members;
+    }
+
+    final ordered = <ParsedKkMember>[];
+    final usedIndexes = <int>{};
+
+    for (final ref in reference) {
+      final matchIndex = members.indexWhere(
+        (member) =>
+            !usedIndexes.contains(members.indexOf(member)) &&
+            _isLikelySameMember(member, ref),
+      );
+      if (matchIndex >= 0) {
+        ordered.add(members[matchIndex]);
+        usedIndexes.add(matchIndex);
+      }
+    }
+
+    for (var i = 0; i < members.length; i++) {
+      if (!usedIndexes.contains(i)) {
+        ordered.add(members[i]);
+      }
+    }
+
+    return ordered;
+  }
+
+  ParsedKkMember _mergeMemberPair(ParsedKkMember left, ParsedKkMember right) {
+    final useRightAsPrimary = _memberDataScore(right) > _memberDataScore(left);
+    final primary = (useRightAsPrimary ? right : left).copyWith();
+    final secondary = useRightAsPrimary ? left : right;
+
+    final primaryNik = _validNikDigits(primary.nik);
+    final secondaryNik = _validNikDigits(secondary.nik);
+    final preferredName = _pickPreferredMemberName(
+      primary.nama,
+      secondary.nama,
+    );
+    if (preferredName == secondary.nama.trim() && secondaryNik.isNotEmpty) {
+      primary.nama = preferredName;
+      primary.nik = secondaryNik;
+    } else {
+      primary.nama = preferredName;
+    }
+    if (primaryNik.isEmpty && secondaryNik.isNotEmpty) {
+      primary.nik = secondaryNik;
+    }
+
+    primary.hubungan = _preferMoreInformativeValue(
+      primary.hubungan,
+      secondary.hubungan,
+    );
+    primary.jenisKelamin = _preferMoreInformativeValue(
+      primary.jenisKelamin,
+      secondary.jenisKelamin,
+    );
+    primary.tempatLahir = _preferMoreInformativeValue(
+      primary.tempatLahir,
+      secondary.tempatLahir,
+    );
+    primary.tanggalLahir = _preferMoreInformativeValue(
+      primary.tanggalLahir,
+      secondary.tanggalLahir,
+    );
+    primary.agama = _preferMoreInformativeValue(primary.agama, secondary.agama);
+    primary.pendidikan = _preferMoreInformativeValue(
+      primary.pendidikan,
+      secondary.pendidikan,
+    );
+    primary.jenisPekerjaan = _preferMoreInformativeValue(
+      primary.jenisPekerjaan,
+      secondary.jenisPekerjaan,
+    );
+    primary.golonganDarah = _preferMoreInformativeValue(
+      primary.golonganDarah,
+      secondary.golonganDarah,
+    );
+
+    return primary;
+  }
+
+  bool _isLikelySameMember(ParsedKkMember left, ParsedKkMember right) {
+    final leftNik = _validNikDigits(left.nik);
+    final rightNik = _validNikDigits(right.nik);
+    if (leftNik.isNotEmpty && rightNik.isNotEmpty) {
+      if (leftNik == rightNik) {
+        return true;
+      }
+    }
+
+    final similarity = _nameSimilarity(left.nama, right.nama);
+    if (similarity >= 0.9) {
+      return true;
+    }
+    if (similarity < 0.72) {
+      return false;
+    }
+
+    final leftTokens = left.nama
+        .toUpperCase()
+        .split(' ')
+        .where((token) => token.length >= 3)
+        .toSet();
+    final rightTokens = right.nama
+        .toUpperCase()
+        .split(' ')
+        .where((token) => token.length >= 3)
+        .toSet();
+    final sharedTokenCount = leftTokens.intersection(rightTokens).length;
+    return sharedTokenCount >= 1 ||
+        _looksClearlyGarbledName(left.nama) ||
+        _looksClearlyGarbledName(right.nama);
+  }
+
+  int _memberDataScore(ParsedKkMember member) {
+    final values = [
+      member.nama,
+      member.nik,
+      member.hubungan,
+      member.jenisKelamin,
+      member.tempatLahir,
+      member.tanggalLahir,
+      member.agama,
+      member.pendidikan,
+      member.jenisPekerjaan,
+      member.golonganDarah,
+    ];
+
+    var score = values.where((value) => value.trim().isNotEmpty).length * 4;
+    if (_validNikDigits(member.nik).isNotEmpty) {
+      score += 30;
+    }
+    score += _nameQualityScore(member.nama).round();
+    return score;
+  }
+
+  String _pickPreferredMemberName(String primary, String secondary) {
+    final left = primary.trim();
+    final right = secondary.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+
+    final mergedTokens = _mergeSimilarNameTokens(left, right);
+    if (mergedTokens.isNotEmpty) {
+      return mergedTokens;
+    }
+
+    final leftScore = _nameQualityScore(left);
+    final rightScore = _nameQualityScore(right);
+    if (_looksClearlyGarbledName(left) && !_looksClearlyGarbledName(right)) {
+      return right;
+    }
+    if (_looksClearlyGarbledName(right) && !_looksClearlyGarbledName(left)) {
+      return left;
+    }
+    if (_isLikelyExtraLeadingChar(left, right)) {
+      return right;
+    }
+    if (_isLikelyExtraLeadingChar(right, left)) {
+      return left;
+    }
+    if (rightScore >= leftScore + 2) {
+      return right;
+    }
+    return left;
+  }
+
+  String _mergeSimilarNameTokens(String left, String right) {
+    final leftTokens = left
+        .toUpperCase()
+        .split(' ')
+        .where((token) => token.isNotEmpty)
+        .toList();
+    final rightTokens = right
+        .toUpperCase()
+        .split(' ')
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (leftTokens.length != rightTokens.length || leftTokens.isEmpty) {
+      return '';
+    }
+
+    final merged = <String>[];
+    for (var i = 0; i < leftTokens.length; i++) {
+      final mergedToken = _mergeSimilarNameToken(leftTokens[i], rightTokens[i]);
+      if (mergedToken.isEmpty) {
+        return '';
+      }
+      merged.add(mergedToken);
+    }
+
+    return _toTitleCase(merged.join(' '));
+  }
+
+  String _mergeSimilarNameToken(String left, String right) {
+    if (left == right) return left;
+    if (_isLikelyExtraLeadingChar(left, right)) {
+      return right;
+    }
+    if (_isLikelyExtraLeadingChar(right, left)) {
+      return left;
+    }
+    if (left.startsWith(right) || right.startsWith(left)) {
+      return left.length >= right.length ? left : right;
+    }
+    if (_nameSimilarity(left, right) >= 0.75) {
+      return left.length >= right.length ? left : right;
+    }
+    return '';
+  }
+
+  bool _isLikelyExtraLeadingChar(String longer, String shorter) {
+    final normalizedLonger = longer.toUpperCase().replaceAll(
+      RegExp(r'[^A-Z]'),
+      '',
+    );
+    final normalizedShorter = shorter.toUpperCase().replaceAll(
+      RegExp(r'[^A-Z]'),
+      '',
+    );
+    if (normalizedLonger.length != normalizedShorter.length + 1) {
+      return false;
+    }
+    return normalizedLonger.substring(1) == normalizedShorter;
+  }
+
+  String _preferMoreInformativeValue(String primary, String secondary) {
+    final left = primary.trim();
+    final right = secondary.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+    if (right.length > left.length + 2) {
+      return right;
+    }
+    return left;
+  }
+
+  String _validNikDigits(String input) {
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 16) return '';
+    if (RegExp(r'^0+$').hasMatch(digits)) return '';
+    if (RegExp(r'^(\d)\1{15}$').hasMatch(digits)) return '';
+    return digits;
   }
 
   List<ParsedKkMember> _parseMembers(
@@ -305,7 +621,8 @@ class KkOcrService {
       if (!_containsDateToken(line) &&
           i + 1 < lines.length &&
           !_looksLikeMemberTableHeader(lines[i + 1]) &&
-          !_isMemberTableEnd(lines[i + 1])) {
+          !_isMemberTableEnd(lines[i + 1]) &&
+          !_looksLikeStandaloneMemberLine(lines[i + 1], currentNik: nik)) {
         detailSource = '$line ${lines[i + 1]}';
       }
 
@@ -316,9 +633,12 @@ class KkOcrService {
       final nama = detail.nama.isNotEmpty
           ? detail.nama
           : _extractName(line, lines, i);
+      final fallbackGender = _extractGender(lines, i);
       final jenisKelamin = detail.jenisKelamin.isNotEmpty
           ? detail.jenisKelamin
-          : _extractGender(lines, i);
+          : (fallbackGender.isNotEmpty
+                ? fallbackGender
+                : _inferJenisKelaminFromNik(nik));
 
       if (nama.isEmpty) {
         continue;
@@ -330,8 +650,10 @@ class KkOcrService {
           nik: nik,
           hubungan: '',
           jenisKelamin: jenisKelamin,
-          tempatLahir: _toTitleCase(detail.tempatLahir),
-          tanggalLahir: detail.tanggalLahir,
+          tempatLahir: _normalizeTempatLahir(detail.tempatLahir),
+          tanggalLahir: detail.tanggalLahir.isNotEmpty
+              ? detail.tanggalLahir
+              : _inferTanggalLahirFromNik(nik),
           agama: _toTitleCase(detail.agama),
           pendidikan: _toTitleCase(detail.pendidikan),
           jenisPekerjaan: _toTitleCase(detail.jenisPekerjaan),
@@ -377,7 +699,8 @@ class KkOcrService {
           nama: _toTitleCase(nama),
           nik: nik,
           hubungan: '',
-          jenisKelamin: 'Laki-laki',
+          jenisKelamin: _inferJenisKelaminFromNik(nik),
+          tanggalLahir: _inferTanggalLahirFromNik(nik),
         ),
       );
       seenNik.add(nik);
@@ -391,6 +714,7 @@ class KkOcrService {
   List<ParsedKkMember> _parseMembersFromHubunganSection(
     List<String> lines, {
     String noKkHint = '',
+    bool requireRelationship = false,
   }) {
     final members = <ParsedKkMember>[];
     final seenNames = <String>{};
@@ -419,6 +743,9 @@ class KkOcrService {
         caseSensitive: false,
       );
       final hubunganMatch = hubunganPattern.firstMatch(line);
+      if (requireRelationship && hubunganMatch == null) {
+        continue;
+      }
 
       // Try to find names — in KK bottom section, names often appear as:
       // - Mixed case words like "Josoeomo" (garbled OCR)
@@ -462,7 +789,7 @@ class KkOcrService {
                 nama: _toTitleCase(nama),
                 nik: '',
                 hubungan: hubungan,
-                jenisKelamin: 'Laki-laki',
+                jenisKelamin: '',
               ),
             );
             seenNames.add(nama.toUpperCase());
@@ -494,29 +821,377 @@ class KkOcrService {
         }
       }
       if (bestIdx >= 0) {
+        if (_nameQualityScore(bm.nama) >
+                _nameQualityScore(members[bestIdx].nama) &&
+            bestScore >= 0.5) {
+          members[bestIdx].nama = bm.nama;
+        }
         members[bestIdx].hubungan = bm.hubungan;
       }
     }
+  }
 
-    // If we know the first member is likely kepala keluarga (index 0) and
-    // they still have no hubungan, infer from jenis kelamin
-    if (members.isNotEmpty && members[0].hubungan.isEmpty) {
-      members[0].hubungan = members[0].jenisKelamin == 'Perempuan'
-          ? 'Ibu'
-          : 'Ayah';
-    }
-    // Second member without hubungan — infer from jenis kelamin
-    if (members.length >= 2 && members[1].hubungan.isEmpty) {
-      members[1].hubungan = members[1].jenisKelamin == 'Perempuan'
-          ? 'Ibu'
-          : 'Ayah';
-    }
-    // Remaining without hubungan default to Anak
-    for (var i = 2; i < members.length; i++) {
-      if (members[i].hubungan.isEmpty) {
-        members[i].hubungan = 'Anak';
+  void _enrichMembersFromNik(List<ParsedKkMember> members) {
+    for (final member in members) {
+      final nik = member.nik.replaceAll(RegExp(r'[^0-9]'), '');
+      if (nik.length != 16) {
+        continue;
+      }
+
+      if (member.jenisKelamin.isEmpty) {
+        member.jenisKelamin = _inferJenisKelaminFromNik(nik);
+      }
+      if (member.tanggalLahir.isEmpty) {
+        member.tanggalLahir = _inferTanggalLahirFromNik(nik);
       }
     }
+  }
+
+  void _inferRemainingHubungan(List<ParsedKkMember> members) {
+    if (members.isEmpty) return;
+
+    var hasAyah = members.any((m) => m.hubungan == 'Ayah');
+    var hasIbu = members.any((m) => m.hubungan == 'Ibu');
+
+    for (var i = 0; i < members.length; i++) {
+      final member = members[i];
+      if (member.hubungan.isNotEmpty) {
+        if (member.hubungan == 'Ayah') hasAyah = true;
+        if (member.hubungan == 'Ibu') hasIbu = true;
+        continue;
+      }
+
+      final inferred = _inferHubunganForMember(
+        members,
+        index: i,
+        hasAyah: hasAyah,
+        hasIbu: hasIbu,
+      );
+      member.hubungan = inferred;
+      if (inferred == 'Ayah') hasAyah = true;
+      if (inferred == 'Ibu') hasIbu = true;
+    }
+  }
+
+  String _inferHubunganForMember(
+    List<ParsedKkMember> members, {
+    required int index,
+    required bool hasAyah,
+    required bool hasIbu,
+  }) {
+    final member = members[index];
+    final gender = member.jenisKelamin;
+
+    if (index == 0) {
+      if (gender == 'Perempuan' && !hasIbu) return 'Ibu';
+      if (!hasAyah) return 'Ayah';
+      if (!hasIbu) return 'Ibu';
+      return 'Anak';
+    }
+
+    if (index == 1) {
+      final head = members.first;
+      final isAdult = _isLikelyAdultMember(member);
+      if (isAdult) {
+        if (head.hubungan == 'Ayah' &&
+            head.jenisKelamin != 'Perempuan' &&
+            gender == 'Perempuan' &&
+            !hasIbu) {
+          return 'Ibu';
+        }
+        if (head.hubungan == 'Ibu' &&
+            head.jenisKelamin == 'Perempuan' &&
+            gender == 'Laki-laki' &&
+            !hasAyah) {
+          return 'Ayah';
+        }
+      }
+    }
+
+    return 'Anak';
+  }
+
+  bool _isLikelyAdultMember(ParsedKkMember member) {
+    final birthDate =
+        _parseTanggalLahir(member.tanggalLahir) ??
+        _birthDateFromNik(member.nik);
+    if (birthDate == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    var age = now.year - birthDate.year;
+    final birthdayPassed =
+        now.month > birthDate.month ||
+        (now.month == birthDate.month && now.day >= birthDate.day);
+    if (!birthdayPassed) {
+      age -= 1;
+    }
+    return age >= 17;
+  }
+
+  DateTime? _parseTanggalLahir(String input) {
+    final match = RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(input.trim());
+    if (match == null) {
+      return null;
+    }
+
+    final day = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final year = int.tryParse(match.group(3) ?? '');
+    if (day == null || month == null || year == null) {
+      return null;
+    }
+
+    final date = DateTime(year, month, day);
+    if (date.year != year || date.month != month || date.day != day) {
+      return null;
+    }
+    return date;
+  }
+
+  DateTime? _birthDateFromNik(String nik) {
+    final digits = nik.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 16) {
+      return null;
+    }
+
+    var day = int.tryParse(digits.substring(6, 8)) ?? 0;
+    final month = int.tryParse(digits.substring(8, 10)) ?? 0;
+    final year2 = int.tryParse(digits.substring(10, 12)) ?? 0;
+    if (day > 40) {
+      day -= 40;
+    }
+    if (day < 1 || day > 31 || month < 1 || month > 12) {
+      return null;
+    }
+
+    final now = DateTime.now();
+    final currentYear2 = now.year % 100;
+    final fullYear = year2 <= currentYear2 ? 2000 + year2 : 1900 + year2;
+    final date = DateTime(fullYear, month, day);
+    if (date.year != fullYear || date.month != month || date.day != day) {
+      return null;
+    }
+    return date;
+  }
+
+  String _inferJenisKelaminFromNik(String nik) {
+    final birthDate = _birthDateFromNik(nik);
+    if (birthDate == null) {
+      return '';
+    }
+
+    final digits = nik.replaceAll(RegExp(r'[^0-9]'), '');
+    final day = int.tryParse(digits.substring(6, 8)) ?? 0;
+    return day > 40 ? 'Perempuan' : 'Laki-laki';
+  }
+
+  String _inferTanggalLahirFromNik(String nik) {
+    final birthDate = _birthDateFromNik(nik);
+    if (birthDate == null) {
+      return '';
+    }
+
+    final day = birthDate.day.toString().padLeft(2, '0');
+    final month = birthDate.month.toString().padLeft(2, '0');
+    final year = birthDate.year.toString().padLeft(4, '0');
+    return '$day-$month-$year';
+  }
+
+  void _ensureHeadMemberFromHeader(
+    List<ParsedKkMember> members,
+    String namaKepalaKeluarga,
+  ) {
+    if (members.isEmpty || namaKepalaKeluarga.trim().isEmpty) {
+      return;
+    }
+
+    final cleanedHeaderName = _normalizeStructuredName(namaKepalaKeluarga);
+    if (cleanedHeaderName.isEmpty) {
+      return;
+    }
+
+    final headerGender = _inferJenisKelaminFromName(cleanedHeaderName);
+    final matchedIndex = members.indexWhere(
+      (m) => _nameSimilarity(m.nama, cleanedHeaderName) >= 0.45,
+    );
+    if (matchedIndex >= 0) {
+      final matchedName = members[matchedIndex].nama;
+      final matchedTokens = matchedName
+          .toUpperCase()
+          .split(' ')
+          .where((token) => token.isNotEmpty)
+          .toList();
+      final headerTokens = cleanedHeaderName
+          .toUpperCase()
+          .split(' ')
+          .where((token) => token.isNotEmpty)
+          .toList();
+      final sharesLastToken =
+          matchedTokens.isNotEmpty &&
+          headerTokens.isNotEmpty &&
+          matchedTokens.last == headerTokens.last;
+      final shouldPreferHeaderName =
+          (_looksClearlyGarbledName(matchedName) &&
+              _nameQualityScore(cleanedHeaderName) >=
+                  _nameQualityScore(matchedName)) ||
+          (sharesLastToken &&
+              _nameSimilarity(matchedName, cleanedHeaderName) >= 0.55 &&
+              _nameQualityScore(cleanedHeaderName) + 1 >=
+                  _nameQualityScore(matchedName));
+      if (shouldPreferHeaderName) {
+        members[matchedIndex].nama = cleanedHeaderName;
+      }
+      if (headerGender.isNotEmpty &&
+          members[matchedIndex].hubungan.isNotEmpty &&
+          members[matchedIndex].hubungan != 'Anak') {
+        members[matchedIndex].hubungan = headerGender == 'Perempuan'
+            ? 'Ibu'
+            : 'Ayah';
+      }
+      if (matchedIndex != 0) {
+        final headMember = members.removeAt(matchedIndex);
+        members.insert(0, headMember);
+      }
+      return;
+    }
+
+    members.insert(
+      0,
+      ParsedKkMember(
+        nama: cleanedHeaderName,
+        nik: '',
+        hubungan: headerGender == 'Perempuan' ? 'Ibu' : 'Ayah',
+        jenisKelamin: headerGender,
+      ),
+    );
+  }
+
+  String _inferJenisKelaminFromName(String input) {
+    final tokens = input
+        .toUpperCase()
+        .split(' ')
+        .where((token) => token.isNotEmpty)
+        .toSet();
+    if (tokens.isEmpty) {
+      return '';
+    }
+
+    const femaleTokens = {
+      'SITI',
+      'SRI',
+      'DEWI',
+      'NUR',
+      'NURUL',
+      'AISYAH',
+      'AISAH',
+      'AMINAH',
+      'IPAH',
+      'ROHANA',
+      'RINA',
+      'PUTRI',
+      'FITRI',
+      'YUNI',
+      'YULI',
+      'RATNA',
+      'LINA',
+      'WULAN',
+      'ERNA',
+    };
+    const maleTokens = {
+      'MUHAMMAD',
+      'MOHAMMAD',
+      'AHMAD',
+      'AZIS',
+      'FARDIANSYAH',
+      'FAJAR',
+      'RIZAL',
+      'DEDI',
+      'BUDI',
+      'AGUS',
+      'ASEP',
+      'UJANG',
+      'DADANG',
+      'HENDRA',
+      'ANDI',
+      'IRFAN',
+      'YAYAT',
+      'SUHERMAN',
+      'ADE',
+    };
+
+    if (tokens.intersection(femaleTokens).isNotEmpty) {
+      return 'Perempuan';
+    }
+    if (tokens.intersection(maleTokens).isNotEmpty) {
+      return 'Laki-laki';
+    }
+    return '';
+  }
+
+  bool _looksClearlyGarbledName(String input) {
+    final words = input
+        .toUpperCase()
+        .split(' ')
+        .where((word) => word.isNotEmpty)
+        .toList();
+    if (words.isEmpty) {
+      return true;
+    }
+
+    if (words.any((word) => word.length > 15)) {
+      return true;
+    }
+    if (words.any((word) => RegExp(r'(.)\1{2,}').hasMatch(word))) {
+      return true;
+    }
+    if (words.any((word) => RegExp(r'[AEIOU]{4,}').hasMatch(word))) {
+      return true;
+    }
+    if (words.any((word) => RegExp(r'[^AEIOU]{6,}').hasMatch(word))) {
+      return true;
+    }
+    return _nameQualityScore(input) <= 6;
+  }
+
+  int _nameQualityScore(String input) {
+    final cleaned = input.trim().toUpperCase();
+    if (cleaned.isEmpty) {
+      return 0;
+    }
+
+    final words = cleaned.split(' ').where((word) => word.isNotEmpty).toList();
+    if (words.isEmpty) {
+      return 0;
+    }
+
+    var score = 0;
+    for (final word in words) {
+      if (word.length >= 3) {
+        score += 2;
+      } else if (word.length == 2) {
+        score += 1;
+      }
+      if (_hasReasonableVowelRatio(word)) {
+        score += 1;
+      }
+      if (!_looksGarbled(word)) {
+        score += 1;
+      }
+    }
+
+    if (words.length >= 2) {
+      score += 2;
+    }
+    if (words.length > 4) {
+      score -= (words.length - 4);
+    }
+    if (RegExp(r'(.)\1{3,}').hasMatch(cleaned)) {
+      score -= 2;
+    }
+
+    return score;
   }
 
   /// Simple character-level similarity score between two names.
@@ -922,23 +1597,35 @@ class KkOcrService {
 
   String? _extract16DigitsWithOcrCorrection(String source) {
     final normalized = _normalizeOcrDigits(source);
+    String? fallbackCandidate;
 
     final exact16 = RegExp(r'([0-9](?:\s*[0-9]){15})').allMatches(normalized);
     for (final match in exact16) {
       final digits = match.group(0)!.replaceAll(RegExp(r'\s+'), '');
-      if (digits.length == 16) return digits;
+      if (digits.length != 16) continue;
+      if (_isLikelyMemberNik(digits)) return digits;
+      fallbackCandidate ??= digits;
     }
 
     final loose = RegExp(r'([0-9][0-9\s]{12,30})').allMatches(normalized);
     for (final match in loose) {
       final digits = match.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digits.length == 16) return digits;
+      if (digits.length == 16) {
+        if (_isLikelyMemberNik(digits)) return digits;
+        fallbackCandidate ??= digits;
+      }
       if (digits.length > 16) {
-        return digits.substring(0, 16);
+        for (var i = 0; i <= digits.length - 16; i++) {
+          final candidate = digits.substring(i, i + 16);
+          if (_isLikelyMemberNik(candidate)) {
+            return candidate;
+          }
+        }
+        fallbackCandidate ??= digits.substring(0, 16);
       }
     }
 
-    return null;
+    return fallbackCandidate;
   }
 
   String _normalizeOcrDigits(String input) {
@@ -1135,16 +1822,22 @@ class KkOcrService {
   }
 
   String _extractGender(List<String> lines, int index) {
-    final upperContext = [
-      lines[index],
-      if (index + 1 < lines.length) lines[index + 1],
-    ].join(' ');
+    final contextLines = <String>[lines[index]];
+    final currentNik = _extractNik(lines[index]) ?? '';
+    if (index + 1 < lines.length &&
+        !_looksLikeStandaloneMemberLine(
+          lines[index + 1],
+          currentNik: currentNik,
+        )) {
+      contextLines.add(lines[index + 1]);
+    }
+    final upperContext = contextLines.join(' ');
 
     if (upperContext.contains('PEREMPUAN')) return 'Perempuan';
     if (upperContext.contains('LAKI')) return 'Laki-laki';
     if (upperContext.contains('PR')) return 'Perempuan';
     if (upperContext.contains('LK')) return 'Laki-laki';
-    return 'Laki-laki';
+    return '';
   }
 
   ({
@@ -1195,10 +1888,10 @@ class KkOcrService {
     }
 
     final tanggalMatch = RegExp(
-      r'\b([0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4})\b',
+      r'\b([0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4}|\d{8})\b',
     ).firstMatch(remaining);
     if (tanggalMatch != null) {
-      tempatLahir = _cleanMemberDetailValue(
+      tempatLahir = _cleanTempatSebelumTanggal(
         remaining.substring(0, tanggalMatch.start),
       );
       tanggalLahir = _normalizeTanggalFromToken(tanggalMatch.group(1) ?? '');
@@ -1255,14 +1948,16 @@ class KkOcrService {
     if (upper == 'PR' || upper.contains('PEREMPUAN')) {
       return 'Perempuan';
     }
-    return 'Laki-laki';
+    if (upper == 'LK' || upper.contains('LAKI')) {
+      return 'Laki-laki';
+    }
+    return '';
   }
 
   String _normalizeTanggalFromToken(String input) {
     final cleaned = input.replaceAll(RegExp(r'[\/\.]'), '-').trim();
-    final match = RegExp(
-      r'^(\d{1,2})-(\d{1,2})-(\d{2,4})$',
-    ).firstMatch(cleaned);
+    var match = RegExp(r'^(\d{1,2})-(\d{1,2})-(\d{2,4})$').firstMatch(cleaned);
+    match ??= RegExp(r'^(\d{2})(\d{2})(\d{2,4})$').firstMatch(cleaned);
     if (match == null) {
       return cleaned;
     }
@@ -1419,7 +2114,22 @@ class KkOcrService {
   }
 
   bool _containsDateToken(String line) {
-    return RegExp(r'\b[0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4}\b').hasMatch(line);
+    return RegExp(
+      r'\b(?:[0-3]?\d[-\/\.][0-1]?\d[-\/\.]\d{2,4}|\d{8})\b',
+    ).hasMatch(line);
+  }
+
+  bool _looksLikeStandaloneMemberLine(String line, {String currentNik = ''}) {
+    final nextNik = _extractNik(line);
+    if (nextNik != null && nextNik != currentNik) {
+      return true;
+    }
+    if (!RegExp(r'^\d{1,2}\b').hasMatch(line)) {
+      return false;
+    }
+
+    final leadingText = line.replaceFirst(RegExp(r'^\d{1,2}\s*'), '');
+    return _isLikelyName(leadingText.split(RegExp(r'\d')).first.trim());
   }
 
   (int, int)? _findNikTokenMatch(String line, {String? nikOverride}) {
@@ -1451,13 +2161,6 @@ class KkOcrService {
     if (nik.length != 16) return false;
     if (RegExp(r'^0+$').hasMatch(nik)) return false;
     if (RegExp(r'^(\d)\1{15}$').hasMatch(nik)) return false;
-
-    if (noKkHint.length >= 6) {
-      final prefix = noKkHint.substring(0, 6);
-      if (!nik.startsWith(prefix)) {
-        return false;
-      }
-    }
 
     var day = int.tryParse(nik.substring(6, 8)) ?? 0;
     final month = int.tryParse(nik.substring(8, 10)) ?? 0;
@@ -1600,10 +2303,10 @@ class KkOcrService {
     required int width,
     required int height,
   }) {
-    final x = (width * 0.01).round();
-    final y = (height * 0.150).round();
-    final w = (width * 0.98).round();
-    final h = (height * 0.36).round();
+    final x = (width * _memberTableLeftRatio).round();
+    final y = (height * _memberTableTopRatio).round();
+    final w = (width * _memberTableWidthRatio).round();
+    final h = (height * _memberTableHeightRatio).round();
     if (w <= 0 || h <= 0) return null;
     final safeX = x.clamp(0, width - 1);
     final safeY = y.clamp(0, height - 1);
@@ -1627,8 +2330,9 @@ class KkOcrService {
 
     final dataX = tableX + (tableW * 0.02).round();
     final dataW = (tableW * 0.97).round();
-    final dataStartY = tableY + (tableH * 0.16).round();
-    final rowHeight = (tableH * 0.070).round();
+    final dataStartY =
+        tableY + (tableH * _memberTableHeaderHeightRatio).round();
+    final rowHeight = (tableH * _memberTableRowHeightRatio).round();
     final dataY = dataStartY + (rowIndex * rowHeight);
 
     if (dataW <= 0 || rowHeight <= 0) return null;
@@ -1644,6 +2348,49 @@ class KkOcrService {
         .replaceAll(RegExp(r'^[\-\.:]+'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  String _cleanTempatSebelumTanggal(String input) {
+    final tokens = input
+        .replaceAll('|', ' ')
+        .split(RegExp(r'\s+'))
+        .map((token) => token.trim())
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) return '';
+
+    const leadingNoise = {
+      'AW',
+      'PR',
+      'LK',
+      'LAKI',
+      'LAKH',
+      'LAKHAKI',
+      'LAKILAKI',
+      'PEREMPUAN',
+      'PERBUPUAN',
+      'PERBUPUANGYGUTAF',
+      'PEREMFUAN',
+      'PERBUPUANCMAAH',
+    };
+
+    while (tokens.isNotEmpty) {
+      final normalized = tokens.first.toUpperCase().replaceAll(
+        RegExp(r'[^A-Z]'),
+        '',
+      );
+      final isGenderNoise =
+          leadingNoise.contains(normalized) ||
+          normalized.startsWith('LAK') ||
+          normalized.startsWith('PER');
+      final isShortNoise = normalized.length <= 2;
+      if (!isGenderNoise && !isShortNoise) {
+        break;
+      }
+      tokens.removeAt(0);
+    }
+
+    return _cleanMemberDetailValue(tokens.join(' '));
   }
 
   /// Normalize tempat lahir from OCR structured field.
@@ -1722,6 +2469,22 @@ class KkOcrService {
     final fuzzyResult = _fuzzyMatchTempatLahir(resultClean);
     if (fuzzyResult != null) return _toTitleCase(fuzzyResult);
 
+    final resultWords = resultClean
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (resultWords.length >= 2 && resultWords.every((w) => w.length <= 3)) {
+      return '';
+    }
+    if (resultWords.length == 2 &&
+        resultWords.first.length <= 3 &&
+        resultWords.last.length <= 5) {
+      return '';
+    }
+    if (resultWords.length == 1 && resultWords.first.length <= 5) {
+      return '';
+    }
+
     // If the remaining text is very short (< 5 chars) and didn't fuzzy-match,
     // it's likely OCR noise like "DARA", "BARAT" fragments
     if (resultClean.length <= 4) return '';
@@ -1731,6 +2494,13 @@ class KkOcrService {
 
   /// Fuzzy-match garbled tempat lahir against common Indonesian cities.
   String? _fuzzyMatchTempatLahir(String input) {
+    const commonPlaceAliases = <String, String>{
+      'CMAAH': 'CIMAHI',
+      'CMAHI': 'CIMAHI',
+      'RANDUNG': 'BANDUNG',
+      'RANDUNGBARAT': 'BANDUNG BARAT',
+    };
+
     // Common cities/regencies that appear on KK documents in West Java area
     const commonPlaces = [
       'BANDUNG',
@@ -1766,13 +2536,21 @@ class KkOcrService {
 
     final inputAlpha = input.replaceAll(RegExp(r'[^A-Z]'), '');
     if (inputAlpha.length < 3) return null;
+    final aliasedPlace = commonPlaceAliases[inputAlpha];
+    if (aliasedPlace != null) {
+      return aliasedPlace;
+    }
 
     String? bestMatch;
     var bestScore = 0.0;
 
     for (final place in commonPlaces) {
       final placeAlpha = place.replaceAll(RegExp(r'[^A-Z]'), '');
-      final score = _bigramSimilarity(inputAlpha, placeAlpha);
+      final bigramScore = _bigramSimilarity(inputAlpha, placeAlpha);
+      final editScore = _normalizedEditSimilarity(inputAlpha, placeAlpha);
+      final score = editScore >= 0.65 && editScore > bigramScore
+          ? editScore
+          : bigramScore;
       if (score > bestScore) {
         bestScore = score;
         bestMatch = place;
@@ -2012,6 +2790,32 @@ class KkOcrService {
     return (2.0 * intersection) / (bigramsA.length + bigramsB.length);
   }
 
+  double _normalizedEditSimilarity(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return 0.0;
+    if (a == b) return 1.0;
+
+    final rows = List<int>.generate(b.length + 1, (index) => index);
+    for (var i = 1; i <= a.length; i++) {
+      var previousDiagonal = rows.first;
+      rows[0] = i;
+      for (var j = 1; j <= b.length; j++) {
+        final previousTop = rows[j];
+        final substitutionCost = a[i - 1] == b[j - 1] ? 0 : 1;
+        rows[j] = [
+          rows[j] + 1,
+          rows[j - 1] + 1,
+          previousDiagonal + substitutionCost,
+        ].reduce((left, right) => left < right ? left : right);
+        previousDiagonal = previousTop;
+      }
+    }
+
+    final distance = rows.last;
+    final maxLength = a.length > b.length ? a.length : b.length;
+    if (maxLength == 0) return 0.0;
+    return 1 - (distance / maxLength);
+  }
+
   /// Maps OCR-detected hubungan text to PocketBase select values: Ayah, Ibu, Anak.
   String _mapHubunganToDbValue(String input) {
     final upper = input.toUpperCase();
@@ -2247,7 +3051,10 @@ class KkOcrService {
     if (upper.contains('PEREMPUAN') || upper.contains('PR')) {
       return 'Perempuan';
     }
-    return 'Laki-laki';
+    if (upper.contains('LAKI') || upper.contains('LK')) {
+      return 'Laki-laki';
+    }
+    return '';
   }
 
   bool _isLikelyName(String input) {
