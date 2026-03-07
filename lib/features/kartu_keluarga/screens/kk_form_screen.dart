@@ -39,7 +39,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
   bool _isLoading = false;
   bool _isScanning = false;
-  bool _headerConfirmed = false;
   String? _existingScanKk;
   Uint8List? _scanBytes;
   String? _scanFilename;
@@ -98,7 +97,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             : record.getStringValue('kota');
         _provinsi = record.getStringValue('provinsi');
         _existingScanKk = record.getStringValue('scan_kk');
-        _headerConfirmed = true;
       });
     } catch (e) {
       if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
@@ -123,7 +121,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         _scanBytes = bytes;
         _scanFilename = picked.path.split(RegExp(r'[\\/]')).last;
         _selectedImagePath = picked.path;
-        _headerConfirmed = false;
       });
     } catch (e) {
       if (!mounted) return;
@@ -160,7 +157,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         _scanBytes = file.bytes;
         _scanFilename = file.name;
         _selectedImagePath = null;
-        _headerConfirmed = false;
       });
       return;
     }
@@ -350,7 +346,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       _kabupatenKota = parsed.kabupatenKota.trim();
       _provinsi = parsed.provinsi.trim();
       _parsedMembers = parsed.members;
-      _headerConfirmed = false;
     });
   }
 
@@ -455,13 +450,6 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       ErrorClassifier.showErrorSnackBar(context, issues.first);
       return false;
     }
-    if (!_headerConfirmed) {
-      ErrorClassifier.showErrorSnackBar(
-        context,
-        'Pastikan area header OCR yang ditandai merah sudah benar, lalu konfirmasi header.',
-      );
-      return false;
-    }
     return true;
   }
 
@@ -536,9 +524,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       return 'Khatolik';
     }
     if (upper.contains('BUDHA') || upper.contains('BUDDHA')) return 'Budha';
-    if (upper.contains('HINDU')) return 'Islam'; // Fallback — not in DB
+    if (upper.contains('HINDU')) return 'Islam'; // Fallback â€” not in DB
     if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
-      return 'Islam'; // Fallback — not in DB
+      return 'Islam'; // Fallback â€” not in DB
     }
     return AppConstants.daftarAgama.first;
   }
@@ -1013,7 +1001,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // ─── Header ───
+                    // â”€â”€â”€ Header â”€â”€â”€
                     Container(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                       decoration: BoxDecoration(
@@ -1060,7 +1048,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '$hubungan • $jenisKelamin',
+                                  '$hubungan â€¢ $jenisKelamin',
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: AppTheme.textSecondary,
@@ -1104,7 +1092,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         ],
                       ),
                     ),
-                    // ─── Scrollable form ───
+                    // â”€â”€â”€ Scrollable form â”€â”€â”€
                     Flexible(
                       child: SingleChildScrollView(
                         padding: EdgeInsets.fromLTRB(
@@ -1194,7 +1182,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                               prefixIcon: Icons.bloodtype_rounded,
                             ),
                             const SizedBox(height: 8),
-                            // ─── Action buttons ───
+                            // â”€â”€â”€ Action buttons â”€â”€â”€
                             Row(
                               children: [
                                 if (!isEditing)
@@ -1650,7 +1638,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                               const SizedBox(height: 2),
                               ...headerIssues.map(
                                 (issue) => Text(
-                                  '• $issue',
+                                  'â€¢ $issue',
                                   style: AppTheme.caption.copyWith(
                                     color: Colors.orange.shade700,
                                     fontSize: 10,
@@ -1665,37 +1653,33 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                SizedBox(
+                Container(
                   width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: headerIssues.isEmpty
-                        ? () => setState(() {
-                            _headerConfirmed = true;
-                          })
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _headerConfirmed
-                          ? AppTheme.successColor
-                          : AppTheme.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          AppTheme.radiusSmall,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 18,
+                        color: Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Header hasil scan divalidasi otomatis saat tombol Simpan KK + Anggota ditekan.',
+                          style: AppTheme.caption.copyWith(
+                            color: Colors.blue.shade700,
+                            fontSize: 11,
+                          ),
                         ),
                       ),
-                    ),
-                    icon: Icon(
-                      _headerConfirmed
-                          ? Icons.verified_rounded
-                          : Icons.fact_check_rounded,
-                      size: 18,
-                    ),
-                    label: Text(
-                      _headerConfirmed
-                          ? 'Data Terkonfirmasi ✓'
-                          : 'Konfirmasi Data',
-                      style: const TextStyle(fontSize: 13),
-                    ),
+                    ],
                   ),
                 ),
               ],
@@ -2308,7 +2292,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Memproses OCR...',
+                                  'Proses Scan sedang berjalan, harap tunggu beberapa saat..',
                                   style: AppTheme.caption.copyWith(
                                     color: AppTheme.primaryColor,
                                   ),

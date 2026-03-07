@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pocketbase/pocketbase.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
@@ -12,12 +13,52 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
+import '../../../shared/models/warga_model.dart';
 
-class KkDetailScreen extends ConsumerWidget {
+typedef _KkDetailData = ({
+  RecordModel kkRecord,
+  KartuKeluargaModel kk,
+  List<RecordModel> anggotaRecords,
+});
+
+class KkDetailScreen extends ConsumerStatefulWidget {
   final String kkId;
   const KkDetailScreen({super.key, required this.kkId});
 
-  Future<void> _deleteKk(BuildContext context) async {
+  @override
+  ConsumerState<KkDetailScreen> createState() => _KkDetailScreenState();
+}
+
+class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
+  Future<_KkDetailData> _loadDetail() async {
+    final kkRecord = await pb
+        .collection(AppConstants.colKartuKeluarga)
+        .getOne(widget.kkId);
+    final anggotaResult = await pb
+        .collection(AppConstants.colAnggotaKk)
+        .getList(
+          page: 1,
+          perPage: 100,
+          filter: 'no_kk = "${widget.kkId}"',
+          sort: 'created',
+          expand: 'warga',
+        );
+
+    return (
+      kkRecord: kkRecord,
+      kk: KartuKeluargaModel.fromRecord(kkRecord),
+      anggotaRecords: anggotaResult.items,
+    );
+  }
+
+  Future<void> _refreshAfter(Future<Object?> navigation) async {
+    await navigation;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _deleteKk() async {
     final shouldDelete =
         await showDialog<bool>(
           context: context,
@@ -25,7 +66,7 @@ class KkDetailScreen extends ConsumerWidget {
             return AlertDialog(
               title: const Text('Hapus Kartu Keluarga'),
               content: const Text(
-                'Data KK dan relasi anggota akan dihapus. Lanjutkan?',
+                'Data KK dan relasi anggota keluarga akan dihapus. Lanjutkan?',
               ),
               actions: [
                 TextButton(
@@ -45,401 +86,765 @@ class KkDetailScreen extends ConsumerWidget {
     if (!shouldDelete) return;
 
     try {
-      await pb.collection(AppConstants.colKartuKeluarga).delete(kkId);
-      if (!context.mounted) return;
+      await pb.collection(AppConstants.colKartuKeluarga).delete(widget.kkId);
+      if (!mounted) return;
       ErrorClassifier.showSuccessSnackBar(context, 'Data KK berhasil dihapus');
       context.go(Routes.kartuKeluarga);
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       ErrorClassifier.showErrorSnackBar(context, e);
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authProvider);
-    final userId = authState.user?.id;
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authProvider);
     final isAdmin =
-        authState.role == AppConstants.roleAdmin ||
-        authState.role == AppConstants.roleSuperuser;
+        auth.role == AppConstants.roleAdmin ||
+        auth.role == AppConstants.roleSuperuser;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Kartu Keluarga'), elevation: 0),
-      body: FutureBuilder(
-        future: pb.collection(AppConstants.colKartuKeluarga).getOne(kkId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.error_outline_rounded,
-                    size: 48,
-                    color: AppTheme.errorColor,
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Error: ${snapshot.error}', style: AppTheme.bodySmall),
-                ],
-              ),
-            );
-          }
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Detail Kartu Keluarga'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -70,
+              right: -36,
+              child: _blob(const Color(0x331565C0), 180),
+            ),
+            Positioned(
+              top: 150,
+              left: -60,
+              child: _blob(const Color(0x3326A69A), 150),
+            ),
+            FutureBuilder<_KkDetailData>(
+              future: _loadDetail(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppTheme.paddingLarge),
+                      child: AppTheme.glassContainer(
+                        opacity: 0.78,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 48,
+                              color: AppTheme.errorColor,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              ErrorClassifier.classify(snapshot.error).message,
+                              style: AppTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }
 
-          final record = snapshot.data!;
-          final kk = KartuKeluargaModel.fromRecord(record);
-          final kkOwnerId = record.getStringValue('user_id');
-          final canManage = isAdmin || (userId != null && kkOwnerId == userId);
+                final data = snapshot.data!;
+                final kk = data.kk;
+                final kkOwnerId = data.kkRecord.getStringValue('user_id');
+                final canManage =
+                    isAdmin ||
+                    (auth.user?.id != null && auth.user!.id == kkOwnerId);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // KK Info Card with gradient header
-                Container(
-                  decoration: AppTheme.cardDecoration(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                        decoration: const BoxDecoration(
-                          gradient: AppTheme.headerGradient,
-                          borderRadius: BorderRadius.only(
-                            topLeft: Radius.circular(AppTheme.radiusLarge),
-                            topRight: Radius.circular(AppTheme.radiusLarge),
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHero(kk, data.anggotaRecords.length),
+                        const SizedBox(height: 16),
+                        _buildSection(
+                          icon: Icons.location_on_rounded,
+                          title: 'Alamat KK',
+                          child: Column(
+                            children: [
+                              _InfoRow(label: 'Alamat', value: kk.alamat),
+                              _InfoRow(
+                                label: 'RT / RW',
+                                value: 'RT ${kk.rt} / RW ${kk.rw}',
+                              ),
+                              _InfoRow(
+                                label: 'Desa/Kelurahan',
+                                value: (kk.desaKelurahan ?? '').isEmpty
+                                    ? '-'
+                                    : kk.desaKelurahan!,
+                              ),
+                              _InfoRow(
+                                label: 'Kecamatan',
+                                value: (kk.kecamatan ?? '').isEmpty
+                                    ? '-'
+                                    : kk.kecamatan!,
+                              ),
+                              _InfoRow(
+                                label: 'Kabupaten/Kota',
+                                value: (kk.kabupatenKota ?? '').isEmpty
+                                    ? '-'
+                                    : kk.kabupatenKota!,
+                              ),
+                              _InfoRow(
+                                label: 'Provinsi',
+                                value: (kk.provinsi ?? '').isEmpty
+                                    ? '-'
+                                    : kk.provinsi!,
+                                isLast: true,
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMedium,
+                        const SizedBox(height: 14),
+                        if (canManage) ...[
+                          _buildSection(
+                            icon: Icons.auto_awesome_rounded,
+                            title: 'Aksi Cepat',
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _actionButton(
+                                        label: 'Edit KK',
+                                        icon: Icons.edit_rounded,
+                                        gradient: AppTheme.primaryGradient,
+                                        onTap: () => _refreshAfter(
+                                          context.push(
+                                            '${Routes.kkForm}?id=${kk.id}',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: _actionButton(
+                                        label: 'Tambah Anggota',
+                                        icon: Icons.person_add_alt_1_rounded,
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xFF1CA39B),
+                                            Color(0xFF45C0B7),
+                                          ],
+                                        ),
+                                        onTap: () => _refreshAfter(
+                                          context.push(
+                                            '${Routes.wargaForm}?noKk=${kk.id}',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              child: const Icon(
-                                Icons.credit_card_rounded,
-                                color: Colors.white,
-                                size: 24,
-                              ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _deleteKk,
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.errorColor,
+                                      side: BorderSide(
+                                        color: AppTheme.errorColor.withValues(
+                                          alpha: 0.45,
+                                        ),
+                                      ),
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: 0.45,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                                    label: const Text('Hapus KK'),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Kartu Keluarga',
-                                    style: AppTheme.caption.copyWith(
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                        _buildSection(
+                          icon: Icons.groups_rounded,
+                          title: 'Anggota Keluarga',
+                          trailing: _countChip(data.anggotaRecords.length),
+                          child: data.anggotaRecords.isEmpty
+                              ? Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(22),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
                                       color: Colors.white.withValues(
-                                        alpha: 0.8,
+                                        alpha: 0.9,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    Formatters.formatNoKk(kk.noKk),
-                                    style: AppTheme.heading3.copyWith(
-                                      color: Colors.white,
-                                      letterSpacing: 1.2,
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.person_search_rounded,
+                                        size: 40,
+                                        color: AppTheme.textSecondary
+                                            .withValues(alpha: 0.4),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Belum ada anggota keluarga',
+                                        style: AppTheme.bodyMedium,
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : Column(
+                                  children: List.generate(
+                                    data.anggotaRecords.length,
+                                    (index) => Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom:
+                                            index ==
+                                                data.anggotaRecords.length - 1
+                                            ? 0
+                                            : 12,
+                                      ),
+                                      child: _buildMemberCard(
+                                        anggotaRecord:
+                                            data.anggotaRecords[index],
+                                        index: index,
+                                        canManage: canManage,
+                                      ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ],
+                                ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildInfoRow(
-                              Icons.location_on_rounded,
-                              'Alamat',
-                              kk.alamat,
-                            ),
-                            _buildInfoRow(
-                              Icons.grid_view_rounded,
-                              'RT/RW',
-                              'RT ${kk.rt} / RW ${kk.rw}',
-                            ),
-                            if ((kk.desaKelurahan ?? '').isNotEmpty)
-                              _buildInfoRow(
-                                Icons.holiday_village_rounded,
-                                'Desa/Kelurahan',
-                                kk.desaKelurahan!,
-                              ),
-                            if ((kk.kecamatan ?? '').isNotEmpty)
-                              _buildInfoRow(
-                                Icons.location_city_rounded,
-                                'Kecamatan',
-                                kk.kecamatan!,
-                              ),
-                            if ((kk.kabupatenKota ?? '').isNotEmpty)
-                              _buildInfoRow(
-                                Icons.apartment_rounded,
-                                'Kabupaten/Kota',
-                                kk.kabupatenKota!,
-                              ),
-                            if ((kk.provinsi ?? '').isNotEmpty)
-                              _buildInfoRow(
-                                Icons.map_rounded,
-                                'Provinsi',
-                                kk.provinsi!,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (canManage) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () =>
-                              context.push('${Routes.kkForm}?id=${kk.id}'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppTheme.radiusMedium,
-                              ),
-                            ),
-                          ),
-                          icon: const Icon(Icons.edit_rounded, size: 18),
-                          label: const Text('Edit KK'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () =>
-                              context.push('${Routes.wargaForm}?noKk=${kk.id}'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.secondaryColor,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                AppTheme.radiusMedium,
-                              ),
-                            ),
-                          ),
-                          icon: const Icon(
-                            Icons.person_add_alt_1_rounded,
-                            size: 18,
-                          ),
-                          label: const Text('Tambah Anggota'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _deleteKk(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.errorColor,
-                        side: const BorderSide(color: AppTheme.errorColor),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppTheme.radiusMedium,
-                          ),
-                        ),
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: const Text('Hapus KK'),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                ],
-                // Anggota section header
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.people_rounded,
-                        size: 22,
-                        color: AppTheme.primaryColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Text('Anggota Keluarga', style: AppTheme.heading3),
-                    ],
-                  ),
-                ),
-                FutureBuilder(
-                  future: pb
-                      .collection(AppConstants.colAnggotaKk)
-                      .getList(
-                        page: 1,
-                        perPage: 100,
-                        filter: 'no_kk = "${kk.id}"',
-                        expand: 'warga',
-                      ),
-                  builder: (context, anggotaSnapshot) {
-                    if (anggotaSnapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (anggotaSnapshot.hasError) {
-                      return Text('Error: ${anggotaSnapshot.error}');
-                    }
-                    final anggotaList = anggotaSnapshot.data?.items ?? [];
-                    if (anggotaList.isEmpty) {
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(24),
-                        decoration: AppTheme.cardDecoration(
-                          color: AppTheme.backgroundColor,
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.person_search_rounded,
-                              size: 40,
-                              color: AppTheme.textSecondary.withValues(
-                                alpha: 0.4,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Belum ada anggota keluarga',
-                              style: AppTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    return ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: anggotaList.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, idx) {
-                        final anggota = anggotaList[idx];
-                        final hubungan = anggota.getStringValue('hubungan');
-                        final status = anggota.getStringValue('status');
-                        final wargaExpand = anggota.expand['warga'];
-                        final namaWarga =
-                            (wargaExpand != null && wargaExpand.isNotEmpty)
-                            ? wargaExpand[0].getStringValue('nama_lengkap')
-                            : '-';
-                        final isActive = status.toLowerCase() == 'aktif';
-                        return Container(
-                          decoration: AppTheme.cardDecoration(),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 6,
-                            ),
-                            leading: CircleAvatar(
-                              radius: 20,
-                              backgroundColor: AppTheme.primaryColor.withValues(
-                                alpha: 0.1,
-                              ),
-                              child: Text(
-                                '${idx + 1}',
-                                style: AppTheme.bodyMedium.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.primaryColor,
-                                ),
-                              ),
-                            ),
-                            title: Text(
-                              namaWarga,
-                              style: AppTheme.bodyMedium.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              hubungan,
-                              style: AppTheme.caption.copyWith(
-                                color: AppTheme.secondaryColor,
-                              ),
-                            ),
-                            trailing: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isActive
-                                    ? AppTheme.successColor.withValues(
-                                        alpha: 0.1,
-                                      )
-                                    : AppTheme.textSecondary.withValues(
-                                        alpha: 0.1,
-                                      ),
-                                borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusXLarge,
-                                ),
-                              ),
-                              child: Text(
-                                status,
-                                style: AppTheme.caption.copyWith(
-                                  color: isActive
-                                      ? AppTheme.successColor
-                                      : AppTheme.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+  Widget _buildHero(KartuKeluargaModel kk, int totalAnggota) {
+    return AppTheme.glassContainer(
+      opacity: 0.78,
+      padding: EdgeInsets.zero,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppTheme.primaryColor.withValues(alpha: 0.95),
+              AppTheme.primaryLight.withValues(alpha: 0.92),
+              AppTheme.secondaryColor.withValues(alpha: 0.9),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: const Icon(
+                    Icons.credit_card_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Kartu Keluarga',
+                        style: AppTheme.caption.copyWith(
+                          color: Colors.white.withValues(alpha: 0.82),
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        Formatters.formatNoKk(kk.noKk),
+                        style: AppTheme.heading2.copyWith(
+                          color: Colors.white,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _heroChip(
+                  icon: Icons.people_alt_rounded,
+                  text: '$totalAnggota anggota',
+                ),
+                _heroChip(
+                  icon: Icons.home_rounded,
+                  text: 'RT ${kk.rt}/${kk.rw}',
+                ),
+                if ((kk.kecamatan ?? '').isNotEmpty)
+                  _heroChip(
+                    icon: Icons.location_city_rounded,
+                    text: kk.kecamatan!,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              kk.alamat,
+              style: AppTheme.bodyMedium.copyWith(
+                color: Colors.white.withValues(alpha: 0.9),
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection({
+    required IconData icon,
+    required String title,
+    required Widget child,
+    Widget? trailing,
+  }) {
+    return AppTheme.glassContainer(
+      opacity: 0.74,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 18, color: AppTheme.primaryColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Text(title, style: AppTheme.heading3)),
+              if (trailing case final Widget trailingWidget) trailingWidget,
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMemberCard({
+    required RecordModel anggotaRecord,
+    required int index,
+    required bool canManage,
+  }) {
+    final hubungan = anggotaRecord.getStringValue('hubungan');
+    final status = anggotaRecord.getStringValue('status');
+    final expanded = anggotaRecord.expand['warga'];
+    final wargaRecord = expanded != null && expanded.isNotEmpty
+        ? expanded.first
+        : null;
+    final warga = wargaRecord != null
+        ? WargaModel.fromRecord(wargaRecord)
+        : null;
+    final isActive = status.toLowerCase() == 'aktif';
+
+    Future<void> openDetail() async {
+      if (warga == null) return;
+      await _refreshAfter(context.push('${Routes.warga}/${warga.id}'));
+    }
+
+    Future<void> openEdit() async {
+      if (warga == null) return;
+      await _refreshAfter(context.push('${Routes.wargaForm}?id=${warga.id}'));
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: warga == null ? null : openDetail,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.74),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: index == 0
+                      ? AppTheme.primaryGradient
+                      : LinearGradient(
+                          colors: [
+                            AppTheme.secondaryColor.withValues(alpha: 0.9),
+                            AppTheme.primaryLight.withValues(alpha: 0.85),
+                          ],
+                        ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '${index + 1}',
+                  style: AppTheme.bodyLarge.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                warga?.namaLengkap ??
+                                    'Data warga belum terhubung',
+                                style: AppTheme.bodyLarge.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _softChip(
+                                    icon: Icons.family_restroom_rounded,
+                                    label: hubungan.isEmpty ? '-' : hubungan,
+                                    foregroundColor: AppTheme.secondaryColor,
+                                    backgroundColor: AppTheme.secondaryColor
+                                        .withValues(alpha: 0.12),
+                                  ),
+                                  _softChip(
+                                    icon: isActive
+                                        ? Icons.verified_rounded
+                                        : Icons.pending_outlined,
+                                    label: status.isEmpty ? '-' : status,
+                                    foregroundColor: isActive
+                                        ? AppTheme.successColor
+                                        : AppTheme.textSecondary,
+                                    backgroundColor:
+                                        (isActive
+                                                ? AppTheme.successColor
+                                                : AppTheme.textSecondary)
+                                            .withValues(alpha: 0.12),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (canManage && warga != null)
+                          IconButton(
+                            onPressed: openEdit,
+                            tooltip: 'Edit warga',
+                            icon: const Icon(Icons.edit_rounded),
+                            style: IconButton.styleFrom(
+                              foregroundColor: AppTheme.primaryColor,
+                              backgroundColor: AppTheme.primaryColor.withValues(
+                                alpha: 0.08,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (warga != null) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _dataChip(
+                            icon: Icons.badge_outlined,
+                            text: Formatters.formatNik(warga.nik),
+                          ),
+                          if (warga.jenisKelamin.isNotEmpty)
+                            _dataChip(
+                              icon: warga.jenisKelamin == 'Perempuan'
+                                  ? Icons.female_rounded
+                                  : Icons.male_rounded,
+                              text: warga.jenisKelamin,
+                            ),
+                          if (warga.tempatLahir.isNotEmpty)
+                            _dataChip(
+                              icon: Icons.location_city_rounded,
+                              text: warga.tempatLahir,
+                            ),
+                          if (warga.tanggalLahir != null)
+                            _dataChip(
+                              icon: Icons.cake_rounded,
+                              text: Formatters.tanggalPendek(
+                                warga.tanggalLahir!,
+                              ),
+                            ),
+                          if (warga.golonganDarah.isNotEmpty)
+                            _dataChip(
+                              icon: Icons.water_drop_rounded,
+                              text: warga.golonganDarah,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (warga != null) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppTheme.textSecondary.withValues(alpha: 0.55),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _actionButton({
+    required String label,
+    required IconData icon,
+    required Gradient gradient,
+    required VoidCallback onTap,
+  }) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryColor.withValues(alpha: 0.16),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+          ),
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(label, textAlign: TextAlign.center),
+      ),
+    );
+  }
+
+  Widget _heroChip({required IconData icon, required String text}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: AppTheme.caption.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _countChip(int count) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$count data',
+        style: AppTheme.caption.copyWith(
+          color: AppTheme.primaryColor,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _dataChip({required IconData icon, required String text}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7FB),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.textSecondary),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: AppTheme.caption.copyWith(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _softChip({
+    required IconData icon,
+    required String label,
+    required Color foregroundColor,
+    required Color backgroundColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foregroundColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              color: foregroundColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _blob(Color color, double size) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isLast;
+
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            size: 18,
-            color: AppTheme.primaryColor.withValues(alpha: 0.7),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: AppTheme.caption.copyWith(fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 2),
-                Text(value, style: AppTheme.bodyMedium),
-              ],
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(value, style: AppTheme.bodyMedium)),
         ],
       ),
     );

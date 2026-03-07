@@ -182,21 +182,6 @@ lib/
 
 ### Implementasi CRUD Warga, Kartu Keluarga, dan Anggota KK
 
-#### Alur & Validasi
-- **Warga:**
-  - Form warga otomatis mengisi `user_id` sesuai user yang login.
-  - Jika form warga dibuka dari detail KK, field `no_kk` otomatis terisi dari argumen route.
-  - Setelah warga berhasil dibuat, record anggota_kk otomatis ditambah (no_kk, warga, hubungan, status).
-  - Validasi: user_id selalu terisi, user bisa membuat lebih dari satu warga (user_id tidak unik).
-  - Routing: setelah save/update warga, redirect ke dashboard menggunakan `context.go('/')` dengan `Future.microtask` untuk keandalan.
-- **Kartu Keluarga (KK):**
-  - Form KK mengisi user_id kepala keluarga.
-  - Setelah save/update KK, redirect ke dashboard.
-  - Di detail KK, tombol "Tambah Anggota KK" membuka form warga dengan no_kk terisi.
-  - List anggota keluarga di detail KK menampilkan nama dari warga via relasi anggota_kk.
-- **Anggota KK:**
-  - Record anggota_kk dibuat otomatis setelah warga ditambah dari KK.
-  - Dropdown hubungan (ayah, ibu, anak, dll) tersedia di form warga.
 
 #### Routing & Auto-fill
 - Routing setelah save/update selalu menggunakan `context.go('/')` (Future.microtask).
@@ -214,9 +199,10 @@ lib/
 
 ---
 
-## Update Alur & Validasi (MVP Scan KK)
+## Update Alur & Validasi 
 
 ### Alur Onboarding User Baru
+- user di wajibkan register terlebih dahulu untuk membuat user login,
 - Setelah register berhasil, user otomatis masuk ke collection `users` (auth collection PocketBase).
 - User baru dianggap sebagai **kepala keluarga** untuk proses input KK pertama.
 - Saat login pertama, jika belum punya data KK (`kartu_keluarga`), app mengarahkan user ke form KK.
@@ -235,11 +221,10 @@ lib/
 - Setiap anggota wajib memiliki:
   - `nama_lengkap`
   - `nik` 16 digit
-  - `hubungan` dalam keluarga
 - Save diblok jika ada anggota yang belum valid.
 
 ### Sinkron Data Saat Save
-- Simpan/Update `kartu_keluarga` lebih dulu (termasuk file `scan_kk` jika ada).
+- Simpan/Update `kartu_keluarga` lebih dulu (termasuk file `scan_kk` /wajib).
 - Untuk setiap anggota hasil parser:
   - Buat/cek data `warga` berdasarkan `nik`.
   - Buat relasi `anggota_kk` (`no_kk` relasi ke ID KK, `warga`, `hubungan_`, `status`).

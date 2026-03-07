@@ -159,11 +159,19 @@ class KkOcrService {
     if (members.isNotEmpty) {
       _enrichMembersFromNik(members);
       _ensureHeadMemberFromHeader(members, namaKepalaKeluarga);
+      _reorderLikelySpouseBeforeChildren(members);
       _inferRemainingHubungan(members);
+      _alignChildNikPrefixes(members, noKkHint: noKk);
+      _enrichMembersFromNik(members);
     }
 
     // Post-process: try to fill missing detail fields from raw text
     _tryFillMemberDetailsFromRawText(members, headerRaw);
+    _normalizeMergedMemberFields(members);
+    _normalizeMergedMemberNames(
+      members,
+      namaKepalaKeluarga: namaKepalaKeluarga,
+    );
 
     final alamat = _extractAlamat(lines);
     final rtRw = _extractRtRw(lines);
@@ -373,37 +381,31 @@ class KkOcrService {
     final primary = (useRightAsPrimary ? right : left).copyWith();
     final secondary = useRightAsPrimary ? left : right;
 
-    final primaryNik = _validNikDigits(primary.nik);
-    final secondaryNik = _validNikDigits(secondary.nik);
     final preferredName = _pickPreferredMemberName(
       primary.nama,
       secondary.nama,
     );
-    if (preferredName == secondary.nama.trim() && secondaryNik.isNotEmpty) {
-      primary.nama = preferredName;
-      primary.nik = secondaryNik;
-    } else {
-      primary.nama = preferredName;
-    }
-    if (primaryNik.isEmpty && secondaryNik.isNotEmpty) {
-      primary.nik = secondaryNik;
-    }
+    primary.nama = preferredName;
+    final preferredNik = _pickPreferredNik(primary.nik, secondary.nik);
+    primary.nik = preferredNik;
 
     primary.hubungan = _preferMoreInformativeValue(
       primary.hubungan,
       secondary.hubungan,
     );
-    primary.jenisKelamin = _preferMoreInformativeValue(
+    primary.jenisKelamin = _pickPreferredJenisKelamin(
       primary.jenisKelamin,
       secondary.jenisKelamin,
+      preferredNik: preferredNik,
     );
     primary.tempatLahir = _preferMoreInformativeValue(
       primary.tempatLahir,
       secondary.tempatLahir,
     );
-    primary.tanggalLahir = _preferMoreInformativeValue(
+    primary.tanggalLahir = _pickPreferredTanggalLahir(
       primary.tanggalLahir,
       secondary.tanggalLahir,
+      preferredNik: preferredNik,
     );
     primary.agama = _preferMoreInformativeValue(primary.agama, secondary.agama);
     primary.pendidikan = _preferMoreInformativeValue(
@@ -578,11 +580,83 @@ class KkOcrService {
     return left;
   }
 
+  String _pickPreferredNik(String primary, String secondary) {
+    final left = _validNikDigits(primary);
+    final right = _validNikDigits(secondary);
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+
+    final leftScore = _nikQualityScore(left);
+    final rightScore = _nikQualityScore(right);
+    if (rightScore > leftScore) {
+      return right;
+    }
+    return left;
+  }
+
+  String _pickPreferredJenisKelamin(
+    String primary,
+    String secondary, {
+    String preferredNik = '',
+  }) {
+    final left = primary.trim();
+    final right = secondary.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+
+    final nikGender = _inferJenisKelaminFromNik(preferredNik);
+    if (nikGender.isNotEmpty) {
+      if (left == nikGender && right != nikGender) {
+        return left;
+      }
+      if (right == nikGender && left != nikGender) {
+        return right;
+      }
+    }
+
+    return _preferMoreInformativeValue(left, right);
+  }
+
+  String _pickPreferredTanggalLahir(
+    String primary,
+    String secondary, {
+    String preferredNik = '',
+  }) {
+    final left = primary.trim();
+    final right = secondary.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+
+    final nikTanggal = _inferTanggalLahirFromNik(preferredNik);
+    if (nikTanggal.isNotEmpty) {
+      if (left == nikTanggal && right != nikTanggal) {
+        return left;
+      }
+      if (right == nikTanggal && left != nikTanggal) {
+        return right;
+      }
+    }
+
+    return _preferMoreInformativeValue(left, right);
+  }
+
+  int _nikQualityScore(String nik) {
+    final digits = _validNikDigits(nik);
+    if (digits.isEmpty) return 0;
+
+    var score = 100;
+    if (digits.endsWith('0000')) score -= 18;
+    if (digits.endsWith('000')) score -= 10;
+    if (RegExp(r'(\d)\1{3}$').hasMatch(digits)) score -= 6;
+    return score;
+  }
+
   String _validNikDigits(String input) {
     final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
     if (digits.length != 16) return '';
     if (RegExp(r'^0+$').hasMatch(digits)) return '';
     if (RegExp(r'^(\d)\1{15}$').hasMatch(digits)) return '';
+    if (!_isLikelyMemberNik(digits)) return '';
     return digits;
   }
 
@@ -609,7 +683,12 @@ class KkOcrService {
         continue;
       }
 
-      final nik = _extractNik(line);
+      final rowNumberHint = _extractLeadingRowNumber(line);
+      final nik = _extractNik(
+        line,
+        noKkHint: noKkHint,
+        rowNumberHint: rowNumberHint,
+      );
       if (nik == null || seenNik.contains(nik)) {
         continue;
       }
@@ -619,10 +698,12 @@ class KkOcrService {
 
       var detailSource = line;
       if (!_containsDateToken(line) &&
+          !_looksLikeCompleteMemberDetailLine(line) &&
           i + 1 < lines.length &&
           !_looksLikeMemberTableHeader(lines[i + 1]) &&
           !_isMemberTableEnd(lines[i + 1]) &&
-          !_looksLikeStandaloneMemberLine(lines[i + 1], currentNik: nik)) {
+          !_looksLikeStandaloneMemberLine(lines[i + 1], currentNik: nik) &&
+          _looksLikeUsefulDetailContinuation(lines[i + 1])) {
         detailSource = '$line ${lines[i + 1]}';
       }
 
@@ -873,6 +954,145 @@ class KkOcrService {
     }
   }
 
+  void _reorderLikelySpouseBeforeChildren(List<ParsedKkMember> members) {
+    if (members.length < 3) {
+      return;
+    }
+    if (members.first.hubungan == 'Ibu') {
+      return;
+    }
+    if (members.any((member) => member.hubungan == 'Ibu')) {
+      return;
+    }
+
+    final spouseIndex = _findLikelySpouseIndex(members);
+    if (spouseIndex <= 1) {
+      return;
+    }
+
+    final spouse = members.removeAt(spouseIndex);
+    members.insert(1, spouse);
+  }
+
+  int _findLikelySpouseIndex(List<ParsedKkMember> members) {
+    if (members.length < 2) {
+      return -1;
+    }
+
+    final head = members.first;
+    final headGender = head.jenisKelamin;
+    var bestIndex = -1;
+    var bestScore = 0;
+
+    for (var i = 1; i < members.length; i++) {
+      final member = members[i];
+      if (!_isLikelyAdultMember(member)) {
+        continue;
+      }
+
+      var score = 0;
+      if (headGender == 'Laki-laki' && member.jenisKelamin == 'Perempuan') {
+        score += 8;
+      } else if (headGender == 'Perempuan' &&
+          member.jenisKelamin == 'Laki-laki') {
+        score += 8;
+      }
+      if (_nameQualityScore(member.nama) >= 6) {
+        score += 2;
+      }
+      if (_validNikDigits(member.nik).isNotEmpty) {
+        score += 2;
+      }
+      if (member.agama.isNotEmpty) {
+        score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+
+    return bestScore >= 8 ? bestIndex : -1;
+  }
+
+  void _alignChildNikPrefixes(
+    List<ParsedKkMember> members, {
+    String noKkHint = '',
+  }) {
+    final familyPrefix = noKkHint.length >= 6 ? noKkHint.substring(0, 6) : '';
+    if (familyPrefix.isEmpty) {
+      return;
+    }
+
+    for (final member in members) {
+      if (member.hubungan != 'Anak') {
+        continue;
+      }
+      final nik = _validNikDigits(member.nik);
+      if (nik.isEmpty) {
+        continue;
+      }
+
+      final prefix = nik.substring(0, 6);
+      if (prefix == familyPrefix) {
+        continue;
+      }
+      if (_hammingDistance(prefix, familyPrefix) > 1) {
+        continue;
+      }
+
+      final correctedNik = '$familyPrefix${nik.substring(6)}';
+      if (!_isLikelyMemberNik(correctedNik, noKkHint: noKkHint)) {
+        continue;
+      }
+      member.nik = correctedNik;
+    }
+  }
+
+  void _normalizeMergedMemberFields(List<ParsedKkMember> members) {
+    for (final member in members) {
+      member.tempatLahir = _normalizeTempatLahir(member.tempatLahir);
+      member.agama = _toTitleCase(_normalizeAgama(member.agama));
+      member.pendidikan = _normalizePendidikanField(member.pendidikan);
+      member.jenisPekerjaan = _normalizePekerjaanField(member.jenisPekerjaan);
+      member.golonganDarah = _normalizeGolonganDarah(member.golonganDarah);
+    }
+  }
+
+  void _normalizeMergedMemberNames(
+    List<ParsedKkMember> members, {
+    String namaKepalaKeluarga = '',
+  }) {
+    for (final member in members) {
+      member.nama = _normalizeFinalMemberName(member.nama);
+    }
+
+    final cleanedHeaderName = _normalizeFinalMemberName(namaKepalaKeluarga);
+    if (members.isEmpty || cleanedHeaderName.isEmpty) {
+      return;
+    }
+
+    final headIndex = members.indexWhere((member) => member.hubungan == 'Ayah');
+    final ibuIndex = members.indexWhere((member) => member.hubungan == 'Ibu');
+    if (headIndex >= 0 &&
+        (_nameSimilarity(members[headIndex].nama, cleanedHeaderName) >= 0.35 ||
+            members[headIndex].nama.isEmpty ||
+            _looksClearlyGarbledName(members[headIndex].nama))) {
+      members[headIndex].nama = cleanedHeaderName;
+      if (headIndex != 0) {
+        final headMember = members.removeAt(headIndex);
+        members.insert(0, headMember);
+      }
+    } else if (ibuIndex >= 0 &&
+        members.first.hubungan != 'Ayah' &&
+        (_nameSimilarity(members[ibuIndex].nama, cleanedHeaderName) >= 0.35 ||
+            _looksClearlyGarbledName(members[ibuIndex].nama))) {
+      members[ibuIndex].nama = cleanedHeaderName;
+    } else if (members.first.hubungan != 'Anak') {
+      members.first.nama = cleanedHeaderName;
+    }
+  }
+
   String _inferHubunganForMember(
     List<ParsedKkMember> members, {
     required int index,
@@ -1028,6 +1248,19 @@ class KkOcrService {
           .split(' ')
           .where((token) => token.isNotEmpty)
           .toList();
+      final sharedHeaderTokens = matchedTokens
+          .where((token) => headerTokens.contains(token))
+          .length;
+      final hasNoisyExtraTokens =
+          matchedTokens.length > headerTokens.length &&
+          matchedTokens
+              .where((token) => !headerTokens.contains(token))
+              .every(
+                (token) =>
+                    token.length <= 4 ||
+                    _looksGarbled(token) ||
+                    !_hasReasonableVowelRatio(token),
+              );
       final sharesLastToken =
           matchedTokens.isNotEmpty &&
           headerTokens.isNotEmpty &&
@@ -1039,9 +1272,17 @@ class KkOcrService {
           (sharesLastToken &&
               _nameSimilarity(matchedName, cleanedHeaderName) >= 0.55 &&
               _nameQualityScore(cleanedHeaderName) + 1 >=
-                  _nameQualityScore(matchedName));
+                  _nameQualityScore(matchedName)) ||
+          (_nameSimilarity(matchedName, cleanedHeaderName) >= 0.45 &&
+              sharedHeaderTokens >=
+                  (headerTokens.length >= 2 ? headerTokens.length - 1 : 1) &&
+              hasNoisyExtraTokens);
       if (shouldPreferHeaderName) {
         members[matchedIndex].nama = cleanedHeaderName;
+      }
+      if (headerGender.isNotEmpty &&
+          members[matchedIndex].jenisKelamin.isEmpty) {
+        members[matchedIndex].jenisKelamin = headerGender;
       }
       if (headerGender.isNotEmpty &&
           members[matchedIndex].hubungan.isNotEmpty &&
@@ -1596,10 +1837,42 @@ class KkOcrService {
   }
 
   String? _extract16DigitsWithOcrCorrection(String source) {
-    final normalized = _normalizeOcrDigits(source);
+    final upper = source.toUpperCase();
     String? fallbackCandidate;
 
-    final exact16 = RegExp(r'([0-9](?:\s*[0-9]){15})').allMatches(normalized);
+    String? considerNormalized(String text) {
+      final normalized = _normalizeOcrDigits(text);
+
+      final exact16 = RegExp(r'([0-9](?:\s*[0-9]){15})').allMatches(normalized);
+      for (final match in exact16) {
+        final digits = match.group(0)!.replaceAll(RegExp(r'\s+'), '');
+        if (digits.length != 16) continue;
+        if (_isLikelyMemberNik(digits)) return digits;
+        fallbackCandidate ??= digits;
+      }
+
+      final loose = RegExp(r'([0-9][0-9\s]{12,30})').allMatches(normalized);
+      for (final match in loose) {
+        final digits = match.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.length == 16) {
+          if (_isLikelyMemberNik(digits)) return digits;
+          fallbackCandidate ??= digits;
+        }
+        if (digits.length > 16) {
+          for (var i = 0; i <= digits.length - 16; i++) {
+            final candidate = digits.substring(i, i + 16);
+            if (_isLikelyMemberNik(candidate)) {
+              return candidate;
+            }
+          }
+          fallbackCandidate ??= digits.substring(0, 16);
+        }
+      }
+
+      return null;
+    }
+
+    final exact16 = RegExp(r'([0-9](?:\s*[0-9]){15})').allMatches(upper);
     for (final match in exact16) {
       final digits = match.group(0)!.replaceAll(RegExp(r'\s+'), '');
       if (digits.length != 16) continue;
@@ -1607,21 +1880,32 @@ class KkOcrService {
       fallbackCandidate ??= digits;
     }
 
-    final loose = RegExp(r'([0-9][0-9\s]{12,30})').allMatches(normalized);
+    final loose = RegExp(r'([0-9][0-9\s]{12,30})').allMatches(upper);
     for (final match in loose) {
-      final digits = match.group(0)!.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digits.length == 16) {
-        if (_isLikelyMemberNik(digits)) return digits;
-        fallbackCandidate ??= digits;
+      final result = considerNormalized(match.group(0) ?? '');
+      if (result != null) {
+        return result;
       }
-      if (digits.length > 16) {
-        for (var i = 0; i <= digits.length - 16; i++) {
-          final candidate = digits.substring(i, i + 16);
-          if (_isLikelyMemberNik(candidate)) {
-            return candidate;
-          }
-        }
-        fallbackCandidate ??= digits.substring(0, 16);
+    }
+
+    final mixedBlocks = RegExp(
+      r'([A-Z0-9][A-Z0-9\s]{11,30})',
+    ).allMatches(upper);
+    for (final match in mixedBlocks) {
+      final block = match.group(0) ?? '';
+      final digitCount = RegExp(r'\d').allMatches(block).length;
+      if (digitCount < 8) {
+        continue;
+      }
+
+      final firstDigitMatch = RegExp(r'\d').firstMatch(block);
+      if (firstDigitMatch == null) {
+        continue;
+      }
+
+      final result = considerNormalized(block.substring(firstDigitMatch.start));
+      if (result != null) {
+        return result;
       }
     }
 
@@ -1788,7 +2072,11 @@ class KkOcrService {
     return cleaned;
   }
 
-  String? _extractNik(String line) {
+  String? _extractNik(
+    String line, {
+    String noKkHint = '',
+    int rowNumberHint = -1,
+  }) {
     final upper = line.toUpperCase();
     if (upper.contains('NO KK') ||
         upper.contains('NOMOR KK') ||
@@ -1800,13 +2088,61 @@ class KkOcrService {
       return null;
     }
 
-    final candidate = _extract16DigitsWithOcrCorrection(upper);
-    if (candidate == null || candidate.length != 16) return null;
-    return candidate;
+    final normalizedLine = _stripLeadingRowNumber(
+      upper,
+      rowNumberHint: rowNumberHint,
+    );
+    final reconstructedNik = noKkHint.length >= 6 && rowNumberHint == 1
+        ? _reconstructNikFromSuffix(
+            normalizedLine,
+            noKkPrefix: noKkHint.substring(0, 6),
+            preferAdult: true,
+          )
+        : '';
+    final reconstructedScore = reconstructedNik.isNotEmpty
+        ? _nikContextScore(reconstructedNik, normalizedLine)
+        : 0;
+    final candidate = _extract16DigitsWithOcrCorrection(normalizedLine);
+    if (candidate == null || candidate.length != 16) {
+      if (reconstructedScore >= 120) {
+        return reconstructedNik;
+      }
+      return null;
+    }
+
+    final repaired = _repairNikCandidate(
+      candidate,
+      line: normalizedLine,
+      noKkHint: noKkHint,
+      rowNumberHint: rowNumberHint,
+    );
+    if (repaired.length != 16 ||
+        !_isLikelyMemberNik(repaired, noKkHint: noKkHint)) {
+      if (reconstructedScore >= 120) {
+        return reconstructedNik;
+      }
+      return null;
+    }
+    if (reconstructedScore >= 120 &&
+        reconstructedScore > _nikContextScore(repaired, normalizedLine)) {
+      return reconstructedNik;
+    }
+    return repaired;
+  }
+
+  String _stripLeadingRowNumber(String line, {int rowNumberHint = -1}) {
+    if (rowNumberHint < 0) {
+      return line.trim();
+    }
+    return line.replaceFirst(RegExp(r'^\s*\d{1,2}\s*[\.\-\)]?\s*'), '').trim();
   }
 
   String _extractName(String line, List<String> lines, int index) {
-    final beforeNik = line.split(RegExp(r'\d')).first.trim();
+    final cleanedLine = _stripLeadingRowNumber(
+      line,
+      rowNumberHint: _extractLeadingRowNumber(line),
+    );
+    final beforeNik = cleanedLine.split(RegExp(r'\d')).first.trim();
     if (_isLikelyName(beforeNik)) {
       return _toTitleCase(beforeNik);
     }
@@ -1833,10 +2169,12 @@ class KkOcrService {
     }
     final upperContext = contextLines.join(' ');
 
-    if (upperContext.contains('PEREMPUAN')) return 'Perempuan';
-    if (upperContext.contains('LAKI')) return 'Laki-laki';
-    if (upperContext.contains('PR')) return 'Perempuan';
-    if (upperContext.contains('LK')) return 'Laki-laki';
+    if (_extractGenderHintFromText(upperContext) == 'Perempuan') {
+      return 'Perempuan';
+    }
+    if (_extractGenderHintFromText(upperContext) == 'Laki-laki') {
+      return 'Laki-laki';
+    }
     return '';
   }
 
@@ -1877,14 +2215,18 @@ class KkOcrService {
     var jenisPekerjaan = '';
     var golonganDarah = '';
 
-    final genderMatch = RegExp(
-      r'\b(PEREMPUAN|LAKI[\s\-\/]*LAKI|LAKILAKI|LAKI|PR|LK)\b',
-    ).firstMatch(remaining);
-    if (genderMatch != null) {
-      jenisKelamin = _normalizeJenisKelamin(genderMatch.group(1) ?? '');
-      if (genderMatch.start <= 4) {
-        remaining = remaining.substring(genderMatch.end).trim();
-      }
+    final genderHint = _extractGenderHintFromText(remaining);
+    if (genderHint.isNotEmpty) {
+      jenisKelamin = genderHint;
+      remaining = remaining
+          .replaceFirst(
+            RegExp(
+              r'(PEREMPUAN|FEREMPUAN|PERFVIPUAN|PERBUPUAN|LAKI[\s\-\/]*LAKI|LAKILAKI|LAKI|LAKHAK|LAKHAKI|PR|LK)',
+              caseSensitive: false,
+            ),
+            '',
+          )
+          .trim();
     }
 
     final tanggalMatch = RegExp(
@@ -1901,7 +2243,7 @@ class KkOcrService {
     final agamaMatch = _findAgamaMatch(remaining);
     if (agamaMatch != null) {
       if (tanggalMatch == null && tempatLahir.isEmpty && agamaMatch.start > 0) {
-        tempatLahir = _cleanMemberDetailValue(
+        tempatLahir = _cleanTempatSebelumTanggal(
           remaining.substring(0, agamaMatch.start),
         );
       }
@@ -1910,7 +2252,7 @@ class KkOcrService {
     }
 
     final golDarahMatch = RegExp(
-      r'(TIDAK\s+TAHU|AB[+-]?|A[+-]?|B[+-]?|O[+-]?|-)\s*$',
+      r'(TIDAK\s+TAHU|RICA\s*TANU|INDAK?T?\s*TAHU|DAK\s*TAHU|AB[+-]?|A[+-]?|B[+-]?|O[+-]?|-)\s*$',
     ).firstMatch(remaining);
     if (golDarahMatch != null) {
       golonganDarah = _normalizeGolonganDarah(golDarahMatch.group(1) ?? '');
@@ -1939,19 +2281,9 @@ class KkOcrService {
         .replaceAll(RegExp(r"[^A-Z\s'.-]"), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
-    if (!_isLikelyName(candidate)) return '';
-    return _toTitleCase(candidate);
-  }
-
-  String _normalizeJenisKelamin(String input) {
-    final upper = input.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
-    if (upper == 'PR' || upper.contains('PEREMPUAN')) {
-      return 'Perempuan';
-    }
-    if (upper == 'LK' || upper.contains('LAKI')) {
-      return 'Laki-laki';
-    }
-    return '';
+    final normalized = _normalizeFinalMemberName(candidate);
+    if (!_isLikelyName(normalized.toUpperCase())) return '';
+    return normalized;
   }
 
   String _normalizeTanggalFromToken(String input) {
@@ -1984,13 +2316,20 @@ class KkOcrService {
 
   RegExpMatch? _findAgamaMatch(String input) {
     return RegExp(
-      r'\b(ISLAM|KRISTEN|KATOLIK|KATHOLIK|KHATOLIK|HINDU|BUDDHA|BUDHA|KONGHUCU|KONGHUCHU)\b',
+      r'\b(ISLAM|SIAM|SLAW|JSIAU|M1AM|E1AW|KRISTEN|KATOLIK|KATHOLIK|KHATOLIK|HINDU|BUDDHA|BUDHA|KONGHUCU|KONGHUCHU)\b',
     ).firstMatch(input);
   }
 
   String _normalizeAgama(String input) {
     final upper = input.toUpperCase();
-    if (upper.contains('ISLAM')) return 'Islam';
+    if (upper.contains('ISLAM') ||
+        upper.contains('SIAM') ||
+        upper.contains('SLAW') ||
+        upper.contains('JSIAU') ||
+        upper.contains('M1AM') ||
+        upper.contains('E1AW')) {
+      return 'Islam';
+    }
     if (upper.contains('KRISTEN')) return 'Kristen';
     if (upper.contains('KATOLIK') ||
         upper.contains('KATHOLIK') ||
@@ -2008,7 +2347,12 @@ class KkOcrService {
   String _normalizeGolonganDarah(String input) {
     final upper = input.toUpperCase().replaceAll(RegExp(r'\s+'), '');
     if (upper.isEmpty || upper == '-') return '';
-    if (upper == 'TIDAKTAHU') return 'Tidak Tahu';
+    if (upper == 'TIDAKTAHU' ||
+        upper == 'RICATANU' ||
+        upper == 'INDAKTAHU' ||
+        upper == 'DAKTAHU') {
+      return 'Tidak Tahu';
+    }
     if (upper == 'AB' ||
         upper == 'A' ||
         upper == 'B' ||
@@ -2085,14 +2429,17 @@ class KkOcrService {
       }
     }
     if (splitIndex > 0) {
-      final pendidikan = _cleanMemberDetailValue(
+      final pendidikan = _normalizePendidikanField(
         compact.substring(0, splitIndex),
       );
-      final pekerjaan = _cleanMemberDetailValue(compact.substring(splitIndex));
+      final pekerjaan = _normalizePekerjaanField(compact.substring(splitIndex));
       return (pendidikan, pekerjaan);
     }
 
-    return ('', compact);
+    return (
+      _normalizePendidikanField(compact),
+      _normalizePekerjaanField(compact),
+    );
   }
 
   void _debugPrintLong(String text) {
@@ -2132,29 +2479,387 @@ class KkOcrService {
     return _isLikelyName(leadingText.split(RegExp(r'\d')).first.trim());
   }
 
+  bool _looksLikeCompleteMemberDetailLine(String line) {
+    final upper = line.toUpperCase();
+    final compact = upper.replaceAll(RegExp(r'[^A-Z]'), '');
+    return _containsDateToken(upper) ||
+        _findAgamaMatch(upper) != null ||
+        compact.contains('SEKOLAH') ||
+        compact.contains('SEDERAJAT') ||
+        compact.contains('SARJANAMUDA') ||
+        compact.contains('DIPLOMA') ||
+        compact.contains('KARYAWAN') ||
+        compact.contains('WRASWASTA') ||
+        compact.contains('WIRASWASTA') ||
+        compact.contains('BEKERJA') ||
+        compact.contains('TIDAKTAHU') ||
+        compact.contains('RICATANU');
+  }
+
+  bool _looksLikeUsefulDetailContinuation(String line) {
+    final upper = line.toUpperCase();
+    final compact = upper.replaceAll(RegExp(r'[^A-Z]'), '');
+    if (_containsDateToken(upper) || _findAgamaMatch(upper) != null) {
+      return true;
+    }
+    if (compact.contains('SEKOLAH') ||
+        compact.contains('SEDERAJAT') ||
+        compact.contains('DIPLOMA') ||
+        compact.contains('SARJANA') ||
+        compact.contains('KARYAWAN') ||
+        compact.contains('WIRASWASTA') ||
+        compact.contains('WRASWASTA') ||
+        compact.contains('BEKERJA') ||
+        compact.contains('TIDAKTAHU')) {
+      return true;
+    }
+
+    final alphaCount = compact.length;
+    return alphaCount >= 12 && !_looksGarbled(compact);
+  }
+
+  int _extractLeadingRowNumber(String line) {
+    final match = RegExp(r'^\s*(\d{1,2})\b').firstMatch(line);
+    if (match == null) {
+      return -1;
+    }
+    return int.tryParse(match.group(1) ?? '') ?? -1;
+  }
+
+  String _repairNikCandidate(
+    String candidate, {
+    required String line,
+    String noKkHint = '',
+    int rowNumberHint = -1,
+  }) {
+    if (_isLikelyMemberNik(candidate, noKkHint: noKkHint)) {
+      return candidate;
+    }
+
+    final variants = <String>{candidate};
+    final genderHint = _extractGenderHintFromText(line);
+    final dateHint = _extractLooseDateFromText(line);
+
+    if (genderHint == 'Perempuan' && candidate.length == 16) {
+      final chars = candidate.split('');
+      final firstDayDigit = chars[6];
+      if (firstDayDigit == '8') {
+        chars[6] = '6';
+        variants.add(chars.join());
+      }
+    }
+
+    if (dateHint != null && candidate.length == 16) {
+      final encodedDay = genderHint == 'Perempuan'
+          ? dateHint.$1 + 40
+          : dateHint.$1;
+      final dd = encodedDay.toString().padLeft(2, '0');
+      final mm = dateHint.$2.toString().padLeft(2, '0');
+      final yy = (dateHint.$3 % 100).toString().padLeft(2, '0');
+      variants.add(
+        '${candidate.substring(0, 6)}$dd$mm$yy${candidate.substring(12)}',
+      );
+      if (rowNumberHint == 1 && noKkHint.length >= 6) {
+        variants.add(
+          '${noKkHint.substring(0, 6)}$dd$mm$yy${candidate.substring(12)}',
+        );
+      }
+    }
+
+    if (rowNumberHint == 1 && noKkHint.length >= 6) {
+      final reconstructed = _reconstructNikFromSuffix(
+        line,
+        noKkPrefix: noKkHint.substring(0, 6),
+        preferAdult: true,
+      );
+      if (reconstructed.isNotEmpty) {
+        variants.add(reconstructed);
+      }
+    }
+
+    String best = candidate;
+    var bestScore = _nikQualityScore(candidate);
+    for (final variant in variants) {
+      if (!_isLikelyMemberNik(variant, noKkHint: noKkHint)) {
+        continue;
+      }
+      final score = _nikQualityScore(variant);
+      if (score > bestScore) {
+        best = variant;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }
+
+  String _reconstructNikFromSuffix(
+    String line, {
+    required String noKkPrefix,
+    bool preferAdult = false,
+  }) {
+    final upper = line.toUpperCase();
+    final candidateBlocks = RegExp(
+      r'([A-Z0-9][A-Z0-9\s]{9,30})',
+    ).allMatches(upper);
+    var bestCandidate = '';
+    var bestScore = 0;
+
+    for (final blockMatch in candidateBlocks) {
+      final block = blockMatch.group(0) ?? '';
+      final digitCount = RegExp(r'\d').allMatches(block).length;
+      if (digitCount < 6) {
+        continue;
+      }
+
+      final firstDigitMatch = RegExp(r'\d').firstMatch(block);
+      if (firstDigitMatch == null) {
+        continue;
+      }
+
+      final blockTail = block.substring(firstDigitMatch.start);
+      final candidateSources = <String>{blockTail};
+      for (final token in blockTail.split(RegExp(r'\s+'))) {
+        final alnum = token.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+        if (alnum.isEmpty) {
+          continue;
+        }
+        final digitCount = RegExp(r'\d').allMatches(alnum).length;
+        if (digitCount >= 6) {
+          candidateSources.add(alnum);
+        }
+      }
+
+      for (final source in candidateSources) {
+        final digitsOnly = _normalizeOcrDigits(
+          source,
+        ).replaceAll(RegExp(r'[^0-9]'), '');
+        if (digitsOnly.length < 10) {
+          continue;
+        }
+
+        for (var i = 0; i <= digitsOnly.length - 10; i++) {
+          final suffix = digitsOnly.substring(i, i + 10);
+          final fullNik = '$noKkPrefix$suffix';
+          if (!_isLikelyMemberNik(fullNik)) {
+            continue;
+          }
+          if (preferAdult) {
+            final birthDate = _birthDateFromNik(fullNik);
+            if (birthDate == null) {
+              continue;
+            }
+            final now = DateTime.now();
+            var age = now.year - birthDate.year;
+            final birthdayPassed =
+                now.month > birthDate.month ||
+                (now.month == birthDate.month && now.day >= birthDate.day);
+            if (!birthdayPassed) {
+              age -= 1;
+            }
+            if (age < 17) {
+              continue;
+            }
+          }
+
+          final score = _nikContextScore(fullNik, source);
+          if (score > bestScore) {
+            bestCandidate = fullNik;
+            bestScore = score;
+          }
+        }
+      }
+    }
+
+    return bestCandidate;
+  }
+
+  int _nikContextScore(String nik, String line) {
+    final digitsOnly = _normalizeOcrDigits(
+      line.toUpperCase(),
+    ).replaceAll(RegExp(r'[^0-9]'), '');
+    if (nik.length != 16 || digitsOnly.isEmpty) {
+      return 0;
+    }
+
+    var score = _nikQualityScore(nik);
+    final suffix10 = nik.substring(6);
+    final date6 = nik.substring(6, 12);
+    final suffix4 = nik.substring(12);
+    if (digitsOnly.contains(suffix10)) {
+      score += 40;
+    }
+    if (digitsOnly.contains(date6)) {
+      score += 20;
+    }
+    if (digitsOnly.contains(suffix4)) {
+      score += 8;
+    }
+    final birthDate = _birthDateFromNik(nik);
+    if (birthDate != null) {
+      final now = DateTime.now();
+      var age = now.year - birthDate.year;
+      final birthdayPassed =
+          now.month > birthDate.month ||
+          (now.month == birthDate.month && now.day >= birthDate.day);
+      if (!birthdayPassed) {
+        age -= 1;
+      }
+      if (age >= 17) {
+        score += 25;
+      } else {
+        score -= 25;
+      }
+    }
+    return score;
+  }
+
+  (int, int, int)? _extractLooseDateFromText(String input) {
+    final normalized = _normalizeOcrDigits(input.toUpperCase());
+    final dashedMatch = RegExp(
+      r'\b(\d{2})[-\/\.]?(\d{2})[-\/\.](\d{2,4})\b',
+    ).firstMatch(normalized);
+    if (dashedMatch != null) {
+      final day = int.tryParse(dashedMatch.group(1) ?? '');
+      final month = int.tryParse(dashedMatch.group(2) ?? '');
+      final yearRaw = int.tryParse(dashedMatch.group(3) ?? '');
+      final year = yearRaw != null && yearRaw < 100
+          ? (yearRaw <= 30 ? 2000 + yearRaw : 1900 + yearRaw)
+          : yearRaw;
+      if (day != null &&
+          month != null &&
+          year != null &&
+          day >= 1 &&
+          day <= 31 &&
+          month >= 1 &&
+          month <= 12) {
+        return (day, month, year);
+      }
+    }
+
+    final compactMatch = RegExp(
+      r'\b(\d{2})(\d{2})(\d{4})\b',
+    ).firstMatch(normalized);
+    if (compactMatch == null) {
+      return null;
+    }
+
+    final day = int.tryParse(compactMatch.group(1) ?? '');
+    final month = int.tryParse(compactMatch.group(2) ?? '');
+    final year = int.tryParse(compactMatch.group(3) ?? '');
+    if (day == null || month == null || year == null) {
+      return null;
+    }
+    if (day < 1 || day > 31 || month < 1 || month > 12) {
+      return null;
+    }
+    return (day, month, year);
+  }
+
+  String _extractGenderHintFromText(String input) {
+    final upper = input.toUpperCase();
+    final compact = upper.replaceAll(RegExp(r'[^A-Z]'), '');
+    if (compact.contains('PEREMPUAN') ||
+        compact.contains('FEREMPUAN') ||
+        compact.contains('PEREMPU') ||
+        compact.contains('PERFVIPUAN') ||
+        compact.contains('PERBUPUAN')) {
+      return 'Perempuan';
+    }
+    if (compact.contains('LAKILAKI') ||
+        compact.contains('LAKHAK') ||
+        compact.contains('LAKHAKI') ||
+        compact.contains('LAKI')) {
+      return 'Laki-laki';
+    }
+    if (upper.contains(' PR ') ||
+        upper.endsWith(' PR') ||
+        upper.startsWith('PR ')) {
+      return 'Perempuan';
+    }
+    if (upper.contains(' LK ') ||
+        upper.endsWith(' LK') ||
+        upper.startsWith('LK ')) {
+      return 'Laki-laki';
+    }
+    return '';
+  }
+
   (int, int)? _findNikTokenMatch(String line, {String? nikOverride}) {
     final normalized = _normalizeOcrDigits(line.toUpperCase());
+    final normalizedOverride = _validNikDigits(nikOverride ?? '');
     final matches = RegExp(
       r'([0-9][0-9\s]{14,30}[0-9])',
     ).allMatches(normalized);
+    (int, int)? bestMatch;
+    var bestScore = -1;
     for (final match in matches) {
       final token = match.group(0) ?? '';
       final digits = token.replaceAll(RegExp(r'[^0-9]'), '');
       if (digits.length == 16) {
-        if (nikOverride != null &&
-            nikOverride.isNotEmpty &&
-            digits != nikOverride) {
-          continue;
-        }
-        return (match.start, match.end);
-      }
-      if (digits.length > 16 && nikOverride != null && nikOverride.isNotEmpty) {
-        if (digits.contains(nikOverride)) {
+        if (normalizedOverride.isEmpty) {
           return (match.start, match.end);
+        }
+        final score = _nikOverrideMatchScore(digits, normalizedOverride);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = (match.start, match.end);
+        }
+        continue;
+      }
+      if (digits.length > 16 && normalizedOverride.isNotEmpty) {
+        final score = _nikOverrideMatchScore(digits, normalizedOverride);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = (match.start, match.end);
         }
       }
     }
-    return null;
+    return bestScore >= 0 ? bestMatch : null;
+  }
+
+  int _nikOverrideMatchScore(String digits, String nikOverride) {
+    if (nikOverride.isEmpty || digits.isEmpty) {
+      return -1;
+    }
+
+    if (digits.length == 16) {
+      if (digits == nikOverride) {
+        return 200;
+      }
+
+      final distance = _hammingDistance(digits, nikOverride);
+      if (distance <= 2) {
+        return 160 - (distance * 25);
+      }
+
+      if (digits.substring(6) == nikOverride.substring(6)) {
+        return 125;
+      }
+      if (digits.substring(8) == nikOverride.substring(8)) {
+        return 105;
+      }
+
+      final similarity = _normalizedEditSimilarity(digits, nikOverride);
+      if (similarity >= 0.84) {
+        return (similarity * 100).round();
+      }
+      return -1;
+    }
+
+    if (digits.length > 16) {
+      var bestScore = -1;
+      for (var i = 0; i <= digits.length - 16; i++) {
+        final candidate = digits.substring(i, i + 16);
+        final score = _nikOverrideMatchScore(candidate, nikOverride);
+        if (score > bestScore) {
+          bestScore = score;
+        }
+      }
+      return bestScore;
+    }
+
+    return -1;
   }
 
   bool _isLikelyMemberNik(String nik, {String noKkHint = ''}) {
@@ -2390,7 +3095,12 @@ class KkOcrService {
       tokens.removeAt(0);
     }
 
-    return _cleanMemberDetailValue(tokens.join(' '));
+    final cleaned = _cleanMemberDetailValue(tokens.join(' '));
+    final knownPlace = _extractKnownPlaceFromDirtyValue(cleaned);
+    if (knownPlace.isNotEmpty) {
+      return knownPlace;
+    }
+    return cleaned;
   }
 
   /// Normalize tempat lahir from OCR structured field.
@@ -2406,6 +3116,11 @@ class KkOcrService {
 
     // If it's purely numeric (e.g., "22091"), it's garbled — clear it
     if (RegExp(r'^[\d\s]+$').hasMatch(cleaned)) return '';
+
+    final knownPlace = _extractKnownPlaceFromDirtyValue(cleaned);
+    if (knownPlace.isNotEmpty) {
+      return _toTitleCase(knownPlace);
+    }
 
     // Filter out individual noise tokens
     const noise = {
@@ -2448,6 +3163,9 @@ class KkOcrService {
       if (w.length <= 2 && RegExp(r'\d').hasMatch(w)) return false;
       // Common OCR noise
       if (noise.contains(w)) return false;
+      if (w.contains('PEREMPUAN') || w.contains('FEREMPUAN')) return false;
+      if (w.contains('LAKI')) return false;
+      if (w.contains('ISLAM') || w.contains('SIAM')) return false;
       return true;
     }).toList();
 
@@ -2490,6 +3208,34 @@ class KkOcrService {
     if (resultClean.length <= 4) return '';
 
     return _toTitleCase(resultClean);
+  }
+
+  String _extractKnownPlaceFromDirtyValue(String input) {
+    final compact = _cleanStructuredField(
+      input,
+    ).replaceAll(RegExp(r'[^A-Z]'), '');
+    if (compact.length < 4) {
+      return '';
+    }
+
+    const knownPlaces = <String, String>{
+      'BANDUNGBARAT': 'BANDUNG BARAT',
+      'RANDUNGBARAT': 'BANDUNG BARAT',
+      'BANDUNG': 'BANDUNG',
+      'RANDUNG': 'BANDUNG',
+      'CIMAHI': 'CIMAHI',
+      'CMAAH': 'CIMAHI',
+      'CMAHI': 'CIMAHI',
+      'CIBABAT': 'CIBABAT',
+    };
+
+    for (final entry in knownPlaces.entries) {
+      if (compact.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+
+    return '';
   }
 
   /// Fuzzy-match garbled tempat lahir against common Indonesian cities.
@@ -2578,10 +3324,10 @@ class KkOcrService {
       'TIDAK/BELUM SEKOLAH',
       'BELUM TAMAT SD/SEDERAJAT',
       'TAMAT SD/SEDERAJAT',
-      'SLTP/SEDERAJAT',
       'SLTA/SEDERAJAT',
-      'DIPLOMA I/II',
+      'SLTP/SEDERAJAT',
       'AKADEMI/DIPLOMA III/SARJANA MUDA',
+      'DIPLOMA I/II',
       'DIPLOMA IV/STRATA I',
       'STRATA II',
       'STRATA III',
@@ -2589,12 +3335,12 @@ class KkOcrService {
 
     for (final p in knownPendidikan) {
       if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
-        return _toTitleCase(p);
+        return _canonicalPendidikanDisplay(p);
       }
       final words = p.split(RegExp(r'[\s/]+'));
       final matchCount = words.where((w) => upper.contains(w)).length;
       if (matchCount >= words.length - 1 && words.length >= 2) {
-        return _toTitleCase(p);
+        return _canonicalPendidikanDisplay(p);
       }
     }
 
@@ -2605,27 +3351,27 @@ class KkOcrService {
         upper.contains('SARJANA') ||
         compact.contains('DIPLOMAIII') ||
         compact.contains('SARJANAMUDA')) {
-      return _toTitleCase('AKADEMI/DIPLOMA III/SARJANA MUDA');
+      return _canonicalPendidikanDisplay('AKADEMI/DIPLOMA III/SARJANA MUDA');
     }
     if (upper.contains('SLTA') || compact.contains('SLTA')) {
-      return _toTitleCase('SLTA/SEDERAJAT');
+      return _canonicalPendidikanDisplay('SLTA/SEDERAJAT');
     }
     if (upper.contains('SLTP') || compact.contains('SLTP')) {
-      return _toTitleCase('SLTP/SEDERAJAT');
+      return _canonicalPendidikanDisplay('SLTP/SEDERAJAT');
     }
     if (upper.contains('SD') && !upper.contains('SL')) {
-      return _toTitleCase('TAMAT SD/SEDERAJAT');
+      return _canonicalPendidikanDisplay('TAMAT SD/SEDERAJAT');
     }
     if (upper.contains('STRATA I') || upper.contains('DIPLOMA IV')) {
-      return _toTitleCase('DIPLOMA IV/STRATA I');
+      return _canonicalPendidikanDisplay('DIPLOMA IV/STRATA I');
     }
     if (upper.contains('BELUM') && upper.contains('SEKOLAH')) {
-      return _toTitleCase('TIDAK/BELUM SEKOLAH');
+      return _canonicalPendidikanDisplay('TIDAK/BELUM SEKOLAH');
     }
 
     // Aggressive OCR garble recovery using bigram similarity
     final bestMatch = _fuzzyMatchPendidikan(compact);
-    if (bestMatch != null) return _toTitleCase(bestMatch);
+    if (bestMatch != null) return _canonicalPendidikanDisplay(bestMatch);
 
     // If it's just noise (mostly garbled short words), clear it
     final alphaCount = compact.replaceAll(RegExp(r'[^A-Z]'), '').length;
@@ -2638,7 +3384,7 @@ class KkOcrService {
         .length;
     if (words.isNotEmpty && garbledCount / words.length > 0.5) return '';
 
-    return _toTitleCase(cleaned);
+    return _canonicalPendidikanDisplay(cleaned);
   }
 
   /// Normalize pekerjaan from OCR structured field.
@@ -2665,33 +3411,45 @@ class KkOcrService {
 
     for (final p in knownPekerjaan) {
       if (compact.contains(p.replaceAll('/', '').replaceAll(' ', ''))) {
-        return _toTitleCase(p);
+        return _canonicalPekerjaanDisplay(p);
       }
       final words = p.split(RegExp(r'[\s/]+'));
       final matchCount = words.where((w) => upper.contains(w)).length;
       if (matchCount >= words.length - 1 && words.length >= 2) {
-        return _toTitleCase(p);
+        return _canonicalPekerjaanDisplay(p);
       }
     }
 
     // Partial matches
-    if (upper.contains('WIRASWASTA')) return _toTitleCase('WIRASWASTA');
-    if (upper.contains('KARYAWAN')) return _toTitleCase('KARYAWAN SWASTA');
+    if (upper.contains('WIRASWASTA') || upper.contains('WRASWASTA')) {
+      return _canonicalPekerjaanDisplay('WIRASWASTA');
+    }
+    if (upper.contains('KARYAWAN')) {
+      return _canonicalPekerjaanDisplay('KARYAWAN SWASTA');
+    }
     if (upper.contains('BELUM') && upper.contains('BEKERJA')) {
-      return _toTitleCase('BELUM/TIDAK BEKERJA');
+      return _canonicalPekerjaanDisplay('BELUM/TIDAK BEKERJA');
     }
     if (upper.contains('TIDAK') && upper.contains('BEKERJA')) {
-      return _toTitleCase('BELUM/TIDAK BEKERJA');
+      return _canonicalPekerjaanDisplay('BELUM/TIDAK BEKERJA');
     }
-    if (upper.contains('PELAJAR')) return _toTitleCase('PELAJAR/MAHASISWA');
-    if (upper.contains('MAHASISWA')) return _toTitleCase('PELAJAR/MAHASISWA');
+    if (upper.contains('PELAJAR')) {
+      return _canonicalPekerjaanDisplay('PELAJAR/MAHASISWA');
+    }
+    if (upper.contains('MAHASISWA')) {
+      return _canonicalPekerjaanDisplay('PELAJAR/MAHASISWA');
+    }
     if (upper.contains('MENGURUS') || upper.contains('RUMAH TANGGA')) {
-      return _toTitleCase('MENGURUS RUMAH TANGGA');
+      return _canonicalPekerjaanDisplay('MENGURUS RUMAH TANGGA');
     }
-    if (upper.contains('PETANI')) return _toTitleCase('PETANI');
-    if (upper.contains('PEDAGANG')) return _toTitleCase('PEDAGANG');
-    if (upper.contains('BURUH')) return _toTitleCase('BURUH');
-    if (upper.contains('PENSIUNAN')) return _toTitleCase('PENSIUNAN');
+    if (upper.contains('PETANI')) return _canonicalPekerjaanDisplay('PETANI');
+    if (upper.contains('PEDAGANG')) {
+      return _canonicalPekerjaanDisplay('PEDAGANG');
+    }
+    if (upper.contains('BURUH')) return _canonicalPekerjaanDisplay('BURUH');
+    if (upper.contains('PENSIUNAN')) {
+      return _canonicalPekerjaanDisplay('PENSIUNAN');
+    }
 
     // Fuzzy match with bigram similarity
     final inputAlpha = compact.replaceAll(RegExp(r'[^A-Z]'), '');
@@ -2707,7 +3465,7 @@ class KkOcrService {
         }
       }
       if (bestScore >= 0.35 && bestMatch != null) {
-        return _toTitleCase(bestMatch);
+        return _canonicalPekerjaanDisplay(bestMatch);
       }
     }
 
@@ -2722,7 +3480,69 @@ class KkOcrService {
         .length;
     if (words.isNotEmpty && garbledCount / words.length > 0.5) return '';
 
-    return _toTitleCase(cleaned);
+    return _canonicalPekerjaanDisplay(cleaned);
+  }
+
+  String _canonicalPendidikanDisplay(String input) {
+    final upper = input.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    switch (upper) {
+      case 'TIDAK/BELUM SEKOLAH':
+      case 'TIDAK BELUM SEKOLAH':
+        return 'Tidak/belum Sekolah';
+      case 'BELUM TAMAT SD/SEDERAJAT':
+        return 'Belum Tamat SD/Sederajat';
+      case 'TAMAT SD/SEDERAJAT':
+        return 'Tamat SD/Sederajat';
+      case 'SLTP/SEDERAJAT':
+        return 'SLTP/Sederajat';
+      case 'SLTA/SEDERAJAT':
+        return 'SLTA/Sederajat';
+      case 'DIPLOMA I/II':
+        return 'Diploma I/II';
+      case 'AKADEMI/DIPLOMA III/SARJANA MUDA':
+      case 'AKADEMI/DIPLOMA III/S. MUDA':
+        return 'Akademi/Diploma III/Sarjana Muda';
+      case 'DIPLOMA IV/STRATA I':
+        return 'Diploma IV/Strata I';
+      case 'STRATA II':
+        return 'Strata II';
+      case 'STRATA III':
+        return 'Strata III';
+      default:
+        return _toTitleCase(input);
+    }
+  }
+
+  String _canonicalPekerjaanDisplay(String input) {
+    final upper = input.toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    switch (upper) {
+      case 'WIRASWASTA':
+        return 'Wiraswasta';
+      case 'KARYAWAN SWASTA':
+        return 'Karyawan Swasta';
+      case 'BELUM/TIDAK BEKERJA':
+      case 'BELUM BEKERJA':
+      case 'TIDAK BEKERJA':
+        return 'Belum/tidak Bekerja';
+      case 'PELAJAR/MAHASISWA':
+        return 'Pelajar/Mahasiswa';
+      case 'PNS':
+        return 'PNS';
+      case 'PETANI':
+        return 'Petani';
+      case 'PEDAGANG':
+        return 'Pedagang';
+      case 'BURUH':
+        return 'Buruh';
+      case 'NELAYAN':
+        return 'Nelayan';
+      case 'PENSIUNAN':
+        return 'Pensiunan';
+      case 'MENGURUS RUMAH TANGGA':
+        return 'Mengurus Rumah Tangga';
+      default:
+        return _toTitleCase(input);
+    }
   }
 
   String _cleanStructuredField(String input) {
@@ -2814,6 +3634,20 @@ class KkOcrService {
     final maxLength = a.length > b.length ? a.length : b.length;
     if (maxLength == 0) return 0.0;
     return 1 - (distance / maxLength);
+  }
+
+  int _hammingDistance(String left, String right) {
+    if (left.length != right.length) {
+      return 999;
+    }
+
+    var distance = 0;
+    for (var i = 0; i < left.length; i++) {
+      if (left[i] != right[i]) {
+        distance += 1;
+      }
+    }
+    return distance;
   }
 
   /// Maps OCR-detected hubungan text to PocketBase select values: Ayah, Ibu, Anak.
@@ -2981,6 +3815,138 @@ class KkOcrService {
     final result = merged.join(' ');
     if (!_isLikelyName(result)) return '';
     return _toTitleCase(result);
+  }
+
+  String _normalizeFinalMemberName(String input) {
+    final structured = _normalizeStructuredName(input);
+    if (structured.isEmpty) {
+      return '';
+    }
+
+    final tokens = structured
+        .toUpperCase()
+        .split(' ')
+        .map((token) => token.replaceAll(RegExp(r'[^A-Z]'), ''))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) {
+      return '';
+    }
+
+    final normalizedTokens = <String>[];
+    for (var i = 0; i < tokens.length; i++) {
+      final normalized = _normalizeFinalMemberNameToken(
+        tokens[i],
+        isFirstToken: i == 0,
+      );
+      if (normalized.isEmpty) {
+        continue;
+      }
+      if (normalizedTokens.isNotEmpty && normalizedTokens.last == normalized) {
+        continue;
+      }
+      normalizedTokens.add(normalized);
+    }
+
+    while (normalizedTokens.length > 1 &&
+        _looksLikeTrailingNameNoise(normalizedTokens.last)) {
+      normalizedTokens.removeLast();
+    }
+
+    if (normalizedTokens.isEmpty) {
+      return '';
+    }
+
+    return _toTitleCase(normalizedTokens.join(' '));
+  }
+
+  String _normalizeFinalMemberNameToken(
+    String token, {
+    bool isFirstToken = false,
+  }) {
+    final upper = token.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    if (upper.isEmpty) {
+      return '';
+    }
+
+    const explicitAliases = <String, String>{
+      'JAAIS': 'AZIS',
+      'JAAS': 'AZIS',
+      'JAZIS': 'AZIS',
+      'JARINI': 'ARINI',
+      'SINAAL': 'SINA AL',
+      'JHAN': 'JIHAN',
+      'THAN': 'JIHAN',
+      'RANA': 'RANIA',
+      'LAHADIZA': 'HADIZA',
+      'AZRR': '',
+      'AZR': '',
+    };
+    final explicit = explicitAliases[upper];
+    if (explicit != null) {
+      return explicit;
+    }
+
+    const canonicalTokens = <String>[
+      'AZIS',
+      'ARINI',
+      'JIHAN',
+      'RANIA',
+      'HADIZA',
+      'ALFIANI',
+      'FARDIANSYAH',
+      'MUHAMMAD',
+      'KAUTSAR',
+      'SINA',
+    ];
+    for (final canonical in canonicalTokens) {
+      if (upper == canonical) {
+        return canonical;
+      }
+      if (_isLikelyExtraLeadingChar(upper, canonical)) {
+        return canonical;
+      }
+      if (_normalizedEditSimilarity(upper, canonical) >= 0.82) {
+        return canonical;
+      }
+    }
+
+    if (_looksLikeTrailingNameNoise(upper) &&
+        (!isFirstToken || upper.length <= 3)) {
+      return '';
+    }
+
+    return upper;
+  }
+
+  bool _looksLikeTrailingNameNoise(String token) {
+    const allowedShortTokens = {
+      'AL',
+      'BIN',
+      'BINTI',
+      'NUR',
+      'SRI',
+      'ABD',
+      'MOH',
+      'MOCH',
+    };
+
+    if (allowedShortTokens.contains(token)) {
+      return false;
+    }
+    if (token.length <= 1) {
+      return true;
+    }
+    if (token.length <= 3 && !_hasReasonableVowelRatio(token)) {
+      return true;
+    }
+    if (token.length <= 4 && RegExp(r'[^AEIOU]{3,}').hasMatch(token)) {
+      return true;
+    }
+    if (RegExp(r'^[A-Z]{1,2}R{2,}$').hasMatch(token)) {
+      return true;
+    }
+    return false;
   }
 
   /// Check if a word has a reasonable vowel-to-consonant ratio.

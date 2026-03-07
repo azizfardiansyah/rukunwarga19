@@ -1,17 +1,26 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
 
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:pocketbase/pocketbase.dart';
+
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
-import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class WargaFormScreen extends ConsumerStatefulWidget {
   final String? wargaId;
   final String? initialNoKk;
+
   const WargaFormScreen({super.key, this.wargaId, this.initialNoKk});
 
   @override
@@ -25,31 +34,35 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   final _namaCtrl = TextEditingController();
   final _tempatLahirCtrl = TextEditingController();
   final _alamatCtrl = TextEditingController();
-  final _rtCtrl = TextEditingController(text: '19');
-  final _rwCtrl = TextEditingController(text: '19');
+  final _rtCtrl = TextEditingController();
+  final _rwCtrl = TextEditingController();
   final _noHpCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _pekerjaanCtrl = TextEditingController();
+  final _pendidikanCtrl = TextEditingController();
+  final _golonganDarahCtrl = TextEditingController();
+
   DateTime? _tanggalLahir;
   String _jenisKelamin = 'Laki-laki';
   String _agama = 'Islam';
   String _statusPernikahan = 'Belum Menikah';
-  String _hubungan = 'Anak'; // default
-  bool _isLoading = false;
-  bool _isEdit = false;
+  String _hubungan = 'Anak';
+  String _linkedUserId = '';
+  String? _anggotaKkId;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if ((widget.initialNoKk ?? '').isNotEmpty) {
-      _noKkCtrl.text = widget.initialNoKk!;
-      return;
-    }
-    final args = ModalRoute.of(context)?.settings.arguments;
-    if (args is Map && args['no_kk'] != null) {
-      _noKkCtrl.text = args['no_kk'].toString();
-    }
-  }
+  bool _isEdit = false;
+  bool _isLoading = false;
+  bool _didInitKkContext = false;
+
+  RecordModel? _wargaRecord;
+  RecordModel? _userRecord;
+  String? _existingFotoKtp;
+  String? _existingFotoWarga;
+  String? _existingAvatar;
+  Uint8List? _fotoKtpBytes;
+  String? _fotoKtpFilename;
+  Uint8List? _fotoWargaBytes;
+  String? _fotoWargaFilename;
 
   @override
   void initState() {
@@ -60,140 +73,22 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     }
   }
 
-  Future<void> _loadData() async {
-    try {
-      final record = await pb
-          .collection(AppConstants.colWarga)
-          .getOne(widget.wargaId!);
-      setState(() {
-        _noKkCtrl.text = record.getStringValue('no_kk');
-        _nikCtrl.text = record.getStringValue('nik');
-        _namaCtrl.text = record.getStringValue('nama_lengkap');
-        _tempatLahirCtrl.text = record.getStringValue('tempat_lahir');
-        _tanggalLahir = DateTime.tryParse(
-          record.getStringValue('tanggal_lahir'),
-        );
-        _jenisKelamin = record.getStringValue('jenis_kelamin');
-        _agama = record.getStringValue('agama');
-        _statusPernikahan = record.getStringValue('status_pernikahan');
-        _pekerjaanCtrl.text = record.getStringValue('pekerjaan');
-        _alamatCtrl.text = record.getStringValue('alamat');
-        _rtCtrl.text = record.getStringValue('rt');
-        _rwCtrl.text = record.getStringValue('rw');
-        _noHpCtrl.text = record.getStringValue('no_hp');
-        _emailCtrl.text = record.getStringValue('email');
-      });
-    } catch (e) {
-      if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isEdit || _didInitKkContext) return;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    final noKkFromArgs = args is Map && args['no_kk'] != null
+        ? args['no_kk'].toString()
+        : '';
+    final noKkId = (widget.initialNoKk ?? '').trim().isNotEmpty
+        ? widget.initialNoKk!.trim()
+        : noKkFromArgs;
+    if (noKkId.isNotEmpty) {
+      _noKkCtrl.text = noKkId;
+      _prefillFromKk(noKkId);
     }
-  }
-
-  Future<void> _createAnggotaKk({
-    required String kkId,
-    required String wargaId,
-    required String hubungan,
-  }) async {
-    try {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .create(
-            body: {
-              'no_kk': kkId,
-              'warga': wargaId,
-              'hubungan': hubungan,
-              'status': 'Aktif',
-            },
-          );
-    } catch (_) {
-      await pb
-          .collection(AppConstants.colAnggotaKk)
-          .create(
-            body: {
-              'no_kk': kkId,
-              'warga': wargaId,
-              'hubungan_': hubungan,
-              'status': 'Aktif',
-            },
-          );
-    }
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_noKkCtrl.text.trim().isEmpty) {
-      ErrorClassifier.showErrorSnackBar(
-        context,
-        'Pilih KK dulu sebelum simpan data warga.',
-      );
-      return;
-    }
-    setState(() => _isLoading = true);
-    try {
-      final userId = pb.authStore.record?.id;
-      final rtNumber = int.tryParse(_rtCtrl.text.trim());
-      final rwNumber = int.tryParse(_rwCtrl.text.trim());
-      final noHpRaw = _noHpCtrl.text.trim();
-      final noHpNumber = noHpRaw.isEmpty ? null : int.tryParse(noHpRaw);
-      if (rtNumber == null ||
-          rwNumber == null ||
-          rtNumber == 0 ||
-          rwNumber == 0) {
-        throw Exception('RT/RW harus angka dan tidak boleh 0.');
-      }
-      if (noHpRaw.isNotEmpty && noHpNumber == null) {
-        throw Exception('No. HP harus angka.');
-      }
-      // Hapus validasi pengecekan user_id
-      final body = {
-        'nik': _nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
-        'no_kk': _noKkCtrl.text.trim(),
-        'nama_lengkap': _namaCtrl.text.trim(),
-        'tempat_lahir': _tempatLahirCtrl.text.trim(),
-        'tanggal_lahir': _tanggalLahir?.toIso8601String(),
-        'jenis_kelamin': _jenisKelamin,
-        'agama': _agama,
-        'status_pernikahan': _statusPernikahan,
-        'pekerjaan': _pekerjaanCtrl.text.trim(),
-        'alamat': _alamatCtrl.text.trim(),
-        'rt': rtNumber,
-        'rw': rwNumber,
-        'no_hp': noHpNumber,
-        'email': _emailCtrl.text.trim(),
-        'user_id': userId,
-      };
-
-      String wargaBaruId;
-      if (_isEdit) {
-        await pb
-            .collection(AppConstants.colWarga)
-            .update(widget.wargaId!, body: body);
-        wargaBaruId = widget.wargaId!;
-      } else {
-        final wargaRecord = await pb
-            .collection(AppConstants.colWarga)
-            .create(body: body);
-        wargaBaruId = wargaRecord.id;
-        await _createAnggotaKk(
-          kkId: _noKkCtrl.text.trim(),
-          wargaId: wargaBaruId,
-          hubungan: _hubungan,
-        );
-      }
-
-      if (mounted) {
-        ErrorClassifier.showSuccessSnackBar(
-          context,
-          _isEdit
-              ? 'Data warga berhasil diperbarui'
-              : 'Data warga berhasil ditambahkan',
-        );
-        Future.microtask(() => context.go('/'));
-      }
-    } catch (e) {
-      if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
+    _didInitKkContext = true;
   }
 
   @override
@@ -208,182 +103,878 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     _noHpCtrl.dispose();
     _emailCtrl.dispose();
     _pekerjaanCtrl.dispose();
+    _pendidikanCtrl.dispose();
+    _golonganDarahCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _prefillFromKk(String kkId) async {
+    try {
+      final kkRecord = await pb
+          .collection(AppConstants.colKartuKeluarga)
+          .getOne(kkId);
+      if (!mounted || _isEdit) return;
+      setState(() {
+        if (_alamatCtrl.text.trim().isEmpty) {
+          _alamatCtrl.text = kkRecord.getStringValue('alamat');
+        }
+        if (_rtCtrl.text.trim().isEmpty) {
+          _rtCtrl.text = kkRecord.getStringValue('rt');
+        }
+        if (_rwCtrl.text.trim().isEmpty) {
+          _rwCtrl.text = kkRecord.getStringValue('rw');
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final record = await pb
+          .collection(AppConstants.colWarga)
+          .getOne(widget.wargaId!);
+      final auth = ref.read(authProvider);
+      final ownerUserId = record.getStringValue('user_id');
+      if (!auth.isAdmin &&
+          auth.user?.id != null &&
+          ownerUserId.isNotEmpty &&
+          ownerUserId != auth.user!.id) {
+        throw Exception('Anda tidak memiliki akses untuk mengubah data ini.');
+      }
+
+      final anggotaResult = await pb
+          .collection(AppConstants.colAnggotaKk)
+          .getList(page: 1, perPage: 1, filter: 'warga = "${widget.wargaId!}"');
+
+      RecordModel? userRecord;
+      if (ownerUserId.isNotEmpty) {
+        try {
+          userRecord = await pb
+              .collection(AppConstants.colUsers)
+              .getOne(ownerUserId);
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _wargaRecord = record;
+        _userRecord = userRecord;
+        _linkedUserId = ownerUserId;
+        _noKkCtrl.text = record.getStringValue('no_kk');
+        _nikCtrl.text = record.getStringValue('nik');
+        _namaCtrl.text = record.getStringValue('nama_lengkap');
+        _tempatLahirCtrl.text = record.getStringValue('tempat_lahir');
+        _tanggalLahir = DateTime.tryParse(
+          record.getStringValue('tanggal_lahir'),
+        );
+        _jenisKelamin = record.getStringValue('jenis_kelamin').isEmpty
+            ? 'Laki-laki'
+            : record.getStringValue('jenis_kelamin');
+        _agama = record.getStringValue('agama').isEmpty
+            ? 'Islam'
+            : record.getStringValue('agama');
+        _statusPernikahan = record.getStringValue('status_pernikahan').isEmpty
+            ? 'Belum Menikah'
+            : record.getStringValue('status_pernikahan');
+        _alamatCtrl.text = record.getStringValue('alamat');
+        _rtCtrl.text = record.getStringValue('rt');
+        _rwCtrl.text = record.getStringValue('rw');
+        _noHpCtrl.text = record.data['no_hp']?.toString() ?? '';
+        _emailCtrl.text = record.getStringValue('email');
+        _pekerjaanCtrl.text = record.getStringValue('pekerjaan');
+        _pendidikanCtrl.text = record.getStringValue('pendidikan');
+        _golonganDarahCtrl.text = record.getStringValue('golongan_darah');
+        _existingFotoKtp = record.getStringValue('foto_ktp');
+        _existingFotoWarga = record.getStringValue('foto_warga');
+        _existingAvatar = userRecord?.getStringValue('avatar');
+        if (anggotaResult.items.isNotEmpty) {
+          _anggotaKkId = anggotaResult.items.first.id;
+          _hubungan = anggotaResult.items.first.getStringValue('hubungan');
+        }
+      });
+    } catch (e) {
+      if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickImage(bool isKtp) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.bytes == null || file.bytes!.isEmpty) {
+      ErrorClassifier.showErrorSnackBar(context, 'Gagal membaca file gambar.');
+      return;
+    }
+    setState(() {
+      if (isKtp) {
+        _fotoKtpBytes = file.bytes;
+        _fotoKtpFilename = file.name;
+      } else {
+        _fotoWargaBytes = file.bytes;
+        _fotoWargaFilename = file.name;
+      }
+    });
+  }
+
+  Future<void> _createAnggotaKk({
+    required String kkId,
+    required String wargaId,
+    required String hubungan,
+  }) async {
+    await pb
+        .collection(AppConstants.colAnggotaKk)
+        .create(
+          body: {
+            'no_kk': kkId,
+            'warga': wargaId,
+            'hubungan': hubungan,
+            'status': 'Aktif',
+          },
+        );
+  }
+
+  Future<void> _syncAvatar(String userId) async {
+    if (_fotoWargaBytes == null ||
+        (_fotoWargaFilename ?? '').isEmpty ||
+        userId.isEmpty) {
+      return;
+    }
+    await pb
+        .collection(AppConstants.colUsers)
+        .update(
+          userId,
+          body: {'name': _namaCtrl.text.trim()},
+          files: [
+            http.MultipartFile.fromBytes(
+              'avatar',
+              _fotoWargaBytes!,
+              filename: _fotoWargaFilename,
+            ),
+          ],
+        );
+    if (ref.read(authProvider).user?.id == userId) {
+      await ref.read(authProvider.notifier).refreshAuth();
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_noKkCtrl.text.trim().isEmpty) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        'Pilih KK dulu sebelum menyimpan data warga.',
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final authUserId = ref.read(authProvider).user?.id ?? '';
+      final rt = int.tryParse(_rtCtrl.text.trim());
+      final rw = int.tryParse(_rwCtrl.text.trim());
+      final noHpRaw = _noHpCtrl.text.trim();
+      final noHp = noHpRaw.isEmpty ? null : int.tryParse(noHpRaw);
+      if (rt == null || rw == null || rt == 0 || rw == 0) {
+        throw Exception('RT/RW harus berupa angka dan tidak boleh 0.');
+      }
+      if (noHpRaw.isNotEmpty && noHp == null) {
+        throw Exception('No. HP harus berupa angka.');
+      }
+
+      final linkedUserId = _linkedUserId.isNotEmpty
+          ? _linkedUserId
+          : authUserId;
+      final body = <String, dynamic>{
+        'nik': _nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'no_kk': _noKkCtrl.text.trim(),
+        'nama_lengkap': _namaCtrl.text.trim(),
+        'tempat_lahir': _tempatLahirCtrl.text.trim(),
+        'tanggal_lahir': _tanggalLahir?.toIso8601String(),
+        'jenis_kelamin': _jenisKelamin,
+        'agama': _agama,
+        'status_pernikahan': _statusPernikahan,
+        'pekerjaan': _pekerjaanCtrl.text.trim(),
+        'pendidikan': _pendidikanCtrl.text.trim(),
+        'golongan_darah': _golonganDarahCtrl.text.trim(),
+        'alamat': _alamatCtrl.text.trim(),
+        'rt': rt,
+        'rw': rw,
+        'no_hp': noHp,
+        'email': _emailCtrl.text.trim(),
+      };
+      if (linkedUserId.isNotEmpty) body['user_id'] = linkedUserId;
+
+      final files = <http.MultipartFile>[];
+      if (_fotoKtpBytes != null && (_fotoKtpFilename ?? '').isNotEmpty) {
+        files.add(
+          http.MultipartFile.fromBytes(
+            'foto_ktp',
+            _fotoKtpBytes!,
+            filename: _fotoKtpFilename,
+          ),
+        );
+      }
+      if (_fotoWargaBytes != null && (_fotoWargaFilename ?? '').isNotEmpty) {
+        files.add(
+          http.MultipartFile.fromBytes(
+            'foto_warga',
+            _fotoWargaBytes!,
+            filename: _fotoWargaFilename,
+          ),
+        );
+      }
+
+      final wargaRecord = _isEdit
+          ? await pb
+                .collection(AppConstants.colWarga)
+                .update(widget.wargaId!, body: body, files: files)
+          : await pb
+                .collection(AppConstants.colWarga)
+                .create(body: body, files: files);
+
+      if (_isEdit) {
+        if ((_anggotaKkId ?? '').isNotEmpty) {
+          await pb
+              .collection(AppConstants.colAnggotaKk)
+              .update(
+                _anggotaKkId!,
+                body: {'no_kk': _noKkCtrl.text.trim(), 'hubungan': _hubungan},
+              );
+        }
+      } else {
+        await _createAnggotaKk(
+          kkId: _noKkCtrl.text.trim(),
+          wargaId: wargaRecord.id,
+          hubungan: _hubungan,
+        );
+      }
+
+      await _syncAvatar(wargaRecord.getStringValue('user_id'));
+
+      if (mounted) {
+        ErrorClassifier.showSuccessSnackBar(
+          context,
+          _isEdit
+              ? 'Data warga berhasil diperbarui'
+              : 'Data warga berhasil ditambahkan',
+        );
+        if (context.canPop()) {
+          context.pop(true);
+        } else {
+          context.go(Routes.warga);
+        }
+      }
+    } catch (e) {
+      if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _nikCtrl,
-                decoration: const InputDecoration(labelText: 'NIK'),
-                keyboardType: TextInputType.number,
-                maxLength: 16,
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'NIK wajib diisi';
-                  if (!Formatters.isValidNik(v)) return 'NIK harus 16 digit';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _namaCtrl,
-                decoration: const InputDecoration(labelText: 'Nama Lengkap'),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Nama wajib diisi' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _tempatLahirCtrl,
-                decoration: const InputDecoration(labelText: 'Tempat Lahir'),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Tanggal Lahir'),
-                subtitle: Text(
-                  _tanggalLahir != null
-                      ? Formatters.tanggalLengkap(_tanggalLahir!)
-                      : 'Belum dipilih',
-                ),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: _tanggalLahir ?? DateTime(2000),
-                    firstDate: DateTime(1900),
-                    lastDate: DateTime.now(),
-                  );
-                  if (date != null) setState(() => _tanggalLahir = date);
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _jenisKelamin,
-                decoration: const InputDecoration(labelText: 'Jenis Kelamin'),
-                items: AppConstants.jenisKelamin
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                    .toList(),
-                onChanged: (v) => setState(() => _jenisKelamin = v!),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _agama,
-                decoration: const InputDecoration(labelText: 'Agama'),
-                items: AppConstants.daftarAgama
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                    .toList(),
-                onChanged: (v) => setState(() => _agama = v!),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _statusPernikahan,
-                decoration: const InputDecoration(
-                  labelText: 'Status Pernikahan',
-                ),
-                items: AppConstants.statusPernikahan
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                    .toList(),
-                onChanged: (v) => setState(() => _statusPernikahan = v!),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _pekerjaanCtrl,
-                decoration: const InputDecoration(labelText: 'Pekerjaan'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _alamatCtrl,
-                decoration: const InputDecoration(labelText: 'Alamat'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 12),
-              Row(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _rtCtrl,
-                      decoration: const InputDecoration(labelText: 'RT'),
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        final n = int.tryParse((v ?? '').trim());
-                        if (n == null || n == 0) return 'RT tidak valid';
-                        return null;
-                      },
+                  _hero(),
+                  const SizedBox(height: 16),
+                  _section(
+                    title: 'Identitas Warga',
+                    icon: Icons.badge_rounded,
+                    child: Column(
+                      children: [
+                        _field(
+                          _nikCtrl,
+                          'NIK',
+                          Icons.credit_card_rounded,
+                          keyboardType: TextInputType.number,
+                          maxLength: 16,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'NIK wajib diisi';
+                            }
+                            if (!Formatters.isValidNik(value)) {
+                              return 'NIK harus 16 digit';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        _field(
+                          _namaCtrl,
+                          'Nama Lengkap',
+                          Icons.person_outline_rounded,
+                          validator: (value) =>
+                              value == null || value.trim().isEmpty
+                              ? 'Nama wajib diisi'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _field(
+                                _tempatLahirCtrl,
+                                'Tempat Lahir',
+                                Icons.location_city_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(child: _dateCard()),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _drop(
+                                'Jenis Kelamin',
+                                Icons.wc_rounded,
+                                _jenisKelamin,
+                                AppConstants.jenisKelamin,
+                                (value) =>
+                                    setState(() => _jenisKelamin = value!),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _drop(
+                                'Hubungan KK',
+                                Icons.family_restroom_rounded,
+                                _hubungan,
+                                AppConstants.hubunganKeluarga,
+                                (value) => setState(() => _hubungan = value!),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _drop(
+                                'Agama',
+                                Icons.auto_awesome_rounded,
+                                _agama,
+                                AppConstants.daftarAgama,
+                                (value) => setState(() => _agama = value!),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _drop(
+                                'Status Pernikahan',
+                                Icons.favorite_border_rounded,
+                                _statusPernikahan,
+                                AppConstants.statusPernikahan,
+                                (value) =>
+                                    setState(() => _statusPernikahan = value!),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _field(
+                                _pendidikanCtrl,
+                                'Pendidikan',
+                                Icons.school_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _field(
+                                _golonganDarahCtrl,
+                                'Golongan Darah',
+                                Icons.water_drop_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _field(
+                          _pekerjaanCtrl,
+                          'Pekerjaan',
+                          Icons.work_outline_rounded,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _rwCtrl,
-                      decoration: const InputDecoration(labelText: 'RW'),
-                      keyboardType: TextInputType.number,
-                      validator: (v) {
-                        final n = int.tryParse((v ?? '').trim());
-                        if (n == null || n == 0) return 'RW tidak valid';
-                        return null;
-                      },
+                  const SizedBox(height: 14),
+                  _section(
+                    title: 'Alamat & Kontak',
+                    icon: Icons.home_rounded,
+                    child: Column(
+                      children: [
+                        _field(
+                          _alamatCtrl,
+                          'Alamat',
+                          Icons.pin_drop_outlined,
+                          maxLines: 2,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _field(
+                                _rtCtrl,
+                                'RT',
+                                Icons.tag_rounded,
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  final number = int.tryParse(
+                                    (value ?? '').trim(),
+                                  );
+                                  return number == null || number == 0
+                                      ? 'RT tidak valid'
+                                      : null;
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _field(
+                                _rwCtrl,
+                                'RW',
+                                Icons.tag_rounded,
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  final number = int.tryParse(
+                                    (value ?? '').trim(),
+                                  );
+                                  return number == null || number == 0
+                                      ? 'RW tidak valid'
+                                      : null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _field(
+                                _noHpCtrl,
+                                'No. HP',
+                                Icons.phone_rounded,
+                                keyboardType: TextInputType.phone,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _field(
+                                _emailCtrl,
+                                'Email',
+                                Icons.mail_outline_rounded,
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _field(
+                          _noKkCtrl,
+                          'ID Kartu Keluarga',
+                          Icons.credit_card_rounded,
+                          readOnly: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _section(
+                    title: 'Dokumen & Foto',
+                    icon: Icons.photo_library_rounded,
+                    child: Column(
+                      children: [
+                        _noteBox(),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _uploadCard(
+                                title: 'Foto Warga',
+                                subtitle: 'Sinkron ke avatar user',
+                                imageMemory: _fotoWargaBytes,
+                                imageUrl: _fotoWargaBytes == null
+                                    ? _wargaPhotoUrl()
+                                    : null,
+                                icon: Icons.person_rounded,
+                                onPick: () => _pickImage(false),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _uploadCard(
+                                title: 'Foto KTP',
+                                subtitle: 'Lampiran identitas',
+                                imageMemory: _fotoKtpBytes,
+                                imageUrl: _fotoKtpBytes == null
+                                    ? _ktpPhotoUrl()
+                                    : null,
+                                icon: Icons.badge_outlined,
+                                onPick: () => _pickImage(true),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.24),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _save,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusLarge,
+                          ),
+                        ),
+                      ),
+                      icon: _isLoading
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _isEdit
+                                  ? Icons.save_rounded
+                                  : Icons.person_add_alt_1_rounded,
+                            ),
+                      label: Text(
+                        _isEdit ? 'Simpan Perubahan Warga' : 'Tambah Warga',
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _noHpCtrl,
-                decoration: const InputDecoration(labelText: 'No. HP'),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _noKkCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'ID Kartu Keluarga',
-                ),
-                readOnly: true,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _hubungan,
-                decoration: const InputDecoration(
-                  labelText: 'Hubungan dalam KK',
-                ),
-                items: ['Ayah', 'Ibu', 'Anak', 'Kakak', 'Adik']
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                    .toList(),
-                onChanged: (v) => setState(() => _hubungan = v!),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _save,
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(_isEdit ? 'Simpan Perubahan' : 'Tambah Warga'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _hero() => AppTheme.glassContainer(
+    opacity: 0.78,
+    padding: EdgeInsets.zero,
+    child: Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor.withValues(alpha: 0.95),
+            AppTheme.primaryLight.withValues(alpha: 0.92),
+            AppTheme.secondaryColor.withValues(alpha: 0.86),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.account_box_rounded,
+              size: 30,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isEdit ? 'Perbarui Data Warga' : 'Tambah Data Warga',
+                  style: AppTheme.heading2.copyWith(color: Colors.white),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Form tambah dan edit warga sekarang memakai field yang sama agar lebih konsisten.',
+                  style: AppTheme.bodySmall.copyWith(
+                    color: Colors.white.withValues(alpha: 0.84),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _section({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) => AppTheme.glassContainer(
+    opacity: 0.74,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 18, color: AppTheme.primaryColor),
+            ),
+            const SizedBox(width: 10),
+            Text(title, style: AppTheme.heading3),
+          ],
+        ),
+        const SizedBox(height: 14),
+        child,
+      ],
+    ),
+  );
+
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    TextInputType? keyboardType,
+    int? maxLength,
+    int maxLines = 1,
+    bool readOnly = false,
+    String? Function(String?)? validator,
+  }) => TextFormField(
+    controller: controller,
+    keyboardType: keyboardType,
+    maxLength: maxLength,
+    maxLines: maxLines,
+    readOnly: readOnly,
+    validator: validator,
+    decoration: InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      counterText: '',
+    ),
+  );
+
+  Widget _drop(
+    String label,
+    IconData icon,
+    String value,
+    List<String> items,
+    void Function(String?) onChanged,
+  ) => DropdownButtonFormField<String>(
+    initialValue: items.contains(value) ? value : items.first,
+    onChanged: onChanged,
+    decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+    items: items
+        .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+        .toList(),
+  );
+
+  Widget _dateCard() => InkWell(
+    onTap: () async {
+      final date = await showDatePicker(
+        context: context,
+        initialDate: _tanggalLahir ?? DateTime(2000),
+        firstDate: DateTime(1900),
+        lastDate: DateTime.now(),
+      );
+      if (date != null) setState(() => _tanggalLahir = date);
+    },
+    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+    child: InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Tanggal Lahir',
+        prefixIcon: Icon(Icons.calendar_today_rounded),
+      ),
+      child: Text(
+        _tanggalLahir == null
+            ? 'Pilih tanggal'
+            : Formatters.tanggalLengkap(_tanggalLahir!),
+        style: AppTheme.bodyMedium.copyWith(
+          color: _tanggalLahir == null
+              ? AppTheme.textSecondary
+              : AppTheme.textPrimary,
+        ),
+      ),
+    ),
+  );
+
+  Widget _noteBox() {
+    final avatarUrl = _avatarUrl();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.secondaryColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          avatarUrl == null
+              ? _avatarPlaceholder()
+              : ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    avatarUrl,
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _avatarPlaceholder(),
+                  ),
+                ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Foto warga yang baru akan otomatis mengisi avatar user bila warga ini sudah terhubung ke akun.',
+              style: AppTheme.bodySmall.copyWith(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatarPlaceholder() => Container(
+    width: 48,
+    height: 48,
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.8),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: const Icon(
+      Icons.account_circle_rounded,
+      color: AppTheme.primaryColor,
+    ),
+  );
+
+  Widget _uploadCard({
+    required String title,
+    required String subtitle,
+    required Uint8List? imageMemory,
+    required String? imageUrl,
+    required IconData icon,
+    required VoidCallback onPick,
+  }) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(subtitle, style: AppTheme.caption),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: imageMemory != null
+                ? Image.memory(imageMemory, fit: BoxFit.cover)
+                : (imageUrl ?? '').isNotEmpty
+                ? Image.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _imageFallback(icon),
+                  )
+                : _imageFallback(icon),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: onPick,
+            icon: const Icon(Icons.upload_rounded),
+            label: const Text('Pilih Gambar'),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _imageFallback(IconData icon) => Container(
+    color: AppTheme.backgroundColor,
+    child: Icon(
+      icon,
+      size: 42,
+      color: AppTheme.textSecondary.withValues(alpha: 0.45),
+    ),
+  );
+
+  String? _wargaPhotoUrl() =>
+      _wargaRecord == null || (_existingFotoWarga ?? '').isEmpty
+      ? null
+      : getFileUrl(_wargaRecord!, _existingFotoWarga!);
+  String? _ktpPhotoUrl() =>
+      _wargaRecord == null || (_existingFotoKtp ?? '').isEmpty
+      ? null
+      : getFileUrl(_wargaRecord!, _existingFotoKtp!);
+  String? _avatarUrl() {
+    if (_userRecord == null || (_existingAvatar ?? '').isEmpty) return null;
+    return getFileUrl(_userRecord!, _existingAvatar!);
   }
 }

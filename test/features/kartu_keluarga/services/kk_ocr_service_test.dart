@@ -155,9 +155,9 @@ void main() {
         expect(parsed.members.first.nama, 'Azis Fardiansyah');
         expect(parsed.members.first.hubungan, 'Ayah');
         expect(parsed.members.first.jenisKelamin, 'Laki-laki');
-        expect(parsed.members[1].nama, 'Jarini Alfiani');
+        expect(parsed.members[1].nama, 'Arini Alfiani');
         expect(parsed.members[1].hubungan, 'Ibu');
-        expect(parsed.members[2].nama, 'Lahadiza Jhan Rania');
+        expect(parsed.members[2].nama, 'Hadiza Jihan Rania');
         expect(parsed.members[2].tempatLahir, isEmpty);
       },
     );
@@ -272,6 +272,75 @@ void main() {
         expect(parsed.members[3].tempatLahir, 'Cimahi');
       },
     );
+
+    test('repairs noisy spouse and child rows from mixed web OCR output', () {
+      final service = KkOcrService();
+      final rawText = [
+        'NAMA KEPALA KELUARGA AZIS FARDIANSYAH',
+        'NO KK 3277030903210004',
+        'ALAMAT JL CIHANJUANG KP BABUT TENGAH GG SIRNA GALIH',
+        '__KK_MEMBER_STRUCT__',
+        _row([
+          'JAAS FARDIANSYAH',
+          '3277032200880000',
+          '',
+          'CIMAHI',
+          '',
+          '',
+          'AKADEMI/DIPLOMA III/SARJANA MUDA',
+          '',
+          '',
+        ]),
+        _row([
+          'JARINI ALFIANI',
+          '3217056505950000',
+          '',
+          'JPERFVIPUANJBANDUNG ISLAM:',
+          '03-04-2000',
+          'ISLAM',
+          '',
+          '',
+          'TIDAK TAHU',
+        ]),
+        _row([
+          'HADIZA THAN RANA',
+          '3577035808230002',
+          '',
+          'IFEREMPUAN] GIA)',
+          '',
+          '',
+          '',
+          '',
+          '',
+        ]),
+        '__KK_MEMBER_TABLE__',
+        '1 JAZIS FARDIANSYAH AZRR082209880009 LUCIAN CMAN 20891958 EW AKADEMUDIFL OMA DIBARJANA MUDA JWRASWASTA A',
+        '2 JARINIALFIANI 3217058505950008 FEREMPUAN RANDUNG MAM SLTASEDERAJAT JKARYAWAN SWASTA RICA TANU',
+        '3 MUHAMMAD SINA AL KAUTSAR 3217031803240004 LAKHAK BANDUNG BARAT LAME SIAM TIDAWEH UM SEKOLAH BELUWTIDAK BEKERJA TIDAK TAHU',
+      ].join('\n');
+
+      final parsed = service.parseKkDataFromText(rawText);
+
+      expect(parsed.members, hasLength(4));
+      expect(parsed.members[0].nama, 'Azis Fardiansyah');
+      expect(parsed.members[0].hubungan, 'Ayah');
+      expect(parsed.members[1].hubungan, 'Ibu');
+      expect(parsed.members[1].nama, 'Arini Alfiani');
+      expect(parsed.members[1].nik, '3217056505950008');
+      expect(parsed.members[1].tempatLahir, 'Bandung');
+      expect(parsed.members[1].tanggalLahir, '25-05-1995');
+      expect(parsed.members[1].agama, 'Islam');
+      expect(parsed.members[1].pendidikan, 'SLTA/Sederajat');
+      expect(parsed.members[1].jenisPekerjaan, 'Karyawan Swasta');
+      expect(parsed.members[1].golonganDarah, 'Tidak Tahu');
+      expect(parsed.members[2].nama, 'Muhammad Sina Al Kautsar');
+      expect(parsed.members[2].tempatLahir, 'Bandung Barat');
+      expect(parsed.members[2].pendidikan, 'Tidak/belum Sekolah');
+      expect(parsed.members[2].jenisPekerjaan, 'Belum/tidak Bekerja');
+      expect(parsed.members[3].nama, 'Hadiza Jihan Rania');
+      expect(parsed.members[3].nik, '3277035808230002');
+      expect(parsed.members[3].tempatLahir, isEmpty);
+    });
   });
 }
 
