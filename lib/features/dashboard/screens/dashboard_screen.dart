@@ -85,13 +85,13 @@ String _dashboardScopeFilter(
   AuthState auth, {
   required _DashboardAreaScope? scope,
 }) {
-  if (auth.role == AppConstants.roleSuperuser || auth.role == 'sysadmin') {
+  if (AppConstants.isSysadminRole(auth.role)) {
     return '';
   }
   if (scope == null) {
     return 'id = ""';
   }
-  if (auth.role == AppConstants.roleAdmin) {
+  if (AppConstants.hasRwWideAccess(auth.role)) {
     return 'rw = ${scope.rw}';
   }
   return 'rt = ${scope.rt} && rw = ${scope.rw}';
@@ -145,7 +145,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         : (authState.user?.getStringValue('nama').isNotEmpty == true
               ? authState.user!.getStringValue('nama')
               : 'User');
-    final role = authState.role;
+    final roleLabel = AppConstants.roleLabel(authState.role);
 
     // Listen for hasKartuKeluarga changes and navigate if needed
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
@@ -241,7 +241,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                role.toUpperCase(),
+                                roleLabel,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 10,

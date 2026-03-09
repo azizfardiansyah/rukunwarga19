@@ -2,8 +2,10 @@
 // ignore_for_file: dead_code
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart' show StateNotifier, StateNotifierProvider;
+import 'package:flutter_riverpod/legacy.dart'
+    show StateNotifier, StateNotifierProvider;
 import 'package:pocketbase/pocketbase.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/services/auth_service.dart';
 
 // Auth Service provider
@@ -22,7 +24,7 @@ class AuthState {
     this.status = AuthStatus.initial,
     this.user,
     this.error,
-    this.role = 'user',
+    this.role = AppConstants.roleUser,
   });
 
   AuthState copyWith({
@@ -40,8 +42,29 @@ class AuthState {
   }
 
   bool get isAuthenticated => status == AuthStatus.authenticated;
-  bool get isAdmin => role == 'admin' || role == 'superuser';
-  bool get isSuperuser => role == 'superuser';
+  bool get isAdmin => AppConstants.isAdminRole(role);
+  bool get isSysadmin => AppConstants.isSysadminRole(role);
+  bool get requiresSubscription => AppConstants.requiresSubscription(role);
+  String get subscriptionPlan =>
+      user?.getStringValue('subscription_plan') ?? '';
+  String get subscriptionStatus => AppConstants.normalizeSubscriptionStatus(
+    user?.getStringValue('subscription_status') ?? '',
+  );
+  DateTime? get subscriptionStartedAt =>
+      DateTime.tryParse(user?.getStringValue('subscription_started') ?? '');
+  DateTime? get subscriptionExpiredAt =>
+      DateTime.tryParse(user?.getStringValue('subscription_expired') ?? '');
+  String get effectiveSubscriptionStatus =>
+      AppConstants.effectiveSubscriptionStatus(
+        role: role,
+        subscriptionStatus: subscriptionStatus,
+        subscriptionExpired: user?.getStringValue('subscription_expired'),
+      );
+  bool get hasActiveSubscription => AppConstants.hasActiveSubscription(
+    role: role,
+    subscriptionStatus: subscriptionStatus,
+    subscriptionExpired: user?.getStringValue('subscription_expired'),
+  );
 }
 
 // Pastikan extends StateNotifier<AuthState>
@@ -50,7 +73,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   AuthNotifier(this._authService) : super(const AuthState());
 
-  void _checkAuth(AuthState state) {
+  void _syncAuthState() {
     if (_authService.isLoggedIn) {
       final user = _authService.currentUser;
       state = AuthState(
@@ -70,7 +93,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = AuthState(
         status: AuthStatus.authenticated,
         user: authData.record,
-        role: authData.record.getStringValue('role'),
+        role: AppConstants.normalizeRole(
+          authData.record.getStringValue('role'),
+        ),
       );
     } catch (e) {
       state = AuthState(
@@ -86,7 +111,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required String passwordConfirm,
     required String name,
-    String role = 'user',
+    String role = AppConstants.roleUser,
   }) async {
     state = state.copyWith(status: AuthStatus.loading, error: null);
     try {
@@ -116,7 +141,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> refreshAuth() async {
     try {
       await _authService.refreshAuth();
-      _checkAuth(state);
+      _syncAuthState();
     } catch (_) {
       logout();
     }
@@ -142,5 +167,13 @@ final isAdminProvider = Provider<bool>((ref) {
 });
 
 final isSuperuserProvider = Provider<bool>((ref) {
-  return ref.watch(authProvider).isSuperuser;
+  return ref.watch(authProvider).isSysadmin;
+});
+
+final requiresSubscriptionProvider = Provider<bool>((ref) {
+  return ref.watch(authProvider).requiresSubscription;
+});
+
+final hasActiveSubscriptionProvider = Provider<bool>((ref) {
+  return ref.watch(authProvider).hasActiveSubscription;
 });

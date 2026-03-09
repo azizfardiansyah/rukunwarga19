@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../providers/auth_provider.dart';
 
@@ -43,8 +44,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             email: _emailController.text.trim(),
             password: _passwordController.text,
             passwordConfirm: _confirmPasswordController.text,
-            name: _namaController.text.trim(), // simpan ke field name
-            role: 'user', // Set role to 'user' on registration
+            name: _namaController.text.trim(),
+            role: AppConstants.roleUser,
           );
     } catch (e) {
       if (mounted) {
@@ -164,7 +165,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Buat akun untuk mulai mengakses layanan warga, pengajuan surat, dan data keluarga.',
+                          'Buat akun warga untuk mulai mengakses layanan, pengajuan surat, dan data keluarga.',
                           style: TextStyle(
                             fontSize: 14,
                             height: 1.5,
@@ -218,7 +219,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'Note: User yang didaftarkan harus user kepala keluarga.',
+                                          'Registrasi publik selalu membuat akun Warga. Role admin_rt, admin_rw, admin_rw_pro, dan sysadmin ditetapkan oleh sysadmin.',
                                           style: AppTheme.bodySmall.copyWith(
                                             color: AppTheme.textPrimary,
                                             height: 1.45,

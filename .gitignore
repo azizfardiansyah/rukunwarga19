@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local dev secrets
+/pocketbase_0.36.2_windows_amd64/start-pocketbase-dev.ps1

@@ -17,10 +17,7 @@ final wargaListProvider = FutureProvider.autoDispose<List<WargaModel>>((
   final auth = ref.watch(authProvider);
   final userId = auth.user?.id;
   if (userId == null) return [];
-
-  final isAdmin =
-      auth.role == AppConstants.roleAdmin ||
-      auth.role == AppConstants.roleSuperuser;
+  final isAdmin = auth.isAdmin;
 
   final result = await pb
       .collection(AppConstants.colWarga)

@@ -25,6 +25,9 @@ import '../features/chat/screens/chat_room_screen.dart';
 import '../features/chat/screens/announcement_screen.dart';
 import '../features/notifikasi/screens/notifikasi_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
+import '../features/settings/screens/role_request_screen.dart';
+import '../features/settings/screens/subscription_screen.dart';
+import '../features/settings/screens/user_role_management_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
 
 // Route paths
@@ -50,6 +53,9 @@ class Routes {
   static const String announcements = '/pengumuman';
   static const String notifikasi = '/notifikasi';
   static const String settings = '/settings';
+  static const String subscription = '/subscription';
+  static const String roleRequests = '/settings/role-requests';
+  static const String userManagement = '/settings/user-management';
 }
 
 /// A [ChangeNotifier] bridge so that [GoRouter.refreshListenable] re-evaluates
@@ -87,6 +93,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
       if (isLoggedIn && isAuthRoute) {
         return Routes.dashboard;
+      }
+      if (isLoggedIn &&
+          authState.requiresSubscription &&
+          !authState.hasActiveSubscription) {
+        final isAllowedWhileInactive =
+            state.matchedLocation == Routes.subscription ||
+            state.matchedLocation == Routes.settings ||
+            state.matchedLocation == Routes.roleRequests;
+
+        if (!isAllowedWhileInactive) {
+          return Routes.subscription;
+        }
       }
       return null;
     },
@@ -212,6 +230,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.notifikasi,
         builder: (context, state) => const NotifikasiScreen(),
+      ),
+      GoRoute(
+        path: Routes.roleRequests,
+        builder: (context, state) => const RoleRequestScreen(),
+      ),
+      GoRoute(
+        path: Routes.subscription,
+        builder: (context, state) => const SubscriptionScreen(),
+      ),
+      GoRoute(
+        path: Routes.userManagement,
+        builder: (context, state) => const UserRoleManagementScreen(),
       ),
     ],
   );

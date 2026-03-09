@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
+import '../constants/app_constants.dart';
 
 /// URL PocketBase server - ganti sesuai environment
 const String pocketBaseUrl = 'http://127.0.0.1:8090';
@@ -19,7 +20,9 @@ RecordModel? get currentUser =>
 
 /// Mendapatkan role user yang login
 String get currentUserRole =>
-    pb.authStore.record?.getStringValue('role') ?? 'user';
+    AppConstants.normalizeRole(
+      pb.authStore.record?.getStringValue('role') ?? AppConstants.roleUser,
+    );
 
 /// Mendapatkan token auth
 String get authToken => pb.authStore.token;

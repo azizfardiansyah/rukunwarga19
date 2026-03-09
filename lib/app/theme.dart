@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../core/constants/app_constants.dart';
 
 class AppTheme {
   AppTheme._();
@@ -393,12 +394,16 @@ class AppTheme {
 
   // === HELPER: Role Badge Color ===
   static Color roleColor(String role) {
-    switch (role.toLowerCase()) {
-      case 'superuser':
+    switch (AppConstants.normalizeRole(role)) {
+      case AppConstants.roleSysadmin:
         return primaryDark;
-      case 'admin':
+      case AppConstants.roleAdminRwPro:
+        return accentColor;
+      case AppConstants.roleAdminRw:
         return secondaryColor;
-      case 'user':
+      case AppConstants.roleAdminRt:
+        return primaryColor;
+      case AppConstants.roleUser:
       default:
         return primaryLight;
     }

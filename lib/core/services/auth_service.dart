@@ -1,4 +1,5 @@
 import 'package:pocketbase/pocketbase.dart';
+import '../constants/app_constants.dart';
 import 'pocketbase_service.dart';
 
 class AuthService {
@@ -17,14 +18,21 @@ class AuthService {
     required String password,
     required String passwordConfirm,
     required String name,
-    String role = 'user',
+    String role = AppConstants.roleUser,
   }) async {
+    final normalizedRole = AppConstants.normalizeRole(role);
+    final effectiveRole =
+        AppConstants.isSysadminRole(currentRole) &&
+            AppConstants.assignableRoles.contains(normalizedRole)
+        ? normalizedRole
+        : AppConstants.roleUser;
+
     final record = await pb.collection('users').create(body: {
       'email': email,
       'password': password,
       'passwordConfirm': passwordConfirm,
       'name': name,
-      'role': role,
+      'role': effectiveRole,
     });
     return record;
   }
@@ -42,13 +50,15 @@ class AuthService {
 
   /// Mendapatkan role user saat ini
   String get currentRole =>
-      pb.authStore.record?.getStringValue('role') ?? 'user';
+      AppConstants.normalizeRole(
+        pb.authStore.record?.getStringValue('role') ?? AppConstants.roleUser,
+      );
 
   /// Cek apakah user adalah admin
-  bool get isAdmin => currentRole == 'admin' || currentRole == 'superuser';
+  bool get isAdmin => AppConstants.isAdminRole(currentRole);
 
-  /// Cek apakah user adalah superuser
-  bool get isSuperuser => currentRole == 'superuser';
+  /// Cek apakah user adalah sysadmin
+  bool get isSysadmin => AppConstants.isSysadminRole(currentRole);
 
   /// Update profil user
   Future<RecordModel> updateProfile({
@@ -85,15 +95,21 @@ class AuthService {
     await pb.collection('users').authRefresh();
   }
 
-  /// Update role user (hanya superuser)
+  /// Update role user (hanya sysadmin)
   Future<RecordModel> updateUserRole(String userId, String newRole) async {
+    final normalizedRole = AppConstants.normalizeRole(newRole);
+
+    if (!AppConstants.assignableRoles.contains(normalizedRole)) {
+      throw ArgumentError('Role tidak valid: $newRole');
+    }
+
     final record = await pb.collection('users').update(userId, body: {
-      'role': newRole,
+      'role': normalizedRole,
     });
     return record;
   }
 
-  /// Mendapatkan semua users (admin/superuser)
+  /// Mendapatkan semua users (admin/sysadmin)
   Future<List<RecordModel>> getAllUsers({
     int page = 1,
     int perPage = 50,

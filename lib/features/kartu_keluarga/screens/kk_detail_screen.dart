@@ -99,9 +99,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final isAdmin =
-        auth.role == AppConstants.roleAdmin ||
-        auth.role == AppConstants.roleSuperuser;
+    final isAdmin = auth.isAdmin;
 
     return Scaffold(
       extendBodyBehindAppBar: true,

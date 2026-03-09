@@ -8,8 +8,14 @@ class AppConstants {
 
   // === ROLES ===
   static const String roleUser = 'user';
-  static const String roleAdmin = 'admin';
-  static const String roleSuperuser = 'superuser';
+  static const String roleAdminRt = 'admin_rt';
+  static const String roleAdminRw = 'admin_rw';
+  static const String roleAdminRwPro = 'admin_rw_pro';
+  static const String roleSysadmin = 'sysadmin';
+
+  // Legacy roles kept for backward compatibility during migration.
+  static const String legacyRoleAdmin = 'admin';
+  static const String legacyRoleSuperuser = 'superuser';
 
   // === COLLECTION NAMES ===
   static const String colUsers = 'users';
@@ -25,6 +31,9 @@ class AppConstants {
   static const String colMessages = 'messages';
   static const String colMessageReads = 'message_reads';
   static const String colAnnouncements = 'announcements';
+  static const String colSubscriptionPlans = 'subscription_plans';
+  static const String colSubscriptionTransactions = 'subscription_transactions';
+  static const String colRoleRequests = 'role_requests';
 
   // === STATUS DOKUMEN ===
   static const String statusPending = 'pending';
@@ -58,6 +67,187 @@ class AppConstants {
   static const String periodeBulanan = 'bulanan';
   static const String periodeTahunan = 'tahunan';
   static const String periodeInsidental = 'insidental';
+
+  // === SUBSCRIPTION ===
+  static const String subscriptionPlanAdminRtMonthly = 'admin_rt_monthly';
+  static const String subscriptionPlanAdminRwMonthly = 'admin_rw_monthly';
+  static const String subscriptionPlanAdminRwProMonthly =
+      'admin_rw_pro_monthly';
+  static const String subscriptionStatusActive = 'active';
+  static const String subscriptionStatusExpired = 'expired';
+  static const String subscriptionStatusInactive = 'inactive';
+
+  static const List<String> requestableRoles = [
+    roleAdminRt,
+    roleAdminRw,
+    roleAdminRwPro,
+  ];
+
+  static const String roleRequestPending = 'pending';
+  static const String roleRequestApproved = 'approved';
+  static const String roleRequestRejected = 'rejected';
+
+  static const List<String> assignableRoles = [
+    roleUser,
+    roleAdminRt,
+    roleAdminRw,
+    roleAdminRwPro,
+    roleSysadmin,
+  ];
+
+  static const List<String> publicRegistrationRoles = [roleUser];
+
+  static String normalizeRole(String role) {
+    switch (role.trim().toLowerCase()) {
+      case legacyRoleAdmin:
+        return roleAdminRw;
+      case legacyRoleSuperuser:
+        return roleSysadmin;
+      case roleAdminRt:
+      case roleAdminRw:
+      case roleAdminRwPro:
+      case roleSysadmin:
+      case roleUser:
+        return role.trim().toLowerCase();
+      default:
+        return roleUser;
+    }
+  }
+
+  static bool isAdminRole(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == roleAdminRt ||
+        normalizedRole == roleAdminRw ||
+        normalizedRole == roleAdminRwPro ||
+        normalizedRole == roleSysadmin;
+  }
+
+  static bool isSysadminRole(String role) {
+    return normalizeRole(role) == roleSysadmin;
+  }
+
+  static bool hasRwWideAccess(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == roleAdminRw ||
+        normalizedRole == roleAdminRwPro ||
+        normalizedRole == roleSysadmin;
+  }
+
+  static bool requiresSubscription(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == roleAdminRt ||
+        normalizedRole == roleAdminRw ||
+        normalizedRole == roleAdminRwPro;
+  }
+
+  static String? subscriptionPlanForRole(String role) {
+    switch (normalizeRole(role)) {
+      case roleAdminRt:
+        return subscriptionPlanAdminRtMonthly;
+      case roleAdminRw:
+        return subscriptionPlanAdminRwMonthly;
+      case roleAdminRwPro:
+        return subscriptionPlanAdminRwProMonthly;
+      default:
+        return null;
+    }
+  }
+
+  static String subscriptionPlanLabel(String planCode) {
+    switch (planCode.trim().toLowerCase()) {
+      case subscriptionPlanAdminRtMonthly:
+        return 'Paket Admin RT';
+      case subscriptionPlanAdminRwMonthly:
+        return 'Paket Admin RW';
+      case subscriptionPlanAdminRwProMonthly:
+        return 'Paket Admin RW Pro';
+      default:
+        return 'Subscription';
+    }
+  }
+
+  static String normalizeSubscriptionStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case subscriptionStatusActive:
+        return subscriptionStatusActive;
+      case subscriptionStatusExpired:
+        return subscriptionStatusExpired;
+      case subscriptionStatusInactive:
+      default:
+        return subscriptionStatusInactive;
+    }
+  }
+
+  static String effectiveSubscriptionStatus({
+    required String role,
+    required String subscriptionStatus,
+    String? subscriptionExpired,
+    DateTime? now,
+  }) {
+    if (!requiresSubscription(role)) {
+      return subscriptionStatusActive;
+    }
+
+    final normalizedStatus = normalizeSubscriptionStatus(subscriptionStatus);
+    if (normalizedStatus != subscriptionStatusActive) {
+      return normalizedStatus;
+    }
+
+    final expiry = DateTime.tryParse(subscriptionExpired ?? '');
+    final currentTime = now ?? DateTime.now();
+    if (expiry == null || !expiry.isAfter(currentTime)) {
+      return subscriptionStatusExpired;
+    }
+
+    return subscriptionStatusActive;
+  }
+
+  static bool hasActiveSubscription({
+    required String role,
+    required String subscriptionStatus,
+    String? subscriptionExpired,
+    DateTime? now,
+  }) {
+    if (!requiresSubscription(role)) {
+      return true;
+    }
+
+    return effectiveSubscriptionStatus(
+          role: role,
+          subscriptionStatus: subscriptionStatus,
+          subscriptionExpired: subscriptionExpired,
+          now: now,
+        ) ==
+        subscriptionStatusActive;
+  }
+
+  static String subscriptionStatusLabel(String status) {
+    switch (normalizeSubscriptionStatus(status)) {
+      case subscriptionStatusActive:
+        return 'Aktif';
+      case subscriptionStatusExpired:
+        return 'Expired';
+      case subscriptionStatusInactive:
+      default:
+        return 'Belum Aktif';
+    }
+  }
+
+  static String roleLabel(String role) {
+    switch (normalizeRole(role)) {
+      case roleAdminRt:
+        return 'Admin RT';
+      case roleAdminRw:
+        return 'Admin RW';
+      case roleAdminRwPro:
+        return 'Admin RW Pro';
+      case roleSysadmin:
+        return 'Sysadmin';
+      case roleUser:
+      default:
+        return 'Warga';
+    }
+  }
 
   // === JENIS DOKUMEN ===
   static const List<String> jenisDokumen = [

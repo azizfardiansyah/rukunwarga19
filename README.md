@@ -55,6 +55,7 @@ Flutter app langsung CRUD ke PocketBase menggunakan PocketBase Dart SDK (`pocket
 * Laporan iuran
 * Laporan dokumen
 * Export laporan (PDF/Excel)
+
 ## Struktur Folder Flutter
 ```warp-runnable-command
 lib/
@@ -97,6 +98,7 @@ lib/
 * Pengingat iuran yang belum dibayar / jatuh tempo
 * Notifikasi verifikasi dokumen
 * Notifikasi dari admin ke warga
+
 ### 10. Chat & Komunikasi
 **Chat Pribadi (warga ↔ pengurus)**
 * Kirim teks & gambar
