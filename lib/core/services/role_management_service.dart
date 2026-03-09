@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
 import '../constants/app_constants.dart';
-import '../../shared/models/role_request_model.dart';
 import 'pocketbase_service.dart';
+import '../../shared/models/role_request_model.dart';
 
 final roleManagementServiceProvider = Provider<RoleManagementService>((ref) {
   return RoleManagementService(pb);
@@ -80,6 +80,27 @@ class RoleManagementService {
             'status': AppConstants.roleRequestPending,
           },
         );
+  }
+
+  Future<void> unsubscribeCurrentUser() async {
+    final authUser = _pb.authStore.record;
+
+    if (authUser == null) {
+      throw StateError('User belum login.');
+    }
+
+    final currentRole = AppConstants.normalizeRole(
+      authUser.getStringValue('role'),
+    );
+
+    if (!AppConstants.canRequestUnsubscribe(currentRole)) {
+      throw ArgumentError('Role saat ini tidak memerlukan proses unsubscribe.');
+    }
+
+    await _pb.send<Map<String, dynamic>>(
+      '/api/rukunwarga/account/unsubscribe',
+      method: 'POST',
+    );
   }
 
   Future<void> approveRoleRequest({

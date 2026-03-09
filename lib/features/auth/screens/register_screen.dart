@@ -45,7 +45,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             password: _passwordController.text,
             passwordConfirm: _confirmPasswordController.text,
             name: _namaController.text.trim(),
-            role: AppConstants.roleUser,
+            role: AppConstants.roleWarga,
           );
     } catch (e) {
       if (mounted) {

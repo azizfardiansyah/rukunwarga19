@@ -15,14 +15,12 @@ final pocketBaseProvider = Provider<PocketBase>((ref) => pb);
 bool get isAuthenticated => pb.authStore.isValid;
 
 /// Mendapatkan user yang sedang login
-RecordModel? get currentUser =>
-    pb.authStore.record;
+RecordModel? get currentUser => pb.authStore.record;
 
 /// Mendapatkan role user yang login
-String get currentUserRole =>
-    AppConstants.normalizeRole(
-      pb.authStore.record?.getStringValue('role') ?? AppConstants.roleUser,
-    );
+String get currentUserRole => AppConstants.normalizeRole(
+  pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+);
 
 /// Mendapatkan token auth
 String get authToken => pb.authStore.token;

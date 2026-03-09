@@ -19,10 +19,16 @@ class SettingsScreen extends ConsumerWidget {
     final email = user?.getStringValue('email') ?? '';
     final roleLabel = AppConstants.roleLabel(authState.role);
     final isSysadmin = authState.isSysadmin;
+    final canSelfSubscribe = AppConstants.canSelfSubscribe(authState.role);
+    final canRequestUnsubscribe = AppConstants.canRequestUnsubscribe(
+      authState.role,
+    );
     final effectiveSubscriptionStatus = authState.effectiveSubscriptionStatus;
     final subscriptionStatusLabel = authState.requiresSubscription
         ? AppConstants.subscriptionStatusLabel(effectiveSubscriptionStatus)
-        : 'Tidak wajib';
+        : canSelfSubscribe
+        ? 'Bisa upgrade'
+        : 'Tidak tersedia';
     final subscriptionColor = _subscriptionColor(effectiveSubscriptionStatus);
     final subscriptionSubtitle = authState.hasActiveSubscription
         ? authState.subscriptionExpiredAt != null
@@ -128,18 +134,23 @@ class SettingsScreen extends ConsumerWidget {
               _SettingsActionTile(
                 icon: Icons.workspace_premium_outlined,
                 title: 'Subscription & Pembayaran',
-                subtitle: subscriptionSubtitle,
+                subtitle: canSelfSubscribe
+                    ? authState.role == AppConstants.roleWarga
+                          ? 'Pilih role admin dan bayar untuk aktivasi akses premium'
+                          : subscriptionSubtitle
+                    : 'Role ini tidak memakai checkout subscription',
                 badgeLabel: subscriptionStatusLabel,
-                badgeColor: authState.requiresSubscription
+                badgeColor: canSelfSubscribe && authState.requiresSubscription
                     ? subscriptionColor
                     : AppTheme.primaryColor,
                 onTap: () => context.push(Routes.subscription),
               ),
-              if (!isSysadmin)
+              if (canRequestUnsubscribe)
                 _SettingsActionTile(
-                  icon: Icons.assignment_outlined,
-                  title: 'Ajukan Perubahan Role',
-                  subtitle: 'Kirim pengajuan role untuk direview sysadmin',
+                  icon: Icons.person_off_outlined,
+                  title: 'Unsubscribe',
+                  subtitle:
+                      'Langsung kembali ke role Warga dan nonaktifkan akses admin',
                   onTap: () => context.push(Routes.roleRequests),
                 ),
               if (isSysadmin)

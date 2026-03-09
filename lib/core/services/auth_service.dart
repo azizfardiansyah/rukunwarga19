@@ -5,10 +5,9 @@ import 'pocketbase_service.dart';
 class AuthService {
   /// Login dengan email dan password
   Future<RecordAuth> login(String email, String password) async {
-    final authData = await pb.collection('users').authWithPassword(
-      email,
-      password,
-    );
+    final authData = await pb
+        .collection('users')
+        .authWithPassword(email, password);
     return authData;
   }
 
@@ -18,22 +17,26 @@ class AuthService {
     required String password,
     required String passwordConfirm,
     required String name,
-    String role = AppConstants.roleUser,
+    String role = AppConstants.roleWarga,
   }) async {
     final normalizedRole = AppConstants.normalizeRole(role);
     final effectiveRole =
         AppConstants.isSysadminRole(currentRole) &&
             AppConstants.assignableRoles.contains(normalizedRole)
         ? normalizedRole
-        : AppConstants.roleUser;
+        : AppConstants.roleWarga;
 
-    final record = await pb.collection('users').create(body: {
-      'email': email,
-      'password': password,
-      'passwordConfirm': passwordConfirm,
-      'name': name,
-      'role': effectiveRole,
-    });
+    final record = await pb
+        .collection('users')
+        .create(
+          body: {
+            'email': email,
+            'password': password,
+            'passwordConfirm': passwordConfirm,
+            'name': name,
+            'role': effectiveRole,
+          },
+        );
     return record;
   }
 
@@ -49,10 +52,9 @@ class AuthService {
   RecordModel? get currentUser => pb.authStore.record;
 
   /// Mendapatkan role user saat ini
-  String get currentRole =>
-      AppConstants.normalizeRole(
-        pb.authStore.record?.getStringValue('role') ?? AppConstants.roleUser,
-      );
+  String get currentRole => AppConstants.normalizeRole(
+    pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+  );
 
   /// Cek apakah user adalah admin
   bool get isAdmin => AppConstants.isAdminRole(currentRole);
@@ -83,11 +85,16 @@ class AuthService {
     required String newPasswordConfirm,
   }) async {
     final userId = pb.authStore.record!.id;
-    await pb.collection('users').update(userId, body: {
-      'oldPassword': oldPassword,
-      'password': newPassword,
-      'passwordConfirm': newPasswordConfirm,
-    });
+    await pb
+        .collection('users')
+        .update(
+          userId,
+          body: {
+            'oldPassword': oldPassword,
+            'password': newPassword,
+            'passwordConfirm': newPasswordConfirm,
+          },
+        );
   }
 
   /// Refresh auth data
@@ -103,9 +110,9 @@ class AuthService {
       throw ArgumentError('Role tidak valid: $newRole');
     }
 
-    final record = await pb.collection('users').update(userId, body: {
-      'role': normalizedRole,
-    });
+    final record = await pb
+        .collection('users')
+        .update(userId, body: {'role': normalizedRole});
     return record;
   }
 
@@ -115,12 +122,14 @@ class AuthService {
     int perPage = 50,
     String? filter,
   }) async {
-    final result = await pb.collection('users').getList(
-      page: page,
-      perPage: perPage,
-      filter: filter ?? '',
-      sort: 'nama',
-    );
+    final result = await pb
+        .collection('users')
+        .getList(
+          page: page,
+          perPage: perPage,
+          filter: filter ?? '',
+          sort: 'nama',
+        );
     return result.items;
   }
 }

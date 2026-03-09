@@ -10,14 +10,29 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/role_request_model.dart';
 
-final managedUsersProvider =
-    FutureProvider.autoDispose<List<RecordModel>>((ref) async {
-      return ref.watch(roleManagementServiceProvider).getAllUsers();
-    });
+final managedUsersProvider = FutureProvider.autoDispose<List<RecordModel>>((
+  ref,
+) async {
+  try {
+    return await ref.watch(roleManagementServiceProvider).getAllUsers();
+  } catch (error) {
+    if (ErrorClassifier.isAuthError(error)) {
+      ref.read(authProvider.notifier).logout();
+    }
+    rethrow;
+  }
+});
 
 final allRoleRequestsProvider =
     FutureProvider.autoDispose<List<RoleRequestModel>>((ref) async {
-      return ref.watch(roleManagementServiceProvider).getRoleRequests();
+      try {
+        return await ref.watch(roleManagementServiceProvider).getRoleRequests();
+      } catch (error) {
+        if (ErrorClassifier.isAuthError(error)) {
+          ref.read(authProvider.notifier).logout();
+        }
+        rethrow;
+      }
     });
 
 class UserRoleManagementScreen extends ConsumerStatefulWidget {
@@ -33,9 +48,12 @@ class _UserRoleManagementScreenState
   String _searchQuery = '';
 
   Future<void> _showRoleDialog(RecordModel user) async {
-    String selectedRole = AppConstants.normalizeRole(user.getStringValue('role'));
+    String selectedRole = AppConstants.normalizeRole(
+      user.getStringValue('role'),
+    );
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Ubah Role User'),
@@ -69,10 +87,9 @@ class _UserRoleManagementScreenState
     if (!confirmed) return;
 
     try {
-      await ref.read(roleManagementServiceProvider).updateUserRole(
-            user: user,
-            newRole: selectedRole,
-          );
+      await ref
+          .read(roleManagementServiceProvider)
+          .updateUserRole(user: user, newRole: selectedRole);
       if (!mounted) return;
       ErrorClassifier.showSuccessSnackBar(context, 'Role user diperbarui.');
       ref.invalidate(managedUsersProvider);
@@ -107,11 +124,28 @@ class _UserRoleManagementScreenState
     RoleRequestModel request, {
     required bool approve,
   }) async {
+    final isUnsubscribeRequest =
+        AppConstants.normalizeRole(request.requestedRole) ==
+        AppConstants.roleWarga;
+    final dialogTitle = approve
+        ? (isUnsubscribeRequest ? 'Setujui Unsubscribe' : 'Setujui Pengajuan')
+        : (isUnsubscribeRequest ? 'Tolak Unsubscribe' : 'Tolak Pengajuan');
+    final actionLabel = approve
+        ? (isUnsubscribeRequest ? 'Setujui Unsubscribe' : 'Setujui')
+        : (isUnsubscribeRequest ? 'Tolak Unsubscribe' : 'Tolak');
+    final successMessage = approve
+        ? (isUnsubscribeRequest
+              ? 'Pengajuan unsubscribe disetujui.'
+              : 'Pengajuan disetujui.')
+        : (isUnsubscribeRequest
+              ? 'Pengajuan unsubscribe ditolak.'
+              : 'Pengajuan ditolak.');
     final noteController = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: Text(approve ? 'Setujui Pengajuan' : 'Tolak Pengajuan'),
+            title: Text(dialogTitle),
             content: TextField(
               controller: noteController,
               maxLines: 3,
@@ -127,7 +161,7 @@ class _UserRoleManagementScreenState
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: Text(approve ? 'Setujui' : 'Tolak'),
+                child: Text(actionLabel),
               ),
             ],
           ),
@@ -150,10 +184,7 @@ class _UserRoleManagementScreenState
         );
       }
       if (!mounted) return;
-      ErrorClassifier.showSuccessSnackBar(
-        context,
-        approve ? 'Pengajuan disetujui.' : 'Pengajuan ditolak.',
-      );
+      ErrorClassifier.showSuccessSnackBar(context, successMessage);
       ref.invalidate(allRoleRequestsProvider);
       ref.invalidate(managedUsersProvider);
     } catch (e) {
@@ -192,7 +223,7 @@ class _UserRoleManagementScreenState
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Users'),
-              Tab(text: 'Pengajuan'),
+              Tab(text: 'Request Akses'),
             ],
           ),
         ),
@@ -201,16 +232,14 @@ class _UserRoleManagementScreenState
             usersAsync.when(
               data: _buildUsersTab,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(
-                child: Text(ErrorClassifier.classify(error).message),
-              ),
+              error: (error, _) =>
+                  Center(child: Text(ErrorClassifier.classify(error).message)),
             ),
             requestsAsync.when(
               data: _buildRequestsTab,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(
-                child: Text(ErrorClassifier.classify(error).message),
-              ),
+              error: (error, _) =>
+                  Center(child: Text(ErrorClassifier.classify(error).message)),
             ),
           ],
         ),
@@ -225,9 +254,13 @@ class _UserRoleManagementScreenState
 
       final name = _displayName(user).toLowerCase();
       final email = user.getStringValue('email').toLowerCase();
-      final role = AppConstants.roleLabel(user.getStringValue('role')).toLowerCase();
+      final role = AppConstants.roleLabel(
+        user.getStringValue('role'),
+      ).toLowerCase();
 
-      return name.contains(query) || email.contains(query) || role.contains(query);
+      return name.contains(query) ||
+          email.contains(query) ||
+          role.contains(query);
     }).toList();
 
     return ListView(
@@ -296,8 +329,10 @@ class _UserRoleManagementScreenState
                                     label: subscriptionStatus.isEmpty
                                         ? 'subscription belum diatur'
                                         : 'subscription $subscriptionStatus',
-                                    color: subscriptionStatus ==
-                                            AppConstants.subscriptionStatusActive
+                                    color:
+                                        subscriptionStatus ==
+                                            AppConstants
+                                                .subscriptionStatusActive
                                         ? AppTheme.successColor
                                         : AppTheme.warningColor,
                                   ),
@@ -350,7 +385,7 @@ class _UserRoleManagementScreenState
 
   Widget _buildRequestsTab(List<RoleRequestModel> requests) {
     if (requests.isEmpty) {
-      return const Center(child: Text('Belum ada pengajuan role.'));
+      return const Center(child: Text('Belum ada pengajuan unsubscribe.'));
     }
 
     return ListView(
@@ -431,13 +466,23 @@ class _UserRoleManagementScreenState
                         onPressed: () =>
                             _handleRequestAction(request, approve: true),
                         icon: const Icon(Icons.check_rounded),
-                        label: const Text('Setujui'),
+                        label: Text(
+                          AppConstants.normalizeRole(request.requestedRole) ==
+                                  AppConstants.roleWarga
+                              ? 'Setujui Unsubscribe'
+                              : 'Setujui',
+                        ),
                       ),
                       OutlinedButton.icon(
                         onPressed: () =>
                             _handleRequestAction(request, approve: false),
                         icon: const Icon(Icons.close_rounded),
-                        label: const Text('Tolak'),
+                        label: Text(
+                          AppConstants.normalizeRole(request.requestedRole) ==
+                                  AppConstants.roleWarga
+                              ? 'Tolak Unsubscribe'
+                              : 'Tolak',
+                        ),
                       ),
                     ],
                   ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 // Hapus import riverpod yang tidak perlu
 // ignore_for_file: dead_code
 
@@ -7,6 +9,7 @@ import 'package:flutter_riverpod/legacy.dart'
 import 'package:pocketbase/pocketbase.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/pocketbase_service.dart';
 
 // Auth Service provider
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
@@ -24,7 +27,7 @@ class AuthState {
     this.status = AuthStatus.initial,
     this.user,
     this.error,
-    this.role = AppConstants.roleUser,
+    this.role = AppConstants.roleWarga,
   });
 
   AuthState copyWith({
@@ -70,8 +73,14 @@ class AuthState {
 // Pastikan extends StateNotifier<AuthState>
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthService _authService;
+  StreamSubscription<AuthStoreEvent>? _authStoreSubscription;
 
-  AuthNotifier(this._authService) : super(const AuthState());
+  AuthNotifier(this._authService) : super(const AuthState()) {
+    _syncAuthState();
+    _authStoreSubscription = pb.authStore.onChange.listen((_) {
+      _syncAuthState();
+    });
+  }
 
   void _syncAuthState() {
     if (_authService.isLoggedIn) {
@@ -111,7 +120,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required String passwordConfirm,
     required String name,
-    String role = AppConstants.roleUser,
+    String role = AppConstants.roleWarga,
   }) async {
     state = state.copyWith(status: AuthStatus.loading, error: null);
     try {
@@ -145,6 +154,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (_) {
       logout();
     }
+  }
+
+  @override
+  void dispose() {
+    _authStoreSubscription?.cancel();
+    super.dispose();
   }
 }
 

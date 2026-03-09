@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
 
+import '../constants/app_constants.dart';
 import 'pocketbase_service.dart';
 
-final subscriptionPaymentServiceProvider =
-    Provider<SubscriptionPaymentService>((ref) {
-      return SubscriptionPaymentService(pb);
-    });
+final subscriptionPaymentServiceProvider = Provider<SubscriptionPaymentService>(
+  (ref) {
+    return SubscriptionPaymentService(pb);
+  },
+);
 
 class SubscriptionPlan {
   const SubscriptionPlan({
@@ -15,6 +19,7 @@ class SubscriptionPlan {
     required this.description,
     required this.amount,
     required this.durationDays,
+    required this.targetRole,
   });
 
   final String code;
@@ -22,6 +27,7 @@ class SubscriptionPlan {
   final String description;
   final int amount;
   final int durationDays;
+  final String targetRole;
 
   factory SubscriptionPlan.fromJson(Map<String, dynamic> json) {
     return SubscriptionPlan(
@@ -30,6 +36,7 @@ class SubscriptionPlan {
       description: json['description'] as String? ?? '',
       amount: (json['amount'] as num?)?.toInt() ?? 0,
       durationDays: (json['durationDays'] as num?)?.toInt() ?? 0,
+      targetRole: json['targetRole'] as String? ?? '',
     );
   }
 }
@@ -39,6 +46,7 @@ class SubscriptionCheckout {
     required this.id,
     required this.orderId,
     required this.planCode,
+    required this.targetRole,
     required this.planName,
     required this.grossAmount,
     required this.currency,
@@ -60,6 +68,7 @@ class SubscriptionCheckout {
   final String id;
   final String orderId;
   final String planCode;
+  final String targetRole;
   final String planName;
   final int grossAmount;
   final String currency;
@@ -78,13 +87,15 @@ class SubscriptionCheckout {
   final DateTime? updated;
 
   bool get isPaid => paymentState == 'paid';
-  bool get isPending => paymentState == 'pending' || paymentState == 'token_ready';
+  bool get isPending =>
+      paymentState == 'pending' || paymentState == 'token_ready';
 
   factory SubscriptionCheckout.fromJson(Map<String, dynamic> json) {
     return SubscriptionCheckout(
       id: json['id'] as String? ?? '',
       orderId: json['orderId'] as String? ?? '',
       planCode: json['planCode'] as String? ?? '',
+      targetRole: json['targetRole'] as String? ?? '',
       planName: json['planName'] as String? ?? '',
       grossAmount: (json['grossAmount'] as num?)?.toInt() ?? 0,
       currency: json['currency'] as String? ?? 'IDR',
@@ -109,6 +120,7 @@ class SubscriptionPaymentService {
   SubscriptionPaymentService(this._pb);
 
   final PocketBase _pb;
+  static const Duration _requestTimeout = Duration(seconds: 12);
 
   static const String _plansPath =
       '/api/rukunwarga/payments/subscription/plans';
@@ -116,14 +128,29 @@ class SubscriptionPaymentService {
       '/api/rukunwarga/payments/subscription/snap';
 
   Future<List<SubscriptionPlan>> getPlans() async {
-    final response = await _pb.send<Map<String, dynamic>>(_plansPath);
-    final rawPlans = response['plans'] as List<dynamic>? ?? const [];
+    try {
+      final response = await _pb
+          .send<Map<String, dynamic>>(_plansPath)
+          .timeout(_requestTimeout);
+      final rawPlans = response['plans'] as List<dynamic>? ?? const [];
 
-    return rawPlans
-        .map((item) => SubscriptionPlan.fromJson(
+      return rawPlans
+          .map(
+            (item) => SubscriptionPlan.fromJson(
               Map<String, dynamic>.from(item as Map),
-            ))
-        .toList();
+            ),
+          )
+          .toList();
+    } on TimeoutException {
+      return _loadPlansFromCollection();
+    } on ClientException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        rethrow;
+      }
+      return _loadPlansFromCollection();
+    } catch (_) {
+      return _loadPlansFromCollection();
+    }
   }
 
   Future<SubscriptionCheckout> createCheckout({
@@ -136,20 +163,52 @@ class SubscriptionPaymentService {
       body['enabledPayments'] = enabledPayments;
     }
 
-    final response = await _pb.send<Map<String, dynamic>>(
-      _checkoutPath,
-      method: 'POST',
-      body: body,
-    );
+    final response = await _pb
+        .send<Map<String, dynamic>>(_checkoutPath, method: 'POST', body: body)
+        .timeout(_requestTimeout);
 
     return SubscriptionCheckout.fromJson(response);
   }
 
   Future<SubscriptionCheckout> getStatus(String orderId) async {
-    final response = await _pb.send<Map<String, dynamic>>(
-      '/api/rukunwarga/payments/subscription/status/$orderId',
-    );
+    final response = await _pb
+        .send<Map<String, dynamic>>(
+          '/api/rukunwarga/payments/subscription/status/$orderId',
+        )
+        .timeout(_requestTimeout);
 
     return SubscriptionCheckout.fromJson(response);
+  }
+
+  Future<List<SubscriptionPlan>> _loadPlansFromCollection() async {
+    final currentRole = AppConstants.normalizeRole(
+      _pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+    );
+
+    final records = await _pb
+        .collection(AppConstants.colSubscriptionPlans)
+        .getFullList(filter: 'is_active = true', sort: 'sort_order,created')
+        .timeout(_requestTimeout);
+
+    return records
+        .map(_planFromRecord)
+        .where(
+          (plan) => AppConstants.canPurchaseRole(
+            currentRole: currentRole,
+            targetRole: plan.targetRole,
+          ),
+        )
+        .toList();
+  }
+
+  SubscriptionPlan _planFromRecord(RecordModel record) {
+    return SubscriptionPlan(
+      code: record.getStringValue('code'),
+      name: record.getStringValue('name'),
+      description: record.getStringValue('description'),
+      amount: record.getIntValue('amount'),
+      durationDays: record.getIntValue('duration_days'),
+      targetRole: record.getStringValue('target_role'),
+    );
   }
 }

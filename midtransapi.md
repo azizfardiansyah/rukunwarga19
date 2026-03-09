@@ -1,67 +1,81 @@
-# Midtrans Snap API Integration
+# Midtrans Snap API
 
-Dokumentasi proses integrasi Midtrans Snap API untuk pembayaran langganan SaaS RukunWarga.
-
----
-
-## 1. Konfigurasi API
-
-- **Server Key**: Digunakan di backend untuk membuat transaksi.
-- **Client Key**: Digunakan di frontend (opsional, jika pakai Snap JS).
-- **Merchant ID**: Identitas akun Midtrans.
-- **Mode dev wajib Sandbox**: pada screenshot dashboard yang aktif terlihat **Production**. Untuk testing dev, pindahkan environment ke **Sandbox** dan jangan pakai key produksi di repo/app.
-- **Server Key harus dirahasiakan**: jangan ditaruh di Flutter. Simpan di environment PocketBase.
+Dokumentasi implementasi payment gateway Midtrans Snap untuk project RukunWarga, termasuk perubahan role `warga`, flow subscription admin, testing Sandbox, dan catatan proses yang sudah dibahas.
 
 ---
 
-## 2. Alur Proses Pembayaran
+## 1. Role dan aturan bisnis
 
-### a. User Memilih Paket Langganan
-- User klik tombol "Upgrade" atau "Bayar".
+### Role aktif di collection `users`
+- `warga`
+- `admin_rt`
+- `admin_rw`
+- `admin_rw_pro`
+- `sysadmin`
 
-### b. Backend Membuat Transaksi ke Midtrans
-- Backend (PocketBase/Node/PHP) mengirim request ke endpoint Snap API:
+### Aturan register
+- Semua user yang daftar dari aplikasi otomatis dibuat sebagai `warga`.
+- Role `sysadmin` tidak bisa dibeli dan tidak muncul di alur subscription.
+- Tiga role berbayar yang bisa dipilih di menu `Subscription & Pembayaran`:
+  - `admin_rt`
+  - `admin_rw`
+  - `admin_rw_pro`
+
+### Aturan upgrade
+1. User daftar atau login sebagai `warga`.
+2. User buka `Settings > Subscription & Pembayaran`.
+3. User pilih paket admin.
+4. App buat checkout Midtrans Snap lewat PocketBase.
+5. User bayar di Midtrans Sandbox.
+6. Setelah pembayaran sukses:
+   - `users.role` berubah ke role target
+   - `users.subscription_plan` terisi
+   - `users.subscription_status = active`
+   - `users.subscription_started` terisi
+   - `users.subscription_expired` terisi
+
+### Aturan unsubscribe
+- Unsubscribe sekarang langsung otomatis.
+- Saat user admin klik `Unsubscribe` dan berhasil:
+  - `users.role` kembali ke `warga`
+  - `subscription_plan` dikosongkan
+  - `subscription_status = inactive`
+  - `subscription_started = null`
+  - `subscription_expired = null`
+- Setelah sukses, app menampilkan notifikasi elegan lalu route ke dashboard utama.
 
 ---
 
-## 3. Arsitektur yang dipakai di project ini
+## 2. Arsitektur yang dipakai
 
-Project ini adalah:
-- **Flutter app** sebagai client
-- **PocketBase** sebagai backend utama
-- Belum ada backend Node/PHP terpisah
+Project ini memakai:
+- Flutter sebagai client
+- PocketBase sebagai backend utama
+- Midtrans Snap sebagai payment gateway
 
-Karena itu integrasi paling pas untuk repo ini adalah:
-- **Custom API dibuat di PocketBase `pb_hooks/main.pb.js`**
-- Flutter memanggil API custom via `pb.send(...)`
-- PocketBase yang memegang **Server Key Midtrans**
-- Midtrans mengirim **webhook** ke endpoint PocketBase
+Server Key Midtrans disimpan di PocketBase. Flutter tidak memegang Server Key.
 
-Flow v1:
+Flow teknis:
 1. Flutter login ke PocketBase.
-2. Flutter panggil `POST /api/rukunwarga/payments/subscription/snap`.
-3. PocketBase buat transaksi ke Midtrans Snap.
-4. PocketBase simpan record `subscription_transactions`.
+2. Flutter memanggil custom API PocketBase.
+3. PocketBase membuat transaksi ke Midtrans Snap.
+4. PocketBase menyimpan transaksi ke `subscription_transactions`.
 5. Flutter menerima `snapToken` dan `redirectUrl`.
-6. Setelah user bayar, Midtrans hit webhook PocketBase.
-7. PocketBase sinkron status ke Midtrans Status API.
-8. Jika sukses, field subscription di `users` diperbarui.
+6. User membayar di halaman Midtrans Sandbox.
+7. PocketBase sinkron status via webhook atau `GET status`.
+8. Jika sukses, PocketBase mengubah role user dan status subscription.
 
 ---
 
-## 4. Endpoint custom yang sudah disiapkan
+## 3. Endpoint custom yang dipakai
 
 ### GET `/api/rukunwarga/payments/subscription/plans`
-Mengambil daftar paket subscription dari collection `subscription_plans`.
-Default seed dev:
-- `admin_rt_monthly`
-- `admin_rw_monthly`
-- `admin_rw_pro_monthly`
+Mengambil daftar paket aktif dari collection `subscription_plans`.
 
 ### POST `/api/rukunwarga/payments/subscription/snap`
-Membuat transaksi Snap.
+Membuat checkout Midtrans Snap.
 
-Body:
+Body contoh:
 
 ```json
 {
@@ -80,35 +94,38 @@ Response inti:
 ```
 
 ### GET `/api/rukunwarga/payments/subscription/status/{orderId}`
-Sinkron status transaksi ke Midtrans Status API dan mengembalikan status terbaru.
+Sinkron manual ke Midtrans Status API dan mengembalikan status transaksi terbaru.
 
 ### POST `/api/rukunwarga/payments/subscription/midtrans-notification`
-Webhook Midtrans. Endpoint ini memverifikasi `signature_key`, lalu sinkron ulang status transaksi dari Midtrans.
+Webhook Midtrans. Dipakai untuk update status otomatis bila `RW_MIDTRANS_NOTIFICATION_URL` sudah publik.
+
+### POST `/api/rukunwarga/account/unsubscribe`
+Route custom untuk self-unsubscribe. Setelah sukses, role user kembali ke `warga`.
 
 ---
 
-## 5. Data model PocketBase yang ditambahkan
+## 4. Schema PocketBase
 
-### Field baru di `users`
-- `subscription_plan`
-- `subscription_status`
-- `subscription_started`
-- `subscription_expired`
+### Collection `users`
 
-### Collection baru `subscription_transactions`
-Menyimpan:
-- subscriber
-- plan
-- nominal
-- `order_id`
-- `snap_token`
-- `redirect_url`
-- payment state lokal
-- status raw Midtrans
-- hasil apply subscription
+Field penting:
+- `role` `select`
+  - `warga`
+  - `admin_rt`
+  - `admin_rw`
+  - `admin_rw_pro`
+  - `sysadmin`
+- `subscription_plan` `select`
+- `subscription_status` `select`
+  - `inactive`
+  - `active`
+  - `expired`
+- `subscription_started` `date`
+- `subscription_expired` `date`
 
-### Collection baru `subscription_plans`
-Menyimpan konfigurasi paket:
+### Collection `subscription_plans`
+
+Field:
 - `code`
 - `name`
 - `description`
@@ -119,11 +136,41 @@ Menyimpan konfigurasi paket:
 - `is_active`
 - `sort_order`
 
+Seed default dev:
+- `admin_rt_monthly`
+- `admin_rw_monthly`
+- `admin_rw_pro_monthly`
+
+### Collection `subscription_transactions`
+
+Field penting:
+- `subscriber`
+- `plan_code`
+- `target_role`
+- `plan_name`
+- `gross_amount`
+- `period_days`
+- `order_id`
+- `snap_token`
+- `redirect_url`
+- `payment_state`
+- `transaction_status`
+- `payment_type`
+- `subscription_applied`
+- `subscription_started`
+- `subscription_expired`
+- `raw_midtrans_response`
+- `raw_notification`
+
+### Collection `role_requests`
+
+Sekarang statusnya legacy untuk kebutuhan lama. Flow unsubscribe aktif tidak lagi bergantung pada collection ini.
+
 ---
 
-## 6. Environment variable PocketBase
+## 5. Environment variable PocketBase
 
-Set sebelum menjalankan PocketBase:
+Set env di terminal yang dipakai untuk menjalankan PocketBase:
 
 ```powershell
 $env:RW_MIDTRANS_IS_PRODUCTION="false"
@@ -134,61 +181,145 @@ $env:RW_MIDTRANS_NOTIFICATION_URL="https://<public-url>/api/rukunwarga/payments/
 $env:RW_MIDTRANS_FINISH_URL="https://<app-url>/#/settings"
 ```
 
-Lalu jalankan PocketBase dari folder:
+Jalankan PocketBase:
 
 ```powershell
 cd pocketbase_0.36.2_windows_amd64
-.\pocketbase.exe serve --http=127.0.0.1:8090
+.\pocketbase.exe serve --dev
+```
+
+Atau gunakan script lokal:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-pocketbase-dev.ps1
 ```
 
 Catatan:
-- `RW_MIDTRANS_NOTIFICATION_URL` harus URL publik kalau webhook Midtrans mau masuk ke mesin lokal. Untuk dev lokal, pakai tunnel seperti `ngrok` atau `cloudflared`.
-- `RW_MIDTRANS_FINISH_URL` opsional. Kalau belum ada halaman khusus, boleh arahkan ke settings atau dashboard web.
+- Dev wajib pakai **Sandbox**
+- Jangan pakai key Production untuk testing dev
+- `RW_MIDTRANS_NOTIFICATION_URL` harus URL publik jika webhook ingin diuji dari lokal
 
 ---
 
-## 7. Cara test di dev
+## 6. Cara test dev end-to-end
 
-1. Pastikan dashboard Midtrans ada di **Sandbox**, bukan Production.
-2. Jalankan migration PocketBase agar collection `subscription_plans` ikut dibuat.
+### Persiapan
+1. Pastikan MAP Midtrans ada di environment **Sandbox**.
+2. Jalankan migration PocketBase.
 
 ```powershell
 cd pocketbase_0.36.2_windows_amd64
 .\pocketbase.exe migrate up
 ```
 
-3. Jalankan PocketBase dengan env var di atas.
-4. Buka dashboard PocketBase dan pastikan collection `subscription_plans` berisi data aktif:
-   - `admin_rt_monthly`
-   - `admin_rw_monthly`
-   - `admin_rw_pro_monthly`
-5. Jalankan Flutter app.
-6. Login pakai user yang role-nya memang wajib subscription, misalnya `admin_rw`.
-7. Buka `Settings > Subscription & Pembayaran`.
-8. Pastikan kartu paket menampilkan `Tagihan` dan `Durasi` dari database, bukan pesan "mengikuti konfigurasi server".
-9. Klik `Buat Checkout`.
-10. Klik `Buka Pembayaran`.
-11. Selesaikan pembayaran dengan data uji Sandbox Midtrans.
-12. Kembali ke app, klik `Cek Status Midtrans`, lalu `Refresh Akses`.
-13. Alternatif verifikasi via endpoint:
+3. Jalankan PocketBase dengan env Midtrans Sandbox.
+4. Jalankan Flutter app.
 
-```powershell
-GET /api/rukunwarga/payments/subscription/status/{orderId}
-```
+### Test upgrade role
+1. Register user baru.
+2. Pastikan record `users.role` langsung terisi `warga`.
+3. Login sebagai user tersebut.
+4. Buka `Settings > Subscription & Pembayaran`.
+5. Pilih salah satu paket:
+   - Admin RT
+   - Admin RW
+   - Admin RW Pro
+6. Klik `Buat Checkout`.
+7. Klik `Buka Pembayaran`.
+8. Selesaikan pembayaran di Midtrans Sandbox.
+9. Kembali ke app.
+10. Klik `Cek Status Midtrans`.
+11. Klik `Refresh Akses`.
 
-14. Verifikasi field user:
-- `subscription_plan`
-- `subscription_status = active`
-- `subscription_expired`
+### Hasil yang harus terjadi
+- `subscription_transactions.payment_state` menjadi `paid`
+- `users.role` berubah dari `warga` ke role target
+- `users.subscription_status = active`
+- `users.subscription_expired` terisi
 
-Kalau webhook belum bisa masuk karena URL lokal tidak publik, status masih bisa dipaksa sinkron lewat endpoint `status/{orderId}`.
+### Test unsubscribe
+1. Login sebagai user admin aktif.
+2. Buka `Settings > Unsubscribe`.
+3. Konfirmasi unsubscribe.
+4. Setelah sukses:
+   - app menampilkan notifikasi sukses
+   - app route ke dashboard utama
+   - `users.role` kembali ke `warga`
+   - subscription dinonaktifkan
 
 ---
 
-## 8. Kenapa pendekatan ini yang paling cocok
+## 7. Simulasi transaksi berhasil di Sandbox
 
-- Tidak membocorkan **Server Key** ke Flutter.
-- Tetap satu backend: **PocketBase**.
-- Cocok dengan arsitektur repo saat ini yang langsung memakai PocketBase SDK.
-- Bisa dites di dev tanpa harus menambah server Node/PHP baru.
-- Sudah siap untuk dipakai lagi nanti buat payment flow lain, misalnya iuran warga.
+Jika checkout sudah terbentuk dan status masih `pending`, transaksi harus diselesaikan lewat simulator Sandbox Midtrans, bukan transfer bank nyata.
+
+Alur test:
+1. Klik `Buka Pembayaran`.
+2. Lihat metode pembayaran di halaman Snap.
+3. Gunakan simulator sesuai metode dari halaman testing Midtrans.
+4. Selesaikan simulasi pembayaran.
+5. Kembali ke app.
+6. Klik `Cek Status Midtrans`.
+7. Klik `Refresh Akses`.
+
+Kalau webhook belum aktif karena `Notification URL` belum publik, status tetap bisa disinkronkan manual lewat endpoint:
+
+```text
+GET /api/rukunwarga/payments/subscription/status/{orderId}
+```
+
+Penting:
+- Jangan bayar transaksi Sandbox dengan rekening atau aplikasi bank asli.
+- Gunakan simulator atau kredensial uji resmi Midtrans.
+
+---
+
+## 8. Proses yang sudah disepakati
+
+### Flow role
+- Register => role default `warga`
+- `warga` memilih paket admin di menu subscription
+- Bayar sukses => role berubah otomatis
+- Unsubscribe sukses => kembali ke `warga`
+
+### Flow Midtrans di project ini
+- Flutter tidak menyimpan Server Key
+- PocketBase memanggil Snap API
+- PocketBase memegang logika status, webhook, apply role, dan subscription
+- `subscription_plans` menjadi sumber tagihan dan durasi
+- `subscription_transactions` menjadi sumber histori checkout dan pembayaran
+
+### Catatan operasional
+- Untuk dev, `RW_MIDTRANS_IS_PRODUCTION=false`
+- Untuk webhook lokal, gunakan tunnel seperti `ngrok` atau `cloudflared`
+- Jika webhook belum aktif, pakai `Cek Status Midtrans`
+
+---
+
+## 9. Link resmi Midtrans yang relevan
+
+- Snap Integration Guide:
+  - https://docs.midtrans.com/docs/snap-snap-integration-guide
+- Built-in Interface / SNAP overview:
+  - https://docs.midtrans.com/docs/snap
+- Testing Payment on Sandbox:
+  - https://docs.midtrans.com/docs/testing-payment-on-sandbox
+- HTTP Notification / Webhooks:
+  - https://docs.midtrans.com/docs/https-notification-webhooks
+- GET Status API Requests:
+  - https://docs.midtrans.com/docs/get-status-api-requests
+- Account Overview / Sandbox environment:
+  - https://docs.midtrans.com/docs/midtrans-account
+- Technical Reference & Developer Tools:
+  - https://docs.midtrans.com/docs/technical-reference
+
+---
+
+## 10. Ringkasan keputusan implementasi
+
+- Role dasar user aplikasi adalah `warga`, bukan `user`
+- Upgrade role admin dilakukan lewat pembayaran Midtrans, tanpa approval sysadmin
+- `sysadmin` tidak masuk flow subscription
+- Unsubscribe dilakukan langsung oleh user dan langsung update database
+- Tagihan dan durasi paket diambil dari collection `subscription_plans`
+- Status transaksi dicatat di `subscription_transactions`

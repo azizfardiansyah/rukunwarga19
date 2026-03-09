@@ -7,13 +7,16 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 
   // === ROLES ===
-  static const String roleUser = 'user';
+  static const String roleWarga = 'warga';
+  @Deprecated('Use roleWarga instead.')
+  static const String roleUser = roleWarga;
   static const String roleAdminRt = 'admin_rt';
   static const String roleAdminRw = 'admin_rw';
   static const String roleAdminRwPro = 'admin_rw_pro';
   static const String roleSysadmin = 'sysadmin';
 
   // Legacy roles kept for backward compatibility during migration.
+  static const String legacyRoleUser = 'user';
   static const String legacyRoleAdmin = 'admin';
   static const String legacyRoleSuperuser = 'superuser';
 
@@ -82,20 +85,25 @@ class AppConstants {
     roleAdminRw,
     roleAdminRwPro,
   ];
+  static const List<String> payableAdminRoles = [
+    roleAdminRt,
+    roleAdminRw,
+    roleAdminRwPro,
+  ];
 
   static const String roleRequestPending = 'pending';
   static const String roleRequestApproved = 'approved';
   static const String roleRequestRejected = 'rejected';
 
   static const List<String> assignableRoles = [
-    roleUser,
+    roleWarga,
     roleAdminRt,
     roleAdminRw,
     roleAdminRwPro,
     roleSysadmin,
   ];
 
-  static const List<String> publicRegistrationRoles = [roleUser];
+  static const List<String> publicRegistrationRoles = [roleWarga];
 
   static String normalizeRole(String role) {
     switch (role.trim().toLowerCase()) {
@@ -103,14 +111,16 @@ class AppConstants {
         return roleAdminRw;
       case legacyRoleSuperuser:
         return roleSysadmin;
+      case legacyRoleUser:
+      case roleWarga:
+        return roleWarga;
       case roleAdminRt:
       case roleAdminRw:
       case roleAdminRwPro:
       case roleSysadmin:
-      case roleUser:
         return role.trim().toLowerCase();
       default:
-        return roleUser;
+        return roleWarga;
     }
   }
 
@@ -138,6 +148,56 @@ class AppConstants {
     return normalizedRole == roleAdminRt ||
         normalizedRole == roleAdminRw ||
         normalizedRole == roleAdminRwPro;
+  }
+
+  static bool canSelfSubscribe(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == roleWarga ||
+        normalizedRole == roleAdminRt ||
+        normalizedRole == roleAdminRw ||
+        normalizedRole == roleAdminRwPro;
+  }
+
+  static bool canRequestUnsubscribe(String role) {
+    return requiresSubscription(role);
+  }
+
+  static int roleRank(String role) {
+    switch (normalizeRole(role)) {
+      case roleAdminRt:
+        return 1;
+      case roleAdminRw:
+        return 2;
+      case roleAdminRwPro:
+        return 3;
+      case roleSysadmin:
+        return 99;
+      case roleWarga:
+      default:
+        return 0;
+    }
+  }
+
+  static bool canPurchaseRole({
+    required String currentRole,
+    required String targetRole,
+  }) {
+    final normalizedCurrent = normalizeRole(currentRole);
+    final normalizedTarget = normalizeRole(targetRole);
+
+    if (!payableAdminRoles.contains(normalizedTarget)) {
+      return false;
+    }
+
+    if (normalizedCurrent == roleSysadmin) {
+      return false;
+    }
+
+    if (normalizedCurrent == roleWarga) {
+      return true;
+    }
+
+    return roleRank(normalizedTarget) >= roleRank(normalizedCurrent);
   }
 
   static String? subscriptionPlanForRole(String role) {
@@ -243,7 +303,7 @@ class AppConstants {
         return 'Admin RW Pro';
       case roleSysadmin:
         return 'Sysadmin';
-      case roleUser:
+      case roleWarga:
       default:
         return 'Warga';
     }

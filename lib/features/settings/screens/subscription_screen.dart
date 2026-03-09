@@ -14,7 +14,14 @@ import '../../auth/providers/auth_provider.dart';
 
 final subscriptionPlansProvider =
     FutureProvider.autoDispose<List<SubscriptionPlan>>((ref) async {
-      return ref.watch(subscriptionPaymentServiceProvider).getPlans();
+      try {
+        return await ref.watch(subscriptionPaymentServiceProvider).getPlans();
+      } catch (error) {
+        if (ErrorClassifier.isAuthError(error)) {
+          ref.read(authProvider.notifier).logout();
+        }
+        rethrow;
+      }
     });
 
 class SubscriptionScreen extends ConsumerStatefulWidget {
@@ -26,6 +33,7 @@ class SubscriptionScreen extends ConsumerStatefulWidget {
 
 class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   SubscriptionCheckout? _checkout;
+  String _selectedPlanCode = '';
   bool _isCreatingCheckout = false;
   bool _isCheckingStatus = false;
   bool _isOpeningPayment = false;
@@ -35,7 +43,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     if (planCode.isEmpty) {
       ErrorClassifier.showErrorSnackBar(
         context,
-        StateError('Plan subscription untuk role ini belum dikonfigurasi.'),
+        StateError('Pilih paket subscription terlebih dahulu.'),
       );
       return;
     }
@@ -45,15 +53,19 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       final checkout = await ref
           .read(subscriptionPaymentServiceProvider)
           .createCheckout(planCode: planCode);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() => _checkout = checkout);
       ErrorClassifier.showSuccessSnackBar(
         context,
-        'Checkout berhasil dibuat. Buka pembayaran untuk lanjut.',
+        'Checkout berhasil dibuat. Lanjutkan pembayaran di Midtrans.',
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
       if (mounted) {
@@ -85,7 +97,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         throw StateError('Link pembayaran tidak bisa dibuka.');
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
       if (mounted) {
@@ -105,7 +119,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
 
     await Clipboard.setData(ClipboardData(text: redirectUrl));
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ErrorClassifier.showSuccessSnackBar(
       context,
       'Link pembayaran disalin ke clipboard.',
@@ -127,20 +143,27 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       final checkout = await ref
           .read(subscriptionPaymentServiceProvider)
           .getStatus(orderId);
-
       setState(() => _checkout = checkout);
+      ref.invalidate(subscriptionPlansProvider);
       await ref.read(authProvider.notifier).refreshAuth();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       final latestAuth = ref.read(authProvider);
+      final isPremiumActive =
+          latestAuth.requiresSubscription && latestAuth.hasActiveSubscription;
+
       ErrorClassifier.showSuccessSnackBar(
         context,
-        latestAuth.hasActiveSubscription
-            ? 'Pembayaran terkonfirmasi. Akses premium aktif.'
+        isPremiumActive
+            ? 'Pembayaran terkonfirmasi. Role dan akses premium sudah aktif.'
             : 'Status pembayaran diperbarui.',
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
       if (mounted) {
@@ -154,19 +177,25 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     try {
       ref.invalidate(subscriptionPlansProvider);
       await ref.read(authProvider.notifier).refreshAuth();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       if (showFeedback) {
         final latestAuth = ref.read(authProvider);
+        final isPremiumActive =
+            latestAuth.requiresSubscription && latestAuth.hasActiveSubscription;
         ErrorClassifier.showSuccessSnackBar(
           context,
-          latestAuth.hasActiveSubscription
-              ? 'Status akun sudah aktif.'
+          isPremiumActive
+              ? 'Role dan akses premium sudah aktif.'
               : 'Data akun diperbarui.',
         );
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
       if (mounted) {
@@ -175,25 +204,67 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
   }
 
+  void _syncSelectedPlan(List<SubscriptionPlan> plans, AuthState auth) {
+    if (plans.isEmpty || plans.any((plan) => plan.code == _selectedPlanCode)) {
+      return;
+    }
+
+    final preferredCodes = <String>[
+      auth.subscriptionPlan,
+      AppConstants.subscriptionPlanForRole(auth.role) ?? '',
+      plans.first.code,
+    ];
+
+    for (final code in preferredCodes) {
+      if (code.isNotEmpty && plans.any((plan) => plan.code == code)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          setState(() => _selectedPlanCode = code);
+        });
+        return;
+      }
+    }
+  }
+
+  SubscriptionPlan? _selectedPlan(List<SubscriptionPlan> plans) {
+    for (final plan in plans) {
+      if (plan.code == _selectedPlanCode) {
+        return plan;
+      }
+    }
+
+    if (plans.isNotEmpty) {
+      return plans.first;
+    }
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final plansAsync = ref.watch(subscriptionPlansProvider);
-    final role = auth.role;
-    final roleLabel = AppConstants.roleLabel(role);
-    final requiresSubscription = auth.requiresSubscription;
-    final effectiveStatus = auth.effectiveSubscriptionStatus;
-    final expiry = auth.subscriptionExpiredAt;
-    final targetPlanCode = auth.subscriptionPlan.isNotEmpty
-        ? auth.subscriptionPlan
-        : (AppConstants.subscriptionPlanForRole(role) ?? '');
-    final plan = _resolvePlan(plansAsync.asData?.value, targetPlanCode, role);
+    final canSelfSubscribe = AppConstants.canSelfSubscribe(auth.role);
+    final isPremiumRole = auth.requiresSubscription;
+    final hasPremiumAccess = isPremiumRole && auth.hasActiveSubscription;
+    final plans = plansAsync.asData?.value ?? const <SubscriptionPlan>[];
+
+    _syncSelectedPlan(plans, auth);
+
+    final selectedPlan = _selectedPlan(plans);
+    final currentStatusLabel = isPremiumRole
+        ? AppConstants.subscriptionStatusLabel(auth.effectiveSubscriptionStatus)
+        : canSelfSubscribe
+        ? 'Bisa upgrade'
+        : 'Tidak tersedia';
+    final currentStatusColor = isPremiumRole
+        ? _statusColor(auth.effectiveSubscriptionStatus)
+        : canSelfSubscribe
+        ? AppTheme.primaryColor
+        : AppTheme.textSecondary;
     final hasCheckout = (_checkout?.orderId ?? '').isNotEmpty;
-    final statusColor = _statusColor(effectiveStatus);
-    final statusLabel = requiresSubscription
-        ? AppConstants.subscriptionStatusLabel(effectiveStatus)
-        : 'Tidak wajib';
-    final isPlanLoading = plansAsync.isLoading && plan == null;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Subscription & Pembayaran')),
@@ -203,76 +274,81 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppTheme.paddingMedium),
           children: [
-            _buildHeroCard(
-              roleLabel: roleLabel,
-              requiresSubscription: requiresSubscription,
-              status: effectiveStatus,
-              expiry: expiry,
-              planName:
-                  plan?.name ??
-                  AppConstants.subscriptionPlanLabel(targetPlanCode),
+            _buildHero(
+              roleLabel: AppConstants.roleLabel(auth.role),
+              statusLabel: currentStatusLabel,
+              statusColor: currentStatusColor,
+              auth: auth,
+              selectedPlan: selectedPlan,
+              canSelfSubscribe: canSelfSubscribe,
             ),
             const SizedBox(height: 16),
-            if (!requiresSubscription)
-              _buildInfoCard(
-                icon: Icons.info_outline_rounded,
-                title: 'Role ini tidak membutuhkan subscription',
+            if (!canSelfSubscribe)
+              _buildNotice(
+                icon: Icons.lock_outline_rounded,
+                title: 'Role ini tidak bisa checkout sendiri',
                 description:
-                    'Halaman ini tetap tersedia agar status akses mudah dicek, tetapi checkout Midtrans tidak diperlukan untuk role ini.',
-                actions: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () => context.go(Routes.settings),
-                      child: const Text('Kembali ke Settings'),
-                    ),
-                  ),
-                ],
+                    'Sysadmin tidak memakai alur pembayaran self-service. Kelola akses dari menu manajemen user.',
+                action: OutlinedButton(
+                  onPressed: () => context.go(Routes.settings),
+                  child: const Text('Kembali ke Settings'),
+                ),
               )
             else ...[
-              _buildStepsCard(
+              _buildSteps(
                 hasCheckout: hasCheckout,
-                hasActiveAccess: auth.hasActiveSubscription,
+                hasPremiumAccess: hasPremiumAccess,
               ),
               const SizedBox(height: 16),
-              if (isPlanLoading)
-                _buildInfoCard(
+              plansAsync.when(
+                data: (items) {
+                  if (items.isEmpty) {
+                    return _buildNotice(
+                      icon: Icons.inventory_2_outlined,
+                      title: 'Belum ada paket yang bisa dibeli',
+                      description:
+                          'Aktifkan plan di collection subscription_plans agar user bisa memilih role admin.',
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      _buildPlanSelector(
+                        auth: auth,
+                        plans: items,
+                        selectedPlan: selectedPlan,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSummary(
+                        auth: auth,
+                        selectedPlan: selectedPlan,
+                        statusLabel: currentStatusLabel,
+                        statusColor: currentStatusColor,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCheckoutCard(),
+                      const SizedBox(height: 16),
+                      _buildActionCard(
+                        auth: auth,
+                        selectedPlan: selectedPlan,
+                        hasCheckout: hasCheckout,
+                      ),
+                    ],
+                  );
+                },
+                loading: () => _buildNotice(
                   icon: Icons.sync_rounded,
                   title: 'Memuat paket subscription',
                   description:
-                      'Sistem sedang mengambil tagihan dan durasi dari collection subscription_plans.',
+                      'Sistem sedang mengambil daftar paket admin, tagihan, dan durasi dari server.',
                   loading: true,
-                )
-              else if (plansAsync.hasError)
-                _buildInfoCard(
+                ),
+                error: (error, _) => _buildNotice(
                   icon: Icons.warning_amber_rounded,
                   title: 'Daftar paket belum termuat',
-                  description:
-                      'Server belum mengembalikan data paket. Checkout tetap bisa dibuat dengan plan default role ini, tetapi harga dan durasi dari database belum tampil.',
+                  description: ErrorClassifier.classify(error).message,
                   tone: AppTheme.errorColor,
                 ),
-              if (isPlanLoading || plansAsync.hasError)
-                const SizedBox(height: 16),
-              _buildPlanCard(
-                plan: plan,
-                isActive: auth.hasActiveSubscription,
-                targetPlanCode: targetPlanCode,
-              ),
-              const SizedBox(height: 16),
-              _buildAccessCard(
-                auth: auth,
-                statusColor: statusColor,
-                statusLabel: statusLabel,
-                plan: plan,
-                targetPlanCode: targetPlanCode,
-              ),
-              const SizedBox(height: 16),
-              _buildCheckoutCard(),
-              const SizedBox(height: 16),
-              _buildActionCard(
-                targetPlanCode: targetPlanCode,
-                hasCheckout: hasCheckout,
-                hasActiveAccess: auth.hasActiveSubscription,
               ),
             ],
           ],
@@ -281,17 +357,29 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     );
   }
 
-  Widget _buildHeroCard({
+  Widget _buildHero({
     required String roleLabel,
-    required bool requiresSubscription,
-    required String status,
-    required DateTime? expiry,
-    required String planName,
+    required String statusLabel,
+    required Color statusColor,
+    required AuthState auth,
+    required SubscriptionPlan? selectedPlan,
+    required bool canSelfSubscribe,
   }) {
-    final statusColor = _statusColor(status);
-    final statusLabel = requiresSubscription
-        ? AppConstants.subscriptionStatusLabel(status)
-        : 'Tidak Wajib';
+    final targetRoleLabel = selectedPlan == null
+        ? 'Belum pilih paket'
+        : AppConstants.roleLabel(selectedPlan.targetRole);
+
+    final description = !canSelfSubscribe
+        ? 'Role ini tidak memakai checkout self-service.'
+        : selectedPlan == null
+        ? 'Pilih salah satu paket admin, buat checkout, lalu bayar di Midtrans. Setelah pembayaran sukses, role berubah otomatis.'
+        : auth.role == AppConstants.roleWarga
+        ? 'Pembayaran sukses akan mengubah role Warga menjadi ${AppConstants.roleLabel(selectedPlan.targetRole)} dan subscription langsung aktif.'
+        : AppConstants.normalizeRole(auth.role) == selectedPlan.targetRole
+        ? auth.subscriptionExpiredAt == null
+              ? 'Paket ini akan mengaktifkan kembali akses ${AppConstants.roleLabel(selectedPlan.targetRole)}.'
+              : 'Paket ini akan memperpanjang akses sampai setelah periode aktif berjalan selesai.'
+        : 'Paket ini akan meng-upgrade role Anda ke ${AppConstants.roleLabel(selectedPlan.targetRole)} setelah pembayaran sukses.';
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingLarge),
@@ -311,7 +399,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Kelola akses premium',
+            'Kelola subscription admin',
             style: TextStyle(
               color: Colors.white,
               fontSize: 24,
@@ -323,17 +411,13 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _heroPill(label: statusLabel, color: statusColor),
-              _heroPill(label: planName, color: Colors.white),
+              _pill(statusLabel, statusColor, filled: true),
+              _pill(targetRoleLabel, Colors.white, filled: true),
             ],
           ),
           const SizedBox(height: 12),
           Text(
-            !requiresSubscription
-                ? 'Role ini tidak diproteksi paywall.'
-                : expiry == null
-                ? 'Akses premium belum aktif. Buat checkout Midtrans untuk mulai berlangganan.'
-                : 'Akses berlaku sampai ${Formatters.tanggalWaktu(expiry)}.',
+            description,
             style: AppTheme.bodyMedium.copyWith(color: Colors.white),
           ),
         ],
@@ -341,73 +425,48 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     );
   }
 
-  Widget _buildStepsCard({
+  Widget _buildSteps({
     required bool hasCheckout,
-    required bool hasActiveAccess,
+    required bool hasPremiumAccess,
   }) {
-    final paymentDone = _checkout?.isPaid == true || hasActiveAccess;
+    final paymentDone = _checkout?.isPaid == true || hasPremiumAccess;
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingMedium),
       decoration: AppTheme.cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'Alur pembayaran',
-            style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+          Expanded(
+            child: _StepTile(
+              index: '1',
+              title: 'Pilih paket',
+              active: _selectedPlanCode.isNotEmpty,
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _StepCard(
-                  index: '1',
-                  title: 'Checkout',
-                  subtitle: 'Buat order',
-                  state: hasCheckout ? _StepState.done : _StepState.current,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StepCard(
-                  index: '2',
-                  title: 'Bayar',
-                  subtitle: 'Buka Midtrans',
-                  state: paymentDone
-                      ? _StepState.done
-                      : hasCheckout
-                      ? _StepState.current
-                      : _StepState.idle,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _StepCard(
-                  index: '3',
-                  title: 'Verifikasi',
-                  subtitle: 'Cek status',
-                  state: hasActiveAccess
-                      ? _StepState.done
-                      : hasCheckout
-                      ? _StepState.current
-                      : _StepState.idle,
-                ),
-              ),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: _StepTile(
+              index: '2',
+              title: 'Checkout',
+              active: hasCheckout,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _StepTile(index: '3', title: 'Bayar', active: paymentDone),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoCard({
+  Widget _buildNotice({
     required IconData icon,
     required String title,
     required String description,
     Color? tone,
     bool loading = false,
-    List<Widget> actions = const [],
+    Widget? action,
   }) {
     final accent = tone ?? AppTheme.primaryColor;
 
@@ -451,22 +510,170 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           ),
           const SizedBox(height: 10),
           Text(description, style: AppTheme.bodyMedium),
-          if (actions.isNotEmpty) ...[const SizedBox(height: 16), ...actions],
+          if (action != null) ...[
+            const SizedBox(height: 16),
+            SizedBox(width: double.infinity, child: action),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildAccessCard({
+  Widget _buildPlanSelector({
     required AuthState auth,
-    required Color statusColor,
-    required String statusLabel,
-    required SubscriptionPlan? plan,
-    required String targetPlanCode,
+    required List<SubscriptionPlan> plans,
+    required SubscriptionPlan? selectedPlan,
   }) {
-    final planName = auth.subscriptionPlan.isNotEmpty
-        ? AppConstants.subscriptionPlanLabel(auth.subscriptionPlan)
-        : (plan?.name ?? AppConstants.subscriptionPlanLabel(targetPlanCode));
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      decoration: AppTheme.cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Pilih paket admin',
+            style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Hanya ada tiga role berbayar: Admin RT, Admin RW, dan Admin RW Pro.',
+            style: AppTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          ...plans.map((plan) {
+            final isSelected = selectedPlan?.code == plan.code;
+            final intent = _planIntentLabel(
+              currentRole: auth.role,
+              targetRole: plan.targetRole,
+            );
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _selectedPlanCode = plan.code),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppTheme.primaryColor.withValues(alpha: 0.06)
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: isSelected
+                          ? AppTheme.primaryColor
+                          : AppTheme.primaryColor.withValues(alpha: 0.12),
+                      width: isSelected ? 1.4 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            isSelected
+                                ? Icons.radio_button_checked_rounded
+                                : Icons.radio_button_off_rounded,
+                            color: isSelected
+                                ? AppTheme.primaryColor
+                                : AppTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  plan.name,
+                                  style: AppTheme.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _pill(
+                                      AppConstants.roleLabel(plan.targetRole),
+                                      AppTheme.roleColor(plan.targetRole),
+                                    ),
+                                    _pill(
+                                      intent,
+                                      isSelected
+                                          ? AppTheme.primaryColor
+                                          : AppTheme.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            Formatters.rupiah(plan.amount),
+                            style: AppTheme.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.primaryDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(plan.description, style: AppTheme.bodySmall),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _miniInfo(
+                              'Durasi',
+                              '${plan.durationDays} hari',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _miniInfo(
+                              'Tagihan',
+                              Formatters.rupiah(plan.amount),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummary({
+    required AuthState auth,
+    required SubscriptionPlan? selectedPlan,
+    required String statusLabel,
+    required Color statusColor,
+  }) {
+    final nextRoleLabel = selectedPlan == null
+        ? 'Belum dipilih'
+        : AppConstants.roleLabel(selectedPlan.targetRole);
+    final currentPlanLabel = auth.subscriptionPlan.isEmpty
+        ? 'Belum ada'
+        : AppConstants.subscriptionPlanLabel(auth.subscriptionPlan);
+    final targetPlanLabel = selectedPlan?.name ?? 'Belum dipilih';
+
+    final note = selectedPlan == null
+        ? 'Pilih paket untuk melihat role target.'
+        : auth.role == AppConstants.roleWarga
+        ? 'Pembayaran sukses akan meng-upgrade akun warga menjadi ${AppConstants.roleLabel(selectedPlan.targetRole)}.'
+        : AppConstants.normalizeRole(auth.role) == selectedPlan.targetRole
+        ? 'Checkout ini akan memperpanjang akses role yang sama.'
+        : 'Checkout ini akan meng-upgrade akses Anda ke ${AppConstants.roleLabel(selectedPlan.targetRole)}.';
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingMedium),
@@ -478,23 +685,34 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             children: [
               Expanded(
                 child: Text(
-                  'Status akses',
+                  'Status & target akses',
                   style: AppTheme.bodyLarge.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              _inlinePill(label: statusLabel, color: statusColor),
+              _pill(statusLabel, statusColor),
             ],
           ),
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(child: _infoTile('Paket', planName)),
-              const SizedBox(width: 12),
               Expanded(
-                child: _infoTile('Role', AppConstants.roleLabel(auth.role)),
+                child: _miniInfo(
+                  'Role saat ini',
+                  AppConstants.roleLabel(auth.role),
+                ),
               ),
+              const SizedBox(width: 12),
+              Expanded(child: _miniInfo('Setelah bayar', nextRoleLabel)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(child: _miniInfo('Paket aktif', currentPlanLabel)),
+              const SizedBox(width: 12),
+              Expanded(child: _miniInfo('Paket dipilih', targetPlanLabel)),
             ],
           ),
           const SizedBox(height: 14),
@@ -510,66 +728,15 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 ? 'Belum dijadwalkan'
                 : Formatters.tanggalWaktu(auth.subscriptionExpiredAt!),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPlanCard({
-    required SubscriptionPlan? plan,
-    required bool isActive,
-    required String targetPlanCode,
-  }) {
-    final planName =
-        plan?.name ?? AppConstants.subscriptionPlanLabel(targetPlanCode);
-    final planDescription = plan?.description.isNotEmpty == true
-        ? plan!.description
-        : 'Paket bulanan untuk ${planName.toLowerCase()} dengan aktivasi melalui Midtrans Snap.';
-    final amountLabel = plan == null
-        ? 'Belum tersedia'
-        : Formatters.rupiah(plan.amount);
-    final durationLabel = plan == null || plan.durationDays <= 0
-        ? 'Belum tersedia'
-        : '${plan.durationDays} hari';
-
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
-      decoration: AppTheme.cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(planName, style: AppTheme.heading3)),
-              if (isActive)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.successColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    'Sedang Aktif',
-                    style: AppTheme.caption.copyWith(
-                      color: AppTheme.successColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(planDescription, style: AppTheme.bodyMedium),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _infoTile('Tagihan', amountLabel)),
-              const SizedBox(width: 12),
-              Expanded(child: _infoTile('Durasi', durationLabel)),
-            ],
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(note, style: AppTheme.bodySmall),
           ),
         ],
       ),
@@ -579,15 +746,13 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   Widget _buildCheckoutCard() {
     final checkout = _checkout;
     if (checkout == null) {
-      return _buildInfoCard(
+      return _buildNotice(
         icon: Icons.receipt_long_outlined,
         title: 'Belum ada checkout aktif',
         description:
-            'Tekan "Buat Checkout" untuk menghasilkan order dan redirect URL Midtrans sebelum pembayaran dilakukan.',
+            'Tekan "Buat Checkout" setelah memilih paket untuk menghasilkan order dan redirect URL Midtrans.',
       );
     }
-
-    final paymentStateColor = _statusColor(checkout.paymentState);
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingMedium),
@@ -598,45 +763,26 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Checkout terakhir',
-                      style: AppTheme.bodyLarge.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Gunakan order ini untuk melanjutkan pembayaran atau sinkron status terbaru.',
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: paymentStateColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
                 child: Text(
-                  checkout.paymentState.toUpperCase(),
-                  style: AppTheme.caption.copyWith(
-                    color: paymentStateColor,
-                    fontWeight: FontWeight.w700,
+                  'Checkout terakhir',
+                  style: AppTheme.bodyLarge.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
+              _pill(
+                checkout.paymentState.toUpperCase(),
+                _statusColor(checkout.paymentState),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           _detailRow('Order ID', checkout.orderId),
           _detailRow('Plan', checkout.planName),
+          _detailRow(
+            'Target role',
+            AppConstants.roleLabel(checkout.targetRole),
+          ),
           _detailRow('Tagihan', Formatters.rupiah(checkout.grossAmount)),
           _detailRow('Status Midtrans', checkout.transactionStatus),
           if ((checkout.paymentType ?? '').isNotEmpty)
@@ -650,8 +796,6 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             ),
           if (checkout.redirectUrl.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Text('Redirect URL', style: AppTheme.caption),
-            const SizedBox(height: 6),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -671,15 +815,11 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   }
 
   Widget _buildActionCard({
-    required String targetPlanCode,
+    required AuthState auth,
+    required SubscriptionPlan? selectedPlan,
     required bool hasCheckout,
-    required bool hasActiveAccess,
   }) {
-    final primaryLabel = hasActiveAccess
-        ? 'Buat Checkout Perpanjangan'
-        : hasCheckout
-        ? 'Buat Checkout Baru'
-        : 'Buat Checkout';
+    final canCreateCheckout = selectedPlan != null;
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingMedium),
@@ -693,16 +833,16 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Gunakan Midtrans Sandbox untuk pengujian dev. Setelah bayar, selalu cek status dan refresh akses.',
+            'Gunakan Midtrans Sandbox untuk pengujian dev. Setelah bayar, cek status dan refresh akses.',
             style: AppTheme.bodySmall,
           ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _isCreatingCheckout
+              onPressed: !canCreateCheckout || _isCreatingCheckout
                   ? null
-                  : () => _createCheckout(targetPlanCode),
+                  : () => _createCheckout(selectedPlan.code),
               icon: _isCreatingCheckout
                   ? const SizedBox(
                       width: 18,
@@ -713,7 +853,14 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                       ),
                     )
                   : const Icon(Icons.payment_rounded),
-              label: Text(primaryLabel),
+              label: Text(
+                _primaryActionLabel(
+                  currentRole: auth.role,
+                  selectedPlan: selectedPlan,
+                  hasPremiumAccess:
+                      auth.requiresSubscription && auth.hasActiveSubscription,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -785,87 +932,56 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     );
   }
 
-  SubscriptionPlan? _resolvePlan(
-    List<SubscriptionPlan>? plans,
-    String targetPlanCode,
-    String role,
-  ) {
-    final availablePlans = plans ?? const <SubscriptionPlan>[];
-    for (final plan in availablePlans) {
-      if (plan.code == targetPlanCode) {
-        return plan;
-      }
+  String _primaryActionLabel({
+    required String currentRole,
+    required SubscriptionPlan? selectedPlan,
+    required bool hasPremiumAccess,
+  }) {
+    if (selectedPlan == null) {
+      return 'Pilih Paket Dulu';
     }
 
-    final fallbackPlanCode = AppConstants.subscriptionPlanForRole(role);
-    if (fallbackPlanCode == null) {
-      return null;
+    final normalizedCurrentRole = AppConstants.normalizeRole(currentRole);
+    final targetRole = selectedPlan.targetRole;
+    final targetLabel = AppConstants.roleLabel(targetRole);
+
+    if (normalizedCurrentRole == AppConstants.roleWarga) {
+      return 'Bayar & Jadi $targetLabel';
     }
 
-    for (final plan in availablePlans) {
-      if (plan.code == fallbackPlanCode) {
-        return plan;
-      }
+    if (normalizedCurrentRole == targetRole) {
+      return hasPremiumAccess
+          ? 'Perpanjang $targetLabel'
+          : 'Aktifkan $targetLabel';
     }
 
-    return null;
+    return 'Upgrade ke $targetLabel';
   }
 
-  Widget _detailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 112, child: Text(label, style: AppTheme.caption)),
-          const Text(': '),
-          Expanded(
-            child: Text(
-              value,
-              style: AppTheme.bodySmall.copyWith(color: AppTheme.textPrimary),
-            ),
-          ),
-        ],
-      ),
-    );
+  String _planIntentLabel({
+    required String currentRole,
+    required String targetRole,
+  }) {
+    final normalizedCurrentRole = AppConstants.normalizeRole(currentRole);
+    final normalizedTargetRole = AppConstants.normalizeRole(targetRole);
+
+    if (normalizedCurrentRole == AppConstants.roleWarga) {
+      return 'Aktivasi';
+    }
+
+    if (normalizedCurrentRole == normalizedTargetRole) {
+      return 'Perpanjangan';
+    }
+
+    if (AppConstants.roleRank(normalizedTargetRole) >
+        AppConstants.roleRank(normalizedCurrentRole)) {
+      return 'Upgrade';
+    }
+
+    return 'Pilih paket';
   }
 
-  Widget _heroPill({required String label, required Color color}) {
-    final foreground = color == Colors.white ? AppTheme.primaryDark : color;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: color == Colors.white ? 0.9 : 0.18),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: AppTheme.caption.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _inlinePill({required String label, required Color color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: AppTheme.caption.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _infoTile(String label, String value) {
+  Widget _miniInfo(String label, String value) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -882,6 +998,47 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 110, child: Text(label, style: AppTheme.caption)),
+          const Text(': '),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTheme.bodySmall.copyWith(color: AppTheme.textPrimary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(String label, Color color, {bool filled = false}) {
+    final background = filled
+        ? color.withValues(alpha: color == Colors.white ? 0.92 : 0.18)
+        : color.withValues(alpha: 0.12);
+    final foreground = color == Colors.white ? AppTheme.primaryDark : color;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: AppTheme.caption.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -907,28 +1064,20 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   }
 }
 
-enum _StepState { idle, current, done }
-
-class _StepCard extends StatelessWidget {
-  const _StepCard({
+class _StepTile extends StatelessWidget {
+  const _StepTile({
     required this.index,
     required this.title,
-    required this.subtitle,
-    required this.state,
+    required this.active,
   });
 
   final String index;
   final String title;
-  final String subtitle;
-  final _StepState state;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final tone = switch (state) {
-      _StepState.done => AppTheme.successColor,
-      _StepState.current => AppTheme.primaryColor,
-      _StepState.idle => AppTheme.textSecondary,
-    };
+    final tone = active ? AppTheme.primaryColor : AppTheme.textSecondary;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -948,19 +1097,13 @@ class _StepCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
             ),
             child: Center(
-              child: state == _StepState.done
-                  ? const Icon(
-                      Icons.check_rounded,
-                      color: Colors.white,
-                      size: 16,
-                    )
-                  : Text(
-                      index,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+              child: Text(
+                index,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -968,8 +1111,6 @@ class _StepCard extends StatelessWidget {
             title,
             style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 4),
-          Text(subtitle, style: AppTheme.caption),
         ],
       ),
     );

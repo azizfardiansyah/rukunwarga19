@@ -1,23 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/role_management_service.dart';
 import '../../../core/utils/error_classifier.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
-import '../../../shared/models/role_request_model.dart';
-
-final myRoleRequestsProvider =
-    FutureProvider.autoDispose<List<RoleRequestModel>>((ref) async {
-      final userId = ref.watch(authProvider).user?.id;
-      if (userId == null) return [];
-
-      return ref
-          .watch(roleManagementServiceProvider)
-          .getRoleRequests(requesterId: userId);
-    });
 
 class RoleRequestScreen extends ConsumerStatefulWidget {
   const RoleRequestScreen({super.key});
@@ -27,270 +17,294 @@ class RoleRequestScreen extends ConsumerStatefulWidget {
 }
 
 class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _reasonController = TextEditingController();
-  String _selectedRole = AppConstants.roleAdminRt;
   bool _isSubmitting = false;
 
-  @override
-  void dispose() {
-    _reasonController.dispose();
-    super.dispose();
+  Future<void> _showSuccessNotice() async {
+    var autoCloseScheduled = false;
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'unsubscribe-success',
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        if (!autoCloseScheduled) {
+          autoCloseScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Future<void>.delayed(const Duration(milliseconds: 1600), () {
+              if (!dialogContext.mounted) {
+                return;
+              }
+              final navigator = Navigator.of(
+                dialogContext,
+                rootNavigator: true,
+              );
+              if (navigator.canPop()) {
+                navigator.pop();
+              }
+            });
+          });
+        }
+
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppTheme.paddingLarge),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: 340),
+                padding: const EdgeInsets.all(AppTheme.paddingLarge),
+                decoration: BoxDecoration(
+                  gradient: AppTheme.headerGradient,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.primaryDark.withValues(alpha: 0.24),
+                      blurRadius: 28,
+                      offset: const Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 74,
+                      height: 74,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.verified_rounded,
+                        size: 40,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Unsubscribe Berhasil',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Akun Anda sudah kembali menjadi Warga. Mengarahkan ke dashboard utama.',
+                      textAlign: TextAlign.center,
+                      style: AppTheme.bodyMedium.copyWith(
+                        color: Colors.white.withValues(alpha: 0.88),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
   }
 
-  Future<void> _submit(List<RoleRequestModel> existingRequests) async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _unsubscribe() async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Unsubscribe'),
+            content: const Text(
+              'Aksi ini akan langsung menurunkan akun Anda ke role Warga dan menonaktifkan subscription admin. Lanjutkan?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Batal'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Ya, Unsubscribe'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
 
-    final hasPending = existingRequests.any((request) => request.isPending);
-    if (hasPending) {
-      ErrorClassifier.showErrorSnackBar(
-        context,
-        StateError('Masih ada pengajuan role yang belum diproses.'),
-      );
+    if (!confirmed) {
       return;
     }
 
     setState(() => _isSubmitting = true);
     try {
-      await ref.read(roleManagementServiceProvider).submitRoleRequest(
-            requestedRole: _selectedRole,
-            reason: _reasonController.text.trim(),
-          );
-      _reasonController.clear();
-      if (!mounted) return;
-      ErrorClassifier.showSuccessSnackBar(
-        context,
-        'Pengajuan role berhasil dikirim.',
-      );
-      ref.invalidate(myRoleRequestsProvider);
+      await ref.read(roleManagementServiceProvider).unsubscribeCurrentUser();
+      if (!mounted) {
+        return;
+      }
+
+      await _showSuccessNotice();
+      if (!mounted) {
+        return;
+      }
+
+      await ref.read(authProvider.notifier).refreshAuth();
+      if (!mounted) {
+        return;
+      }
+
+      context.go(Routes.dashboard);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ErrorClassifier.showErrorSnackBar(context, e);
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final requestsAsync = ref.watch(myRoleRequestsProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Pengajuan Role')),
-      body: requestsAsync.when(
-        data: (requests) {
-          final hasPending = requests.any((request) => request.isPending);
-          return ListView(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
-            children: [
-              AppTheme.glassContainer(
-                opacity: 0.78,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Role Saat Ini', style: AppTheme.heading3),
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        AppConstants.roleLabel(auth.role),
-                        style: AppTheme.bodyMedium.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.primaryColor,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Alur yang disarankan: user ajukan perubahan role dengan alasan yang jelas, lalu sysadmin review. Jika disetujui, role berubah dan subscription admin diaktifkan terpisah.',
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              AppTheme.glassContainer(
-                opacity: 0.76,
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Ajukan Role Baru', style: AppTheme.heading3),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedRole,
-                        decoration: const InputDecoration(
-                          labelText: 'Role yang diajukan',
-                        ),
-                        items: AppConstants.requestableRoles
-                            .map(
-                              (role) => DropdownMenuItem(
-                                value: role,
-                                child: Text(AppConstants.roleLabel(role)),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: hasPending
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setState(() => _selectedRole = value);
-                              },
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _reasonController,
-                        enabled: !hasPending,
-                        maxLines: 4,
-                        decoration: const InputDecoration(
-                          labelText: 'Alasan pengajuan',
-                          alignLabelWithHint: true,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return 'Alasan wajib diisi';
-                          }
-                          if (value.trim().length < 12) {
-                            return 'Alasan terlalu singkat';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSubmitting || hasPending
-                              ? null
-                              : () => _submit(requests),
-                          icon: _isSubmitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.outbox_rounded),
-                          label: Text(
-                            hasPending
-                                ? 'Menunggu Review Sysadmin'
-                                : 'Kirim Pengajuan',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text('Riwayat Pengajuan', style: AppTheme.heading3),
-              const SizedBox(height: 12),
-              if (requests.isEmpty)
-                AppTheme.glassContainer(
-                  opacity: 0.72,
-                  child: const Text('Belum ada pengajuan role.'),
-                )
-              else
-                ...requests.map(_RoleRequestHistoryCard.new),
-            ],
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
+    if (!AppConstants.canRequestUnsubscribe(auth.role)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Unsubscribe')),
+        body: const Center(
           child: Padding(
-            padding: const EdgeInsets.all(AppTheme.paddingLarge),
+            padding: EdgeInsets.all(AppTheme.paddingLarge),
             child: Text(
-              ErrorClassifier.classify(error).message,
+              'Role saat ini tidak membutuhkan proses unsubscribe.',
               style: AppTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
           ),
         ),
-      ),
-    );
-  }
-}
+      );
+    }
 
-class _RoleRequestHistoryCard extends StatelessWidget {
-  const _RoleRequestHistoryCard(this.request);
-
-  final RoleRequestModel request;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = switch (request.status) {
-      AppConstants.roleRequestApproved => AppTheme.successColor,
-      AppConstants.roleRequestRejected => AppTheme.errorColor,
-      _ => AppTheme.warningColor,
-    };
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: AppTheme.glassContainer(
-        opacity: 0.74,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Unsubscribe')),
+      body: ListView(
+        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+        children: [
+          AppTheme.glassContainer(
+            opacity: 0.78,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
+                Text('Role Saat Ini', style: AppTheme.heading3),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Text(
-                    '${AppConstants.roleLabel(request.currentRole)} -> ${AppConstants.roleLabel(request.requestedRole)}',
+                    AppConstants.roleLabel(auth.role),
                     style: AppTheme.bodyMedium.copyWith(
                       fontWeight: FontWeight.w700,
+                      color: AppTheme.primaryColor,
                     ),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                const SizedBox(height: 12),
+                const Text(
+                  'Begitu unsubscribe dijalankan, akun langsung kembali ke role Warga tanpa review sysadmin.',
+                  style: AppTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          AppTheme.glassContainer(
+            opacity: 0.76,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Dampak Unsubscribe', style: AppTheme.heading3),
+                const SizedBox(height: 12),
+                _impactItem('Role berubah menjadi Warga'),
+                _impactItem('Subscription admin langsung dinonaktifkan'),
+                _impactItem('Akses fitur premium admin langsung dicabut'),
+                if (auth.subscriptionExpiredAt != null)
+                  _impactItem(
+                    'Masa aktif sebelumnya tidak dipakai lagi setelah unsubscribe',
                   ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    request.status.toUpperCase(),
-                    style: AppTheme.caption.copyWith(
-                      color: statusColor,
-                      fontWeight: FontWeight.w700,
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isSubmitting ? null : _unsubscribe,
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.person_off_rounded),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.errorColor,
                     ),
+                    label: const Text('Unsubscribe Sekarang'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(request.reason, style: AppTheme.bodySmall),
-            const SizedBox(height: 10),
-            Text(
-              request.created != null
-                  ? 'Diajukan ${Formatters.tanggalWaktu(request.created!)}'
-                  : 'Waktu pengajuan tidak tersedia',
-              style: AppTheme.caption,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _impactItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            margin: const EdgeInsets.only(top: 1),
+            decoration: BoxDecoration(
+              color: AppTheme.errorColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
             ),
-            if ((request.reviewNote ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Catatan sysadmin: ${request.reviewNote}',
-                style: AppTheme.caption.copyWith(
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-            ],
-          ],
-        ),
+            child: const Icon(
+              Icons.remove_rounded,
+              size: 16,
+              color: AppTheme.errorColor,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: AppTheme.bodySmall)),
+        ],
       ),
     );
   }

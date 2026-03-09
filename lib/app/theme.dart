@@ -403,7 +403,7 @@ class AppTheme {
         return secondaryColor;
       case AppConstants.roleAdminRt:
         return primaryColor;
-      case AppConstants.roleUser:
+      case AppConstants.roleWarga:
       default:
         return primaryLight;
     }

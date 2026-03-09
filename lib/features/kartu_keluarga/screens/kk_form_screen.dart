@@ -683,7 +683,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 'password': defaultPassword,
                 'passwordConfirm': defaultPassword,
                 'name': fullName,
-                'role': AppConstants.roleUser,
+                'role': AppConstants.roleWarga,
               },
             );
       } catch (_) {
