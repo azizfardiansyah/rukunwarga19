@@ -7,9 +7,11 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
 
 typedef _WargaDetailData = ({
@@ -29,15 +31,28 @@ class WargaDetailScreen extends ConsumerStatefulWidget {
 class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
   Future<_WargaDetailData> _loadDetail() async {
     final auth = ref.read(authProvider);
+    final access = await resolveAreaAccessContext(auth);
     final wargaRecord = await pb
         .collection(AppConstants.colWarga)
         .getOne(widget.wargaId);
     final warga = WargaModel.fromRecord(wargaRecord);
+    KartuKeluargaModel? linkedKk;
 
-    if (!auth.isAdmin &&
-        auth.user?.id != null &&
-        warga.userId != null &&
-        warga.userId != auth.user!.id) {
+    if (warga.noKkId.isNotEmpty) {
+      try {
+        final kkRecord = await pb
+            .collection(AppConstants.colKartuKeluarga)
+            .getOne(warga.noKkId);
+        linkedKk = KartuKeluargaModel.fromRecord(kkRecord);
+      } catch (_) {}
+    }
+
+    if (!canAccessWargaRecord(
+      auth,
+      warga,
+      context: access,
+      linkedKk: linkedKk,
+    )) {
       throw Exception('Anda tidak memiliki akses ke detail warga ini.');
     }
 

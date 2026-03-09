@@ -3,25 +3,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pocketbase/pocketbase.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/area_access.dart';
 
 class DashboardStats {
   const DashboardStats({required this.totalWarga, required this.totalKk});
 
   final int totalWarga;
   final int totalKk;
-}
-
-class _DashboardAreaScope {
-  const _DashboardAreaScope({required this.rt, required this.rw});
-
-  final int rt;
-  final int rw;
 }
 
 // Tambahkan provider untuk cek data warga user
@@ -45,57 +38,17 @@ final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
     '[DEBUG PROVIDER] hasKartuKeluargaProvider dipanggil, userId: ${auth.user?.id}',
   );
   if (auth.user == null) return false;
+  final access = await resolveAreaAccessContext(auth);
   final result = await pb
       .collection(AppConstants.colKartuKeluarga)
-      .getList(page: 1, perPage: 1, filter: 'user_id = "${auth.user!.id}"');
+      .getList(
+        page: 1,
+        perPage: 1,
+        filter: buildKkScopeFilter(auth, context: access),
+      );
   debugPrint('[DEBUG PROVIDER] kartu_keluarga result: ${result.items.length}');
   return result.items.isNotEmpty;
 });
-
-int? _recordNumericField(RecordModel record, String field) {
-  final raw = record.data[field];
-  if (raw is int) return raw;
-  return int.tryParse(record.getStringValue(field));
-}
-
-Future<_DashboardAreaScope?> _resolveDashboardScope(AuthState auth) async {
-  if (auth.user == null) return null;
-
-  final userRt = _recordNumericField(auth.user!, 'rt');
-  final userRw = _recordNumericField(auth.user!, 'rw');
-  if (userRt != null && userRw != null && userRt > 0 && userRw > 0) {
-    return _DashboardAreaScope(rt: userRt, rw: userRw);
-  }
-
-  try {
-    final warga = await pb
-        .collection(AppConstants.colWarga)
-        .getFirstListItem('user_id = "${auth.user!.id}"');
-    final rt = _recordNumericField(warga, 'rt');
-    final rw = _recordNumericField(warga, 'rw');
-    if (rt != null && rw != null && rt > 0 && rw > 0) {
-      return _DashboardAreaScope(rt: rt, rw: rw);
-    }
-  } catch (_) {}
-
-  return null;
-}
-
-String _dashboardScopeFilter(
-  AuthState auth, {
-  required _DashboardAreaScope? scope,
-}) {
-  if (AppConstants.isSysadminRole(auth.role)) {
-    return '';
-  }
-  if (scope == null) {
-    return 'id = ""';
-  }
-  if (AppConstants.hasRwWideAccess(auth.role)) {
-    return 'rw = ${scope.rw}';
-  }
-  return 'rt = ${scope.rt} && rw = ${scope.rw}';
-}
 
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final auth = ref.watch(authProvider);
@@ -103,15 +56,16 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
     return const DashboardStats(totalWarga: 0, totalKk: 0);
   }
 
-  final scope = await _resolveDashboardScope(auth);
-  final filter = _dashboardScopeFilter(auth, scope: scope);
+  final access = await resolveAreaAccessContext(auth);
+  final wargaFilter = buildWargaScopeFilter(auth, context: access);
+  final kkFilter = buildKkScopeFilter(auth, context: access);
 
   final wargaResult = await pb
       .collection(AppConstants.colWarga)
-      .getList(page: 1, perPage: 1, filter: filter);
+      .getList(page: 1, perPage: 1, filter: wargaFilter);
   final kkResult = await pb
       .collection(AppConstants.colKartuKeluarga)
-      .getList(page: 1, perPage: 1, filter: filter);
+      .getList(page: 1, perPage: 1, filter: kkFilter);
 
   return DashboardStats(
     totalWarga: wargaResult.totalItems,
@@ -131,8 +85,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   void _navigateToKkFormIfNeeded(bool hasKartuKeluarga) {
     if (_hasNavigatedToKkForm || !mounted || hasKartuKeluarga) return;
+    final auth = ref.read(authProvider);
+    if (!auth.isAdmin) return;
     _hasNavigatedToKkForm = true;
-    debugPrint('[DEBUG] No KK data — navigating to KK form');
+    debugPrint('[DEBUG] No KK data - navigating to KK form');
     context.go(Routes.kkForm);
   }
 
@@ -140,12 +96,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final statsAsync = ref.watch(dashboardStatsProvider);
+    final hasWargaDataAsync = ref.watch(hasWargaDataProvider);
     final userName = authState.user?.getStringValue('name').isNotEmpty == true
         ? authState.user!.getStringValue('name')
         : (authState.user?.getStringValue('nama').isNotEmpty == true
               ? authState.user!.getStringValue('nama')
               : 'User');
     final roleLabel = AppConstants.roleLabel(authState.role);
+    final isWarga =
+        AppConstants.normalizeRole(authState.role) == AppConstants.roleWarga;
 
     // Listen for hasKartuKeluarga changes and navigate if needed
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
@@ -155,6 +114,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // Also check current value on first build
     final hasKkAsync = ref.watch(hasKartuKeluargaProvider);
     hasKkAsync.whenData(_navigateToKkFormIfNeeded);
+    final hasKkData = hasKkAsync.maybeWhen(
+      data: (value) => value,
+      orElse: () => false,
+    );
+    final hasWargaData = hasWargaDataAsync.maybeWhen(
+      data: (value) => value,
+      orElse: () => false,
+    );
+    final showSelfWargaSetup = isWarga && hasKkData && !hasWargaData;
+    final showSelfKkSetup = isWarga && !hasKkData;
+    final showSetupMenu = showSelfWargaSetup || showSelfKkSetup;
 
     return Scaffold(
       body: CustomScrollView(
@@ -273,38 +243,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             padding: const EdgeInsets.all(AppTheme.paddingMedium),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                // Quick Stats
-                Row(
-                  children: [
-                    _StatCard(
-                      icon: Icons.people_rounded,
-                      label: 'Warga',
-                      value: statsAsync.maybeWhen(
-                        data: (stats) => stats.totalWarga.toString(),
-                        orElse: () => '...',
+                if (!isWarga) ...[
+                  Row(
+                    children: [
+                      _StatCard(
+                        icon: Icons.people_rounded,
+                        label: 'Warga',
+                        value: statsAsync.maybeWhen(
+                          data: (stats) => stats.totalWarga.toString(),
+                          orElse: () => '...',
+                        ),
+                        color: AppTheme.primaryColor,
                       ),
-                      color: AppTheme.primaryColor,
-                    ),
-                    const SizedBox(width: 10),
-                    _StatCard(
-                      icon: Icons.family_restroom_rounded,
-                      label: 'KK',
-                      value: statsAsync.maybeWhen(
-                        data: (stats) => stats.totalKk.toString(),
-                        orElse: () => '...',
+                      const SizedBox(width: 10),
+                      _StatCard(
+                        icon: Icons.family_restroom_rounded,
+                        label: 'KK',
+                        value: statsAsync.maybeWhen(
+                          data: (stats) => stats.totalKk.toString(),
+                          orElse: () => '...',
+                        ),
+                        color: AppTheme.secondaryColor,
                       ),
-                      color: AppTheme.secondaryColor,
-                    ),
-                    const SizedBox(width: 10),
-                    _StatCard(
-                      icon: Icons.description_rounded,
-                      label: 'Surat',
-                      value: '-',
-                      color: AppTheme.accentColor,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
+                      const SizedBox(width: 10),
+                      _StatCard(
+                        icon: Icons.description_rounded,
+                        label: 'Surat',
+                        value: '-',
+                        color: AppTheme.accentColor,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                ],
 
                 // Menu Grid
                 Text('Menu', style: AppTheme.heading3),
@@ -316,34 +287,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   mainAxisSpacing: 10,
                   crossAxisSpacing: 10,
                   children: [
-                    _MenuCard(
-                      icon: Icons.people_rounded,
-                      label: 'Data Warga',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+                    if (!isWarga)
+                      _MenuCard(
+                        icon: Icons.people_rounded,
+                        label: 'Data Warga',
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+                        ),
+                        onTap: () => context.go(Routes.warga),
                       ),
-                      onTap: () => context.go(Routes.warga),
-                    ),
-                    _MenuCard(
-                      icon: Icons.family_restroom_rounded,
-                      label: 'Kartu Keluarga',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
+                    if (showSelfWargaSetup)
+                      _MenuCard(
+                        icon: Icons.person_add_alt_1_rounded,
+                        label: 'Lengkapi Warga',
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+                        ),
+                        onTap: () => context.push(Routes.wargaForm),
                       ),
-                      onTap: () {
-                        final hasKK = ref
-                            .read(hasKartuKeluargaProvider)
-                            .maybeWhen(
-                              data: (hasData) => hasData,
-                              orElse: () => false,
-                            );
-                        if (hasKK) {
-                          context.push(Routes.kartuKeluarga);
-                        } else {
-                          context.go(Routes.kkForm);
-                        }
-                      },
-                    ),
+                    if (!isWarga)
+                      _MenuCard(
+                        icon: Icons.family_restroom_rounded,
+                        label: 'Kartu Keluarga',
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
+                        ),
+                        onTap: () {
+                          final hasKK = ref
+                              .read(hasKartuKeluargaProvider)
+                              .maybeWhen(
+                                data: (hasData) => hasData,
+                                orElse: () => false,
+                              );
+                          if (hasKK) {
+                            context.push(Routes.kartuKeluarga);
+                          } else {
+                            context.go(Routes.kkForm);
+                          }
+                        },
+                      ),
+                    if (showSelfKkSetup)
+                      _MenuCard(
+                        icon: Icons.add_home_work_rounded,
+                        label: 'Lengkapi KK',
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
+                        ),
+                        onTap: () => context.go(Routes.kkForm),
+                      ),
                     _MenuCard(
                       icon: Icons.badge_rounded,
                       label: 'Dokumen',
@@ -352,14 +343,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                       onTap: () => context.push(Routes.dokumen),
                     ),
-                    _MenuCard(
-                      icon: Icons.description_rounded,
-                      label: 'Surat',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6A1B9A), Color(0xFFAB47BC)],
+                    if (!isWarga)
+                      _MenuCard(
+                        icon: Icons.description_rounded,
+                        label: 'Surat',
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6A1B9A), Color(0xFFAB47BC)],
+                        ),
+                        onTap: () => context.push(Routes.surat),
                       ),
-                      onTap: () => context.push(Routes.surat),
-                    ),
                     _MenuCard(
                       icon: Icons.payments_rounded,
                       label: 'Iuran',
@@ -378,6 +370,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ],
                 ),
+                if (showSetupMenu) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
+                      ),
+                      border: Border.all(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.14),
+                      ),
+                    ),
+                    child: Text(
+                      showSelfKkSetup
+                          ? 'Akun baru ini belum punya data KK. Lengkapi KK dulu, lalu lanjut isi data warga.'
+                          : 'Data warga Anda belum lengkap. Isi data warga agar akun bisa dipakai penuh.',
+                      style: AppTheme.bodySmall.copyWith(
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
               ]),
             ),
           ),

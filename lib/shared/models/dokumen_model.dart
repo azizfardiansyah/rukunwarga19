@@ -5,7 +5,7 @@ class DokumenModel {
   final String warga; // relasi ke warga
   final String jenis;
   final String file; // filename
-  final String statusVerifikasi; // pending, verified, rejected
+  final String statusVerifikasi; // pending, verified, need_revision, rejected
   final String? catatan;
   final String? diverifikasiOleh; // relasi ke users
   final DateTime? tanggalVerifikasi;
@@ -34,8 +34,9 @@ class DokumenModel {
       statusVerifikasi: record.getStringValue('status_verifikasi'),
       catatan: record.getStringValue('catatan'),
       diverifikasiOleh: record.getStringValue('diverifikasi_oleh'),
-      tanggalVerifikasi:
-          DateTime.tryParse(record.getStringValue('tanggal_verifikasi')),
+      tanggalVerifikasi: DateTime.tryParse(
+        record.getStringValue('tanggal_verifikasi'),
+      ),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
     );
@@ -54,5 +55,6 @@ class DokumenModel {
 
   bool get isPending => statusVerifikasi == 'pending';
   bool get isVerified => statusVerifikasi == 'verified';
+  bool get isNeedRevision => statusVerifikasi == 'need_revision';
   bool get isRejected => statusVerifikasi == 'rejected';
 }

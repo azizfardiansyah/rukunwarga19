@@ -5,11 +5,47 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/area_access.dart';
+import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
+
+  Future<void> _openEditWarga(BuildContext context, WidgetRef ref) async {
+    final auth = ref.read(authProvider);
+    if (auth.user == null) {
+      return;
+    }
+
+    try {
+      final access = await resolveAreaAccessContext(auth);
+      if (!context.mounted) {
+        return;
+      }
+
+      final wargaId = access.wargaId ?? '';
+      final kkId = access.kkId ?? '';
+
+      if (wargaId.isNotEmpty) {
+        await context.push('${Routes.wargaForm}?id=$wargaId');
+        return;
+      }
+
+      if (kkId.isNotEmpty) {
+        await context.push('${Routes.wargaForm}?noKk=$kkId');
+        return;
+      }
+
+      await context.push(Routes.wargaForm);
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ErrorClassifier.showErrorSnackBar(context, error);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -116,7 +152,7 @@ class SettingsScreen extends ConsumerWidget {
                 icon: Icons.person_outlined,
                 title: 'Edit Profil',
                 subtitle: 'Kelola data profil dan identitas akun',
-                onTap: () {},
+                onTap: () => _openEditWarga(context, ref),
               ),
               _SettingsActionTile(
                 icon: Icons.lock_outlined,

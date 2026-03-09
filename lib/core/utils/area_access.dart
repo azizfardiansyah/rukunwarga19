@@ -1,0 +1,305 @@
+import 'package:pocketbase/pocketbase.dart';
+
+import '../../features/auth/providers/auth_provider.dart';
+import '../../shared/models/kartu_keluarga_model.dart';
+import '../../shared/models/warga_model.dart';
+import '../constants/app_constants.dart';
+import '../services/pocketbase_service.dart';
+
+class AreaAccessContext {
+  const AreaAccessContext({
+    this.rt,
+    this.rw,
+    this.desaKelurahan,
+    this.kecamatan,
+    this.kabupatenKota,
+    this.provinsi,
+    this.wargaId,
+    this.kkId,
+  });
+
+  final int? rt;
+  final int? rw;
+  final String? desaKelurahan;
+  final String? kecamatan;
+  final String? kabupatenKota;
+  final String? provinsi;
+  final String? wargaId;
+  final String? kkId;
+
+  bool get hasArea => rt != null && rw != null && rt! > 0 && rw! > 0;
+  bool get hasRegionalScope =>
+      hasArea &&
+      (desaKelurahan ?? '').trim().isNotEmpty &&
+      (kecamatan ?? '').trim().isNotEmpty &&
+      (kabupatenKota ?? '').trim().isNotEmpty &&
+      (provinsi ?? '').trim().isNotEmpty;
+}
+
+int? recordNumericField(RecordModel record, String field) {
+  final raw = record.data[field];
+  if (raw is int) return raw;
+  return int.tryParse(record.getStringValue(field));
+}
+
+String recordTextField(RecordModel record, String field) {
+  final fromGetter = record.getStringValue(field).trim();
+  if (fromGetter.isNotEmpty) {
+    return fromGetter;
+  }
+  final raw = record.data[field];
+  return raw?.toString().trim() ?? '';
+}
+
+String _escapeFilterValue(String value) {
+  return value.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+}
+
+String _normalizeAreaValue(String? value) {
+  return (value ?? '').trim().toLowerCase();
+}
+
+bool _matchesScopedArea(String? expected, String? actual) {
+  final normalizedExpected = _normalizeAreaValue(expected);
+  final normalizedActual = _normalizeAreaValue(actual);
+  if (normalizedExpected.isEmpty || normalizedActual.isEmpty) {
+    return false;
+  }
+  return normalizedExpected == normalizedActual;
+}
+
+String _buildRegionFilter({
+  required String prefix,
+  required AreaAccessContext context,
+}) {
+  final sanitizedPrefix = prefix.isEmpty ? '' : '$prefix.';
+  return [
+    '${sanitizedPrefix}desa_kelurahan ~ "${_escapeFilterValue(context.desaKelurahan!)}"',
+    '${sanitizedPrefix}kecamatan ~ "${_escapeFilterValue(context.kecamatan!)}"',
+    '${sanitizedPrefix}kabupaten_kota ~ "${_escapeFilterValue(context.kabupatenKota!)}"',
+    '${sanitizedPrefix}provinsi ~ "${_escapeFilterValue(context.provinsi!)}"',
+  ].join(' && ');
+}
+
+Future<AreaAccessContext> resolveAreaAccessContext(AuthState auth) async {
+  if (auth.user == null) {
+    return const AreaAccessContext();
+  }
+
+  int? rt = recordNumericField(auth.user!, 'rt');
+  int? rw = recordNumericField(auth.user!, 'rw');
+  String? desaKelurahan = recordTextField(auth.user!, 'desa_kelurahan');
+  String? kecamatan = recordTextField(auth.user!, 'kecamatan');
+  String? kabupatenKota = recordTextField(auth.user!, 'kabupaten_kota');
+  String? provinsi = recordTextField(auth.user!, 'provinsi');
+  String? wargaId;
+  String? kkId;
+
+  try {
+    final warga = await pb
+        .collection(AppConstants.colWarga)
+        .getFirstListItem('user_id = "${auth.user!.id}"');
+    wargaId = warga.id;
+    kkId = warga.getStringValue('no_kk');
+    rt ??= recordNumericField(warga, 'rt');
+    rw ??= recordNumericField(warga, 'rw');
+
+    if (kkId.isNotEmpty) {
+      try {
+        final kk = await pb
+            .collection(AppConstants.colKartuKeluarga)
+            .getOne(kkId);
+        final kkDesa = recordTextField(kk, 'desa_kelurahan').isNotEmpty
+            ? recordTextField(kk, 'desa_kelurahan')
+            : recordTextField(kk, 'kelurahan');
+        final kkKabupaten = recordTextField(kk, 'kabupaten_kota').isNotEmpty
+            ? recordTextField(kk, 'kabupaten_kota')
+            : recordTextField(kk, 'kota');
+
+        if (desaKelurahan.trim().isEmpty) {
+          desaKelurahan = kkDesa;
+        }
+        if (kecamatan.trim().isEmpty) {
+          kecamatan = recordTextField(kk, 'kecamatan');
+        }
+        if (kabupatenKota.trim().isEmpty) {
+          kabupatenKota = kkKabupaten;
+        }
+        if (provinsi.trim().isEmpty) {
+          provinsi = recordTextField(kk, 'provinsi');
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  return AreaAccessContext(
+    rt: rt,
+    rw: rw,
+    desaKelurahan: desaKelurahan,
+    kecamatan: kecamatan,
+    kabupatenKota: kabupatenKota,
+    provinsi: provinsi,
+    wargaId: wargaId,
+    kkId: kkId,
+  );
+}
+
+String buildWargaScopeFilter(
+  AuthState auth, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return 'id = ""';
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return '';
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    return 'user_id = "${auth.user!.id}"';
+  }
+
+  if (!context.hasRegionalScope) {
+    return 'id = ""';
+  }
+
+  final baseConditions = <String>[];
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    baseConditions.add('rw = ${context.rw}');
+  } else {
+    baseConditions.add('rt = ${context.rt}');
+    baseConditions.add('rw = ${context.rw}');
+  }
+
+  baseConditions.add(_buildRegionFilter(prefix: 'no_kk', context: context));
+  return baseConditions.join(' && ');
+}
+
+String buildKkScopeFilter(
+  AuthState auth, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return 'id = ""';
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return '';
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    if ((context.kkId ?? '').isNotEmpty) {
+      return 'id = "${context.kkId}"';
+    }
+    return 'user_id = "${auth.user!.id}"';
+  }
+
+  if (!context.hasRegionalScope) {
+    return 'id = ""';
+  }
+
+  final baseConditions = <String>[];
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    baseConditions.add('rw = ${context.rw}');
+  } else {
+    baseConditions.add('rt = ${context.rt}');
+    baseConditions.add('rw = ${context.rw}');
+  }
+
+  baseConditions.add(_buildRegionFilter(prefix: '', context: context));
+  return baseConditions.join(' && ');
+}
+
+bool canAccessWargaRecord(
+  AuthState auth,
+  WargaModel warga, {
+  required AreaAccessContext context,
+  KartuKeluargaModel? linkedKk,
+}) {
+  if (auth.user == null) {
+    return false;
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return true;
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    return warga.userId == auth.user!.id;
+  }
+
+  if (!context.hasRegionalScope) {
+    return false;
+  }
+
+  if (linkedKk == null) {
+    return false;
+  }
+
+  final matchesRegion =
+      _matchesScopedArea(context.desaKelurahan, linkedKk.desaKelurahan) &&
+      _matchesScopedArea(context.kecamatan, linkedKk.kecamatan) &&
+      _matchesScopedArea(context.kabupatenKota, linkedKk.kabupatenKota) &&
+      _matchesScopedArea(context.provinsi, linkedKk.provinsi);
+
+  if (!matchesRegion) {
+    return false;
+  }
+
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    return warga.rw == '${context.rw}';
+  }
+
+  return warga.rt == '${context.rt}' && warga.rw == '${context.rw}';
+}
+
+bool canAccessKkRecord(
+  AuthState auth,
+  KartuKeluargaModel kk, {
+  required AreaAccessContext context,
+  String? ownerUserId,
+}) {
+  if (auth.user == null) {
+    return false;
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return true;
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    if ((context.kkId ?? '').isNotEmpty) {
+      return context.kkId == kk.id;
+    }
+    return ownerUserId == auth.user!.id;
+  }
+
+  if (!context.hasRegionalScope) {
+    return false;
+  }
+
+  final matchesRegion =
+      _matchesScopedArea(context.desaKelurahan, kk.desaKelurahan) &&
+      _matchesScopedArea(context.kecamatan, kk.kecamatan) &&
+      _matchesScopedArea(context.kabupatenKota, kk.kabupatenKota) &&
+      _matchesScopedArea(context.provinsi, kk.provinsi);
+
+  if (!matchesRegion) {
+    return false;
+  }
+
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    return kk.rw == '${context.rw}';
+  }
+
+  return kk.rt == '${context.rt}' && kk.rw == '${context.rw}';
+}

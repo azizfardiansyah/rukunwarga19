@@ -4,15 +4,18 @@ import 'package:go_router/go_router.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import '../../../app/theme.dart';
-import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class DokumenUploadScreen extends ConsumerStatefulWidget {
   const DokumenUploadScreen({super.key});
 
   @override
-  ConsumerState<DokumenUploadScreen> createState() => _DokumenUploadScreenState();
+  ConsumerState<DokumenUploadScreen> createState() =>
+      _DokumenUploadScreenState();
 }
 
 class _DokumenUploadScreenState extends ConsumerState<DokumenUploadScreen> {
@@ -32,29 +35,47 @@ class _DokumenUploadScreenState extends ConsumerState<DokumenUploadScreen> {
 
   Future<void> _upload() async {
     if (_selectedFile == null) {
-      ErrorClassifier.showErrorSnackBar(context, Exception('Pilih file terlebih dahulu'));
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        Exception('Pilih file terlebih dahulu'),
+      );
       return;
     }
 
     setState(() => _isLoading = true);
     try {
+      final auth = ref.read(authProvider);
+      final access = await resolveAreaAccessContext(auth);
+      final wargaId = access.wargaId ?? '';
+
+      if (wargaId.isEmpty) {
+        throw Exception(
+          'Data warga akun ini belum terhubung. Lengkapi data warga terlebih dahulu.',
+        );
+      }
+
       final file = http.MultipartFile.fromBytes(
         'file',
         _selectedFile!.bytes!,
         filename: _selectedFile!.name,
       );
 
-      await pb.collection(AppConstants.colDokumen).create(
-        body: {
-          'jenis': _jenis,
-          'status_verifikasi': AppConstants.statusPending,
-          'warga': pb.authStore.record?.id ?? '',
-        },
-        files: [file],
-      );
+      await pb
+          .collection(AppConstants.colDokumen)
+          .create(
+            body: {
+              'jenis': _jenis,
+              'status_verifikasi': AppConstants.statusPending,
+              'warga': wargaId,
+            },
+            files: [file],
+          );
 
       if (mounted) {
-        ErrorClassifier.showSuccessSnackBar(context, 'Dokumen berhasil diupload');
+        ErrorClassifier.showSuccessSnackBar(
+          context,
+          'Dokumen berhasil diupload',
+        );
         context.pop();
       }
     } catch (e) {
@@ -98,7 +119,14 @@ class _DokumenUploadScreenState extends ConsumerState<DokumenUploadScreen> {
             ElevatedButton(
               onPressed: _isLoading ? null : _upload,
               child: _isLoading
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Text('Upload'),
             ),
           ],

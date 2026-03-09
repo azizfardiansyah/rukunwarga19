@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pocketbase/pocketbase.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -31,9 +33,23 @@ class KkDetailScreen extends ConsumerStatefulWidget {
 
 class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
   Future<_KkDetailData> _loadDetail() async {
+    final auth = ref.read(authProvider);
+    final access = await resolveAreaAccessContext(auth);
     final kkRecord = await pb
         .collection(AppConstants.colKartuKeluarga)
         .getOne(widget.kkId);
+    final kk = KartuKeluargaModel.fromRecord(kkRecord);
+    final ownerUserId = kkRecord.getStringValue('user_id');
+
+    if (!canAccessKkRecord(
+      auth,
+      kk,
+      context: access,
+      ownerUserId: ownerUserId,
+    )) {
+      throw Exception('Anda tidak memiliki akses ke detail KK ini.');
+    }
+
     final anggotaResult = await pb
         .collection(AppConstants.colAnggotaKk)
         .getList(
@@ -44,11 +60,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
           expand: 'warga',
         );
 
-    return (
-      kkRecord: kkRecord,
-      kk: KartuKeluargaModel.fromRecord(kkRecord),
-      anggotaRecords: anggotaResult.items,
-    );
+    return (kkRecord: kkRecord, kk: kk, anggotaRecords: anggotaResult.items);
   }
 
   Future<void> _refreshAfter(Future<Object?> navigation) async {
@@ -94,6 +106,62 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
       if (!mounted) return;
       ErrorClassifier.showErrorSnackBar(context, e);
     }
+  }
+
+  Future<void> _openFileUrl(String url) async {
+    final launched = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.platformDefault,
+    );
+    if (!launched && mounted) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        Exception('File KK tidak dapat dibuka.'),
+      );
+    }
+  }
+
+  Future<void> _showImagePreview(String imageUrl) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: InteractiveViewer(
+                  minScale: 0.8,
+                  maxScale: 4,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.network(
+                      imageUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => const SizedBox(
+                        height: 220,
+                        child: Center(
+                          child: Text('Preview file tidak tersedia'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton.filledTonal(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -212,6 +280,15 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                                 isLast: true,
                               ),
                             ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildSection(
+                          icon: Icons.preview_rounded,
+                          title: 'Preview File KK',
+                          child: _buildScanPreview(
+                            kkRecord: data.kkRecord,
+                            kk: kk,
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -476,6 +553,117 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
           child,
         ],
       ),
+    );
+  }
+
+  Widget _buildScanPreview({
+    required RecordModel kkRecord,
+    required KartuKeluargaModel kk,
+  }) {
+    final fileName = kk.scanKk ?? '';
+    if (fileName.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.68),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              Icons.image_not_supported_outlined,
+              size: 42,
+              color: AppTheme.textSecondary.withValues(alpha: 0.42),
+            ),
+            const SizedBox(height: 10),
+            Text('Belum ada file scan KK', style: AppTheme.bodyMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Unggah file KK di form edit agar preview dapat ditampilkan di sini.',
+              style: AppTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final fileUrl = getFileUrl(kkRecord, fileName);
+    final isPdf = fileName.toLowerCase().endsWith('.pdf');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: AspectRatio(
+            aspectRatio: 16 / 10,
+            child: isPdf
+                ? Container(
+                    color: Colors.white.withValues(alpha: 0.74),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          size: 56,
+                          color: AppTheme.errorColor,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Preview langsung untuk PDF belum tersedia.',
+                          style: AppTheme.bodyMedium.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Buka file untuk melihat dokumen lengkap.',
+                          style: AppTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  )
+                : Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _showImagePreview(fileUrl),
+                      child: Image.network(
+                        fileUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          color: Colors.white.withValues(alpha: 0.74),
+                          child: const Center(
+                            child: Text('Preview file tidak tersedia'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () => _openFileUrl(fileUrl),
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: Text(isPdf ? 'Buka PDF KK' : 'Buka File KK'),
+            ),
+            if (!isPdf)
+              OutlinedButton.icon(
+                onPressed: () => _showImagePreview(fileUrl),
+                icon: const Icon(Icons.zoom_in_rounded),
+                label: const Text('Perbesar Preview'),
+              ),
+          ],
+        ),
+      ],
     );
   }
 

@@ -41,6 +41,7 @@ class AppConstants {
   // === STATUS DOKUMEN ===
   static const String statusPending = 'pending';
   static const String statusVerified = 'verified';
+  static const String statusNeedRevision = 'need_revision';
   static const String statusRejected = 'rejected';
 
   // === STATUS SURAT ===

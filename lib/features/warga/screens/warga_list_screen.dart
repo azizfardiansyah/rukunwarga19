@@ -6,29 +6,62 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/floating_action_pill.dart';
 
-final wargaListProvider = FutureProvider.autoDispose<List<WargaModel>>((
+class WargaListData {
+  const WargaListData({required this.wargaList, required this.kkById});
+
+  final List<WargaModel> wargaList;
+  final Map<String, KartuKeluargaModel> kkById;
+}
+
+class _WargaGroup {
+  const _WargaGroup({
+    required this.groupKey,
+    required this.kk,
+    required this.members,
+  });
+
+  final String groupKey;
+  final KartuKeluargaModel? kk;
+  final List<WargaModel> members;
+}
+
+final wargaListProvider = FutureProvider.autoDispose<WargaListData>((
   ref,
 ) async {
   final auth = ref.watch(authProvider);
-  final userId = auth.user?.id;
-  if (userId == null) return [];
-  final isAdmin = auth.isAdmin;
+  if (auth.user == null) {
+    return const WargaListData(wargaList: [], kkById: {});
+  }
 
-  final result = await pb
+  final access = await resolveAreaAccessContext(auth);
+  final wargaRecords = await pb
       .collection(AppConstants.colWarga)
-      .getList(
-        page: 1,
-        perPage: 100,
+      .getFullList(
         sort: 'nama_lengkap',
-        filter: isAdmin ? '' : 'user_id = "$userId"',
+        filter: buildWargaScopeFilter(auth, context: access),
+      );
+  final kkRecords = await pb
+      .collection(AppConstants.colKartuKeluarga)
+      .getFullList(
+        sort: '-created',
+        filter: buildKkScopeFilter(auth, context: access),
       );
 
-  return result.items.map((record) => WargaModel.fromRecord(record)).toList();
+  return WargaListData(
+    wargaList: wargaRecords.map(WargaModel.fromRecord).toList(),
+    kkById: {
+      for (final record in kkRecords)
+        record.id: KartuKeluargaModel.fromRecord(record),
+    },
+  );
 });
 
 class WargaListScreen extends ConsumerStatefulWidget {
@@ -54,16 +87,18 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
         elevation: 0,
         title: const Text('Data Warga'),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: isAdmin
-          ? FloatingActionButton.extended(
-              onPressed: () async {
+          ? FloatingActionPill(
+              onTap: () async {
                 await context.push(Routes.wargaForm);
                 if (mounted) {
                   ref.invalidate(wargaListProvider);
                 }
               },
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('Tambah Warga'),
+              icon: Icons.person_add_alt_1_rounded,
+              label: 'Tambah Warga',
+              gradientColors: const [Color(0xFF1565C0), Color(0xFF42A5F5)],
             )
           : null,
       body: Container(
@@ -95,17 +130,10 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                     const SizedBox(height: 14),
                     Expanded(
                       child: wargaAsync.when(
-                        data: (wargaList) {
-                          final query = _searchQuery.trim().toLowerCase();
-                          final filtered = wargaList.where((warga) {
-                            if (query.isEmpty) return true;
-                            return warga.namaLengkap.toLowerCase().contains(
-                                  query,
-                                ) ||
-                                warga.nik.contains(query);
-                          }).toList();
+                        data: (data) {
+                          final groups = _buildGroups(data);
 
-                          if (filtered.isEmpty) {
+                          if (groups.isEmpty) {
                             return RefreshIndicator(
                               onRefresh: _refresh,
                               child: ListView(
@@ -124,16 +152,16 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                                         ),
                                         const SizedBox(height: 14),
                                         Text(
-                                          query.isEmpty
+                                          _searchQuery.trim().isEmpty
                                               ? 'Belum ada data warga'
                                               : 'Data warga tidak ditemukan',
                                           style: AppTheme.heading3,
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          query.isEmpty
-                                              ? 'Data akan muncul setelah warga ditambahkan.'
-                                              : 'Coba kata kunci lain untuk mencari warga.',
+                                          _searchQuery.trim().isEmpty
+                                              ? 'Data akan muncul sesuai wilayah akses Anda.'
+                                              : 'Coba nama, NIK, atau nomor KK lain.',
                                           style: AppTheme.bodySmall,
                                           textAlign: TextAlign.center,
                                         ),
@@ -149,14 +177,19 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                             onRefresh: _refresh,
                             child: ListView.separated(
                               physics: const AlwaysScrollableScrollPhysics(),
-                              itemCount: filtered.length,
+                              itemCount: groups.length,
                               separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 12),
                               itemBuilder: (context, index) {
-                                final warga = filtered[index];
-                                return _WargaListCard(
-                                  warga: warga,
-                                  onTap: () async {
+                                final group = groups[index];
+                                return _WargaGroupCard(
+                                  group: group,
+                                  onOpenKk: group.kk == null
+                                      ? null
+                                      : () => context.push(
+                                          '${Routes.kartuKeluarga}/${group.kk!.id}',
+                                        ),
+                                  onOpenWarga: (warga) async {
                                     await context.push(
                                       '${Routes.warga}/${warga.id}',
                                     );
@@ -204,6 +237,47 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
     );
   }
 
+  List<_WargaGroup> _buildGroups(WargaListData data) {
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = data.wargaList.where((warga) {
+      final kk = data.kkById[warga.noKkId];
+      if (query.isEmpty) {
+        return true;
+      }
+
+      return warga.namaLengkap.toLowerCase().contains(query) ||
+          warga.nik.contains(query) ||
+          warga.rt.contains(query) ||
+          warga.rw.contains(query) ||
+          (kk?.noKk.toLowerCase().contains(query) ?? false) ||
+          (kk?.alamat.toLowerCase().contains(query) ?? false);
+    }).toList();
+
+    final grouped = <String, List<WargaModel>>{};
+    for (final warga in filtered) {
+      final key = warga.noKkId.isEmpty ? 'no-kk-${warga.id}' : warga.noKkId;
+      grouped.putIfAbsent(key, () => []).add(warga);
+    }
+
+    final groups = grouped.entries.map((entry) {
+      final members = [...entry.value]
+        ..sort((left, right) => left.namaLengkap.compareTo(right.namaLengkap));
+      return _WargaGroup(
+        groupKey: entry.key,
+        kk: data.kkById[entry.key],
+        members: members,
+      );
+    }).toList();
+
+    groups.sort((left, right) {
+      final leftKey = left.kk?.noKk ?? left.members.first.namaLengkap;
+      final rightKey = right.kk?.noKk ?? right.members.first.namaLengkap;
+      return leftKey.compareTo(rightKey);
+    });
+
+    return groups;
+  }
+
   Widget _buildTopPanel({required bool isAdmin}) {
     return Column(
       children: [
@@ -234,8 +308,8 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                     const SizedBox(height: 4),
                     Text(
                       isAdmin
-                          ? 'Kelola seluruh data warga dengan tampilan yang lebih ringkas.'
-                          : 'Daftar ini hanya menampilkan data warga milik akun Anda.',
+                          ? 'Data warga ditampilkan sesuai wilayah akses dan dikelompokkan per KK.'
+                          : 'Data warga Anda ditampilkan bersama grup KK yang terkait.',
                       style: AppTheme.bodySmall,
                     ),
                   ],
@@ -250,7 +324,7 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: TextField(
             decoration: InputDecoration(
-              hintText: 'Cari nama atau NIK warga',
+              hintText: 'Cari nama, NIK, atau nomor KK',
               prefixIcon: const Icon(Icons.search_rounded),
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
@@ -289,20 +363,146 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
   }
 }
 
+class _WargaGroupCard extends StatelessWidget {
+  const _WargaGroupCard({
+    required this.group,
+    required this.onOpenWarga,
+    this.onOpenKk,
+  });
+
+  final _WargaGroup group;
+  final VoidCallback? onOpenKk;
+  final ValueChanged<WargaModel> onOpenWarga;
+
+  @override
+  Widget build(BuildContext context) {
+    final kk = group.kk;
+    final kkLabel = kk == null
+        ? 'KK belum terhubung'
+        : 'No. KK ${Formatters.formatNoKk(kk.noKk)}';
+
+    return AppTheme.glassContainer(
+      opacity: 0.74,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: AppTheme.primaryGradient,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.family_restroom_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kkLabel,
+                      style: AppTheme.bodyLarge.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      kk?.alamat ?? 'Belum ada alamat KK yang terhubung.',
+                      style: AppTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _pill(
+                          Icons.people_alt_rounded,
+                          '${group.members.length} warga',
+                        ),
+                        if (kk != null)
+                          _pill(
+                            Icons.home_work_rounded,
+                            'RT ${kk.rt}/RW ${kk.rw}',
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (onOpenKk != null)
+                TextButton.icon(
+                  onPressed: onOpenKk,
+                  icon: const Icon(Icons.visibility_rounded),
+                  label: const Text('Lihat KK'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...group.members.map(
+            (warga) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _WargaListCard(
+                warga: warga,
+                onTap: () => onOpenWarga(warga),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppTheme.textSecondary),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _WargaListCard extends StatelessWidget {
+  const _WargaListCard({required this.warga, required this.onTap});
+
   final WargaModel warga;
   final VoidCallback onTap;
-
-  const _WargaListCard({required this.warga, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      child: AppTheme.glassContainer(
-        opacity: 0.74,
+      child: Container(
         padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.76),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

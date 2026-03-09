@@ -13,9 +13,10 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../models/parsed_kk_member.dart';
 import '../services/kk_ocr_service.dart';
@@ -30,10 +31,21 @@ class KkFormScreen extends ConsumerStatefulWidget {
 }
 
 class _KkFormScreenState extends ConsumerState<KkFormScreen> {
+  static const double _mainActionButtonWidth = 220;
+
   final _noKkCtrl = TextEditingController();
+  final _kepalaNamaCtrl = TextEditingController();
   final _alamatCtrl = TextEditingController();
   final _rtCtrl = TextEditingController();
   final _rwCtrl = TextEditingController();
+  final _kelurahanCtrl = TextEditingController();
+  final _kecamatanCtrl = TextEditingController();
+  final _kabupatenKotaCtrl = TextEditingController();
+  final _provinsiCtrl = TextEditingController();
+  final _kelurahanFocusNode = FocusNode();
+  final _kecamatanFocusNode = FocusNode();
+  final _kabupatenKotaFocusNode = FocusNode();
+  final _provinsiFocusNode = FocusNode();
   final _ocrService = KkOcrService();
   final _picker = ImagePicker();
 
@@ -43,18 +55,26 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   Uint8List? _scanBytes;
   String? _scanFilename;
   String? _selectedImagePath;
-  String _namaKepalaKeluarga = '';
-  String _kelurahan = '';
-  String _kecamatan = '';
-  String _kabupatenKota = '';
-  String _provinsi = '';
   List<ParsedKkMember> _parsedMembers = [];
+  List<String> _kelurahanSuggestions = const [];
+  List<String> _kecamatanSuggestions = const [];
+  List<String> _kabupatenKotaSuggestions = const [];
+  List<String> _provinsiSuggestions = const [];
 
   bool get _isEdit => widget.kkId != null;
 
   @override
   void initState() {
     super.initState();
+    for (final node in [
+      _kelurahanFocusNode,
+      _kecamatanFocusNode,
+      _kabupatenKotaFocusNode,
+      _provinsiFocusNode,
+    ]) {
+      node.addListener(_refreshSuggestionState);
+    }
+    _loadAreaSuggestions();
     if (_isEdit) {
       _loadData();
     }
@@ -63,10 +83,25 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   @override
   void dispose() {
     _noKkCtrl.dispose();
+    _kepalaNamaCtrl.dispose();
     _alamatCtrl.dispose();
     _rtCtrl.dispose();
     _rwCtrl.dispose();
+    _kelurahanCtrl.dispose();
+    _kecamatanCtrl.dispose();
+    _kabupatenKotaCtrl.dispose();
+    _provinsiCtrl.dispose();
+    _kelurahanFocusNode.dispose();
+    _kecamatanFocusNode.dispose();
+    _kabupatenKotaFocusNode.dispose();
+    _provinsiFocusNode.dispose();
     super.dispose();
+  }
+
+  void _refreshSuggestionState() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   String _recordFieldAsString(RecordModel record, String field) {
@@ -88,14 +123,15 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         _alamatCtrl.text = record.getStringValue('alamat');
         _rtCtrl.text = _recordFieldAsString(record, 'rt');
         _rwCtrl.text = _recordFieldAsString(record, 'rw');
-        _kelurahan = record.getStringValue('desa_kelurahan').isNotEmpty
+        _kelurahanCtrl.text = record.getStringValue('desa_kelurahan').isNotEmpty
             ? record.getStringValue('desa_kelurahan')
             : record.getStringValue('kelurahan');
-        _kecamatan = record.getStringValue('kecamatan');
-        _kabupatenKota = record.getStringValue('kabupaten_kota').isNotEmpty
+        _kecamatanCtrl.text = record.getStringValue('kecamatan');
+        _kabupatenKotaCtrl.text =
+            record.getStringValue('kabupaten_kota').isNotEmpty
             ? record.getStringValue('kabupaten_kota')
             : record.getStringValue('kota');
-        _provinsi = record.getStringValue('provinsi');
+        _provinsiCtrl.text = record.getStringValue('provinsi');
         _existingScanKk = record.getStringValue('scan_kk');
       });
     } catch (e) {
@@ -103,6 +139,91 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadAreaSuggestions() async {
+    final auth = ref.read(authProvider);
+    if (auth.user == null) {
+      return;
+    }
+
+    try {
+      final access = await resolveAreaAccessContext(auth);
+      final records = await pb
+          .collection(AppConstants.colKartuKeluarga)
+          .getFullList(
+            sort: '-updated',
+            filter: buildKkScopeFilter(auth, context: access),
+            fields:
+                'id,desa_kelurahan,kelurahan,kecamatan,kabupaten_kota,kota,provinsi',
+          );
+      final kkList = records.map(KartuKeluargaModel.fromRecord).toList();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _kelurahanSuggestions = _uniqueSuggestions(
+          kkList.map((item) => item.desaKelurahan),
+        );
+        _kecamatanSuggestions = _uniqueSuggestions(
+          kkList.map((item) => item.kecamatan),
+        );
+        _kabupatenKotaSuggestions = _uniqueSuggestions(
+          kkList.map((item) => item.kabupatenKota),
+        );
+        _provinsiSuggestions = _uniqueSuggestions(
+          kkList.map((item) => item.provinsi),
+        );
+      });
+    } catch (_) {}
+  }
+
+  List<String> _uniqueSuggestions(Iterable<String?> values) {
+    final seen = <String, String>{};
+
+    for (final value in values) {
+      final normalized = value?.trim() ?? '';
+      if (normalized.isEmpty) {
+        continue;
+      }
+      seen.putIfAbsent(normalized.toLowerCase(), () => normalized);
+    }
+
+    final result = seen.values.toList();
+    result.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return result;
+  }
+
+  List<String> _matchingSuggestions(String query, List<String> source) {
+    final keyword = query.trim().toLowerCase();
+    if (keyword.length < 2) {
+      return const [];
+    }
+
+    final startsWith = <String>[];
+    final contains = <String>[];
+
+    for (final option in source) {
+      final normalized = option.toLowerCase();
+      if (normalized == keyword) {
+        continue;
+      }
+      if (normalized.startsWith(keyword)) {
+        startsWith.add(option);
+      } else if (normalized.contains(keyword)) {
+        contains.add(option);
+      }
+    }
+
+    return [...startsWith, ...contains].take(6).toList();
+  }
+
+  void _applySuggestion(TextEditingController controller, String value) {
+    controller
+      ..text = value
+      ..selection = TextSelection.collapsed(offset: value.length);
+    setState(() {});
   }
 
   Future<void> _pickImageFromDevice(ImageSource source) async {
@@ -338,13 +459,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       _alamatCtrl.text = parsed.alamat.trim();
       _rtCtrl.text = parsed.rt.trim();
       _rwCtrl.text = parsed.rw.trim();
-      _namaKepalaKeluarga = parsed.namaKepalaKeluarga.trim().isNotEmpty
+      _kepalaNamaCtrl.text = parsed.namaKepalaKeluarga.trim().isNotEmpty
           ? parsed.namaKepalaKeluarga.trim()
           : _deriveKepalaKeluargaNama(parsed.members);
-      _kelurahan = parsed.kelurahan.trim();
-      _kecamatan = parsed.kecamatan.trim();
-      _kabupatenKota = parsed.kabupatenKota.trim();
-      _provinsi = parsed.provinsi.trim();
+      _kelurahanCtrl.text = parsed.kelurahan.trim();
+      _kecamatanCtrl.text = parsed.kecamatan.trim();
+      _kabupatenKotaCtrl.text = parsed.kabupatenKota.trim();
+      _provinsiCtrl.text = parsed.provinsi.trim();
       _parsedMembers = parsed.members;
     });
   }
@@ -358,9 +479,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     return kepala.nama.trim();
   }
 
-  String get _kepalaNama => _namaKepalaKeluarga.trim().isNotEmpty
-      ? _namaKepalaKeluarga.trim()
-      : _deriveKepalaKeluargaNama(_parsedMembers);
+  String get _kepalaNama => _kepalaNamaCtrl.text.trim();
 
   bool get _isNoKkValid =>
       _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '').length == 16;
@@ -370,10 +489,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       RegExp(r'^(?!0+$)[0-9]{1,3}$').hasMatch(_rtCtrl.text.trim());
   bool get _isRwValid =>
       RegExp(r'^(?!0+$)[0-9]{1,3}$').hasMatch(_rwCtrl.text.trim());
-  bool get _isKelurahanValid => _kelurahan.trim().isNotEmpty;
-  bool get _isKecamatanValid => _kecamatan.trim().isNotEmpty;
-  bool get _isKabupatenKotaValid => _kabupatenKota.trim().isNotEmpty;
-  bool get _isProvinsiValid => _provinsi.trim().isNotEmpty;
+  bool get _isKelurahanValid => _kelurahanCtrl.text.trim().isNotEmpty;
+  bool get _isKecamatanValid => _kecamatanCtrl.text.trim().isNotEmpty;
+  bool get _isKabupatenKotaValid => _kabupatenKotaCtrl.text.trim().isNotEmpty;
+  bool get _isProvinsiValid => _provinsiCtrl.text.trim().isNotEmpty;
 
   List<String> _getHeaderIssues() {
     final issues = <String>[];
@@ -381,10 +500,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       issues.add('Nomor KK belum valid (harus 16 digit).');
     }
     if (!_isKepalaNamaValid) {
-      issues.add('Nama kepala keluarga belum terbaca.');
+      issues.add('Nama kepala keluarga belum diisi.');
     }
     if (!_isAlamatValid) {
-      issues.add('Alamat belum terbaca dari OCR.');
+      issues.add('Alamat belum diisi.');
     }
     if (!_isRtValid) {
       issues.add('RT belum valid.');
@@ -393,16 +512,16 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       issues.add('RW belum valid.');
     }
     if (!_isKelurahanValid) {
-      issues.add('Desa/Kelurahan belum terbaca.');
+      issues.add('Desa/Kelurahan belum diisi.');
     }
     if (!_isKecamatanValid) {
-      issues.add('Kecamatan belum terbaca.');
+      issues.add('Kecamatan belum diisi.');
     }
     if (!_isKabupatenKotaValid) {
-      issues.add('Kabupaten/Kota belum terbaca.');
+      issues.add('Kabupaten/Kota belum diisi.');
     }
     if (!_isProvinsiValid) {
-      issues.add('Provinsi belum terbaca.');
+      issues.add('Provinsi belum diisi.');
     }
 
     return issues;
@@ -575,9 +694,9 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       return 'Khatolik';
     }
     if (upper.contains('BUDHA') || upper.contains('BUDDHA')) return 'Budha';
-    if (upper.contains('HINDU')) return 'Islam'; // Fallback â€” not in DB
+    if (upper.contains('HINDU')) return 'Islam'; // Fallback, not in DB
     if (upper.contains('KONGHUCU') || upper.contains('KONGHUCHU')) {
-      return 'Islam'; // Fallback â€” not in DB
+      return 'Islam'; // Fallback, not in DB
     }
     return AppConstants.daftarAgama.first;
   }
@@ -1052,7 +1171,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // â”€â”€â”€ Header â”€â”€â”€
+                    // Header
                     Container(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                       decoration: BoxDecoration(
@@ -1099,7 +1218,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  '$hubungan â€¢ $jenisKelamin',
+                                  '$hubungan - $jenisKelamin',
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: AppTheme.textSecondary,
@@ -1143,7 +1262,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         ],
                       ),
                     ),
-                    // â”€â”€â”€ Scrollable form â”€â”€â”€
+                    // Scrollable form
                     Flexible(
                       child: SingleChildScrollView(
                         padding: EdgeInsets.fromLTRB(
@@ -1233,7 +1352,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                               prefixIcon: Icons.bloodtype_rounded,
                             ),
                             const SizedBox(height: 8),
-                            // â”€â”€â”€ Action buttons â”€â”€â”€
+                            // Action buttons
                             Row(
                               children: [
                                 if (!isEditing)
@@ -1398,10 +1517,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'alamat': _alamatCtrl.text.trim(),
         'rt': rtNumber,
         'rw': rwNumber,
-        'desa_kelurahan': _kelurahan.trim(),
-        'kecamatan': _kecamatan.trim(),
-        'kabupaten_kota': _kabupatenKota.trim(),
-        'provinsi': _provinsi.trim(),
+        'desa_kelurahan': _kelurahanCtrl.text.trim(),
+        'kecamatan': _kecamatanCtrl.text.trim(),
+        'kabupaten_kota': _kabupatenKotaCtrl.text.trim(),
+        'provinsi': _provinsiCtrl.text.trim(),
         'user_id': userId,
       };
 
@@ -1458,64 +1577,97 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     }
   }
 
-  Widget _buildReadonlyField(
-    String label,
-    String value, {
+  Widget _buildEditableHeaderField({
+    required String label,
+    required TextEditingController controller,
     required bool isValid,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    List<String> suggestions = const [],
+    FocusNode? focusNode,
   }) {
     final color = isValid ? AppTheme.successColor : AppTheme.errorColor;
+    final matches = (focusNode?.hasFocus ?? false)
+        ? _matchingSuggestions(controller.text, suggestions)
+        : const <String>[];
+
     return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-        color: color.withValues(alpha: 0.05),
-        border: Border.all(color: color.withValues(alpha: 0.25), width: 1),
-      ),
-      child: Row(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: AppTheme.caption.copyWith(
-                    color: AppTheme.textSecondary,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value.isEmpty ? '-' : value,
-                  style: AppTheme.bodySmall.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: value.isEmpty
-                        ? AppTheme.textSecondary
-                        : AppTheme.textPrimary,
-                  ),
-                ),
-              ],
+          TextField(
+            controller: controller,
+            focusNode: focusNode,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: suggestions.isEmpty ? null : 'Ketik minimal 2 huruf',
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 14,
+              ),
+              suffixIcon: Icon(
+                isValid ? Icons.check_circle_rounded : Icons.error_rounded,
+                size: 18,
+                color: color,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: BorderSide(color: color.withValues(alpha: 0.28)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: BorderSide(color: color.withValues(alpha: 0.28)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                borderSide: BorderSide(color: color, width: 1.3),
+              ),
             ),
           ),
-          Icon(
-            isValid ? Icons.check_circle_rounded : Icons.error_rounded,
-            size: 16,
-            color: color,
-          ),
+          if (matches.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: matches
+                    .map(
+                      (option) => ActionChip(
+                        onPressed: () => _applySuggestion(controller, option),
+                        backgroundColor: AppTheme.primaryColor.withValues(
+                          alpha: 0.08,
+                        ),
+                        side: BorderSide(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                        ),
+                        labelStyle: AppTheme.caption.copyWith(
+                          color: AppTheme.primaryColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        avatar: const Icon(
+                          Icons.north_west_rounded,
+                          size: 14,
+                          color: AppTheme.primaryColor,
+                        ),
+                        label: Text(option),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
         ],
       ),
     );
   }
 
+  // ignore: unused_element
   Widget _buildOcrHeaderSection() {
-    final noKk = _noKkCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
-    final formattedNoKk = noKk.length == 16
-        ? Formatters.formatNoKk(noKk)
-        : _noKkCtrl.text;
-    final kepalaNama = _kepalaNama;
     final headerIssues = _getHeaderIssues();
     return Container(
       decoration: AppTheme.cardDecoration(),
@@ -1553,7 +1705,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         ),
                       ),
                       Text(
-                        'Pastikan data sudah benar sebelum simpan',
+                        'Bisa dikoreksi manual sebelum disimpan',
                         style: AppTheme.caption.copyWith(
                           color: Colors.white.withValues(alpha: 0.8),
                           fontSize: 10,
@@ -1575,63 +1727,71 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                   children: [
                     Expanded(
                       flex: 3,
-                      child: _buildReadonlyField(
-                        'Nama Kepala Keluarga',
-                        kepalaNama,
+                      child: _buildEditableHeaderField(
+                        label: 'Nama Kepala Keluarga',
+                        controller: _kepalaNamaCtrl,
                         isValid: _isKepalaNamaValid,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       flex: 2,
-                      child: _buildReadonlyField(
-                        'Nomor KK',
-                        formattedNoKk,
+                      child: _buildEditableHeaderField(
+                        label: 'Nomor KK',
+                        controller: _noKkCtrl,
                         isValid: _isNoKkValid,
+                        keyboardType: TextInputType.number,
                       ),
                     ),
                   ],
                 ),
                 // Row 2: Alamat
-                _buildReadonlyField(
-                  'Alamat',
-                  _alamatCtrl.text,
+                _buildEditableHeaderField(
+                  label: 'Alamat',
+                  controller: _alamatCtrl,
                   isValid: _isAlamatValid,
+                  maxLines: 2,
                 ),
                 // Row 3: RT, RW, Kelurahan, Kecamatan
                 Row(
                   children: [
                     Expanded(
-                      child: _buildReadonlyField(
-                        'RT',
-                        _rtCtrl.text,
+                      child: _buildEditableHeaderField(
+                        label: 'RT',
+                        controller: _rtCtrl,
                         isValid: _isRtValid,
+                        keyboardType: TextInputType.number,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _buildReadonlyField(
-                        'RW',
-                        _rwCtrl.text,
+                      child: _buildEditableHeaderField(
+                        label: 'RW',
+                        controller: _rwCtrl,
                         isValid: _isRwValid,
+                        keyboardType: TextInputType.number,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       flex: 2,
-                      child: _buildReadonlyField(
-                        'Desa/Kelurahan',
-                        _kelurahan,
+                      child: _buildEditableHeaderField(
+                        label: 'Desa/Kelurahan',
+                        controller: _kelurahanCtrl,
                         isValid: _isKelurahanValid,
+                        focusNode: _kelurahanFocusNode,
+                        suggestions: _kelurahanSuggestions,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       flex: 2,
-                      child: _buildReadonlyField(
-                        'Kecamatan',
-                        _kecamatan,
+                      child: _buildEditableHeaderField(
+                        label: 'Kecamatan',
+                        controller: _kecamatanCtrl,
                         isValid: _isKecamatanValid,
+                        focusNode: _kecamatanFocusNode,
+                        suggestions: _kecamatanSuggestions,
                       ),
                     ),
                   ],
@@ -1640,21 +1800,34 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: _buildReadonlyField(
-                        'Kabupaten/Kota',
-                        _kabupatenKota,
+                      child: _buildEditableHeaderField(
+                        label: 'Kabupaten/Kota',
+                        controller: _kabupatenKotaCtrl,
                         isValid: _isKabupatenKotaValid,
+                        focusNode: _kabupatenKotaFocusNode,
+                        suggestions: _kabupatenKotaSuggestions,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _buildReadonlyField(
-                        'Provinsi',
-                        _provinsi,
+                      child: _buildEditableHeaderField(
+                        label: 'Provinsi',
+                        controller: _provinsiCtrl,
                         isValid: _isProvinsiValid,
+                        focusNode: _provinsiFocusNode,
+                        suggestions: _provinsiSuggestions,
                       ),
                     ),
                   ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 8),
+                  child: Text(
+                    'Ketik minimal 2 huruf pada field wilayah untuk melihat saran. Anda tetap bisa mengetik manual.',
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.88),
+                    ),
+                  ),
                 ),
                 if (headerIssues.isNotEmpty) ...[
                   Container(
@@ -1689,7 +1862,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                               const SizedBox(height: 2),
                               ...headerIssues.map(
                                 (issue) => Text(
-                                  'â€¢ $issue',
+                                  '- $issue',
                                   style: AppTheme.caption.copyWith(
                                     color: Colors.orange.shade700,
                                     fontSize: 10,
@@ -1733,6 +1906,218 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     ],
                   ),
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditableOcrHeaderSection() {
+    final headerIssues = _getHeaderIssues();
+
+    return Container(
+      decoration: AppTheme.cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: const BoxDecoration(
+              gradient: AppTheme.headerGradient,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(AppTheme.radiusLarge),
+                topRight: Radius.circular(AppTheme.radiusLarge),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.document_scanner_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Hasil Scan Kartu Keluarga',
+                        style: AppTheme.bodyMedium.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'Bisa dikoreksi manual sebelum disimpan',
+                        style: AppTheme.caption.copyWith(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: _buildEditableHeaderField(
+                        label: 'Nama Kepala Keluarga',
+                        controller: _kepalaNamaCtrl,
+                        isValid: _isKepalaNamaValid,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: _buildEditableHeaderField(
+                        label: 'Nomor KK',
+                        controller: _noKkCtrl,
+                        isValid: _isNoKkValid,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                _buildEditableHeaderField(
+                  label: 'Alamat',
+                  controller: _alamatCtrl,
+                  isValid: _isAlamatValid,
+                  maxLines: 2,
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildEditableHeaderField(
+                        label: 'RT',
+                        controller: _rtCtrl,
+                        isValid: _isRtValid,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildEditableHeaderField(
+                        label: 'RW',
+                        controller: _rwCtrl,
+                        isValid: _isRwValid,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: _buildEditableHeaderField(
+                        label: 'Desa/Kelurahan',
+                        controller: _kelurahanCtrl,
+                        isValid: _isKelurahanValid,
+                        focusNode: _kelurahanFocusNode,
+                        suggestions: _kelurahanSuggestions,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: _buildEditableHeaderField(
+                        label: 'Kecamatan',
+                        controller: _kecamatanCtrl,
+                        isValid: _isKecamatanValid,
+                        focusNode: _kecamatanFocusNode,
+                        suggestions: _kecamatanSuggestions,
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildEditableHeaderField(
+                        label: 'Kabupaten/Kota',
+                        controller: _kabupatenKotaCtrl,
+                        isValid: _isKabupatenKotaValid,
+                        focusNode: _kabupatenKotaFocusNode,
+                        suggestions: _kabupatenKotaSuggestions,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildEditableHeaderField(
+                        label: 'Provinsi',
+                        controller: _provinsiCtrl,
+                        isValid: _isProvinsiValid,
+                        focusNode: _provinsiFocusNode,
+                        suggestions: _provinsiSuggestions,
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 8),
+                  child: Text(
+                    'Ketik minimal 2 huruf pada field wilayah untuk melihat saran. Anda tetap bisa mengetik manual.',
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.88),
+                    ),
+                  ),
+                ),
+                if (headerIssues.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.warningColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                      border: Border.all(
+                        color: AppTheme.warningColor.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.orange.shade700,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Data belum lengkap',
+                                style: AppTheme.bodySmall.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.orange.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              ...headerIssues.map(
+                                (issue) => Text(
+                                  '- $issue',
+                                  style: AppTheme.caption.copyWith(
+                                    color: Colors.orange.shade700,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -2079,9 +2464,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     },
                   ),
                 const SizedBox(height: 14),
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: _mainActionButtonWidth,
                       child: OutlinedButton.icon(
                         onPressed: _addManualMember,
                         style: OutlinedButton.styleFrom(
@@ -2096,8 +2485,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         label: const Text('Tambah Manual'),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
+                    SizedBox(
+                      width: _mainActionButtonWidth,
                       child: OutlinedButton.icon(
                         onPressed: _isScanning ? null : _runParser,
                         style: OutlinedButton.styleFrom(
@@ -2134,7 +2523,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildOcrHeaderSection(),
+            _buildEditableOcrHeaderSection(),
             const SizedBox(height: 16),
             // Upload Section
             Container(
@@ -2204,9 +2593,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 10,
+                          runSpacing: 10,
                           children: [
-                            Expanded(
+                            SizedBox(
+                              width: _mainActionButtonWidth,
                               child: ElevatedButton.icon(
                                 onPressed: _isScanning || _isLoading
                                     ? null
@@ -2231,8 +2624,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
+                            SizedBox(
+                              width: _mainActionButtonWidth,
                               child: ElevatedButton.icon(
                                 onPressed: _isScanning || _isLoading
                                     ? null
@@ -2362,69 +2755,85 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             _buildParsedMembersSection(),
             const SizedBox(height: 24),
             // Save & Cancel buttons
-            Container(
-              decoration: BoxDecoration(
-                gradient: _isLoading || _isScanning
-                    ? null
-                    : AppTheme.primaryGradient,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                boxShadow: _isLoading || _isScanning
-                    ? null
-                    : [
-                        BoxShadow(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-              ),
-              child: ElevatedButton(
-                onPressed: _isLoading || _isScanning ? null : _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
+            Center(
+              child: SizedBox(
+                width: _mainActionButtonWidth,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: _isLoading || _isScanning
+                        ? null
+                        : AppTheme.primaryGradient,
                     borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                    boxShadow: _isLoading || _isScanning
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: AppTheme.primaryColor.withValues(
+                                alpha: 0.3,
+                              ),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                   ),
-                  disabledBackgroundColor: AppTheme.dividerColor,
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 22,
-                        width: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: Colors.white,
+                  child: ElevatedButton(
+                    onPressed: _isLoading || _isScanning ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusMedium,
                         ),
-                      )
-                    : const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.save_rounded, size: 20),
-                          SizedBox(width: 8),
-                          Text('Simpan KK + Anggota'),
-                        ],
                       ),
+                      disabledBackgroundColor: AppTheme.dividerColor,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.save_rounded, size: 20),
+                              SizedBox(width: 8),
+                              Text('Simpan KK + Anggota'),
+                            ],
+                          ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 10),
-            OutlinedButton(
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      ref.invalidate(hasKartuKeluargaProvider);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) context.go(Routes.dashboard);
-                      });
-                    },
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            Center(
+              child: SizedBox(
+                width: _mainActionButtonWidth,
+                child: OutlinedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          ref.invalidate(hasKartuKeluargaProvider);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) context.go(Routes.dashboard);
+                          });
+                        },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppTheme.radiusMedium,
+                      ),
+                    ),
+                  ),
+                  child: const Text('Batal'),
                 ),
               ),
-              child: const Text('Batal'),
             ),
             const SizedBox(height: 16),
           ],

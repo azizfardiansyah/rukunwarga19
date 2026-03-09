@@ -380,6 +380,10 @@ class AppTheme {
       case 'approved':
       case 'lunas':
         return successColor;
+      case 'need_revision':
+      case 'perlu_revisi':
+      case 'revisi':
+        return accentColor;
       case 'pending':
       case 'menunggu':
         return warningColor;
