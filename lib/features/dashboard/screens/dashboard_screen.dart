@@ -257,6 +257,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           orElse: () => '...',
                         ),
                         color: AppTheme.primaryColor,
+                        onTap: () => context.push('${Routes.laporan}?focus=warga_total'),
                       ),
                       const SizedBox(width: 10),
                       _StatCard(
@@ -267,16 +268,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           orElse: () => '...',
                         ),
                         color: AppTheme.secondaryColor,
+                        onTap: () => context.push('${Routes.laporan}?focus=kk_total'),
                       ),
                       const SizedBox(width: 10),
                       _StatCard(
                         icon: Icons.description_rounded,
                         label: 'Surat Pengantar',
                         value: suratSummaryAsync.maybeWhen(
-                          data: (summary) => summary.actionRequired.toString(),
+                          data: (summary) => summary.total.toString(),
                           orElse: () => '...',
                         ),
                         color: AppTheme.accentColor,
+                        onTap: () => context.push('${Routes.laporan}?focus=surat_total'),
                       ),
                     ],
                   ),
@@ -357,12 +360,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       tone: const Color(0xFF8D6E63),
                       onTap: () => context.push(Routes.announcements),
                     ),
+                    if (!isWarga)
+                      _MenuCard(
+                        icon: Icons.insights_rounded,
+                        label: 'Laporan',
+                        tone: const Color(0xFF475569),
+                        onTap: () => context.push(Routes.laporan),
+                      ),
                   ],
                 ),
                 if (!isWarga) ...[
                   const SizedBox(height: 18),
                   suratSummaryAsync.when(
-                    data: (summary) => _SuratSummaryCard(summary: summary),
+                    data: (summary) => _SuratSummaryCard(
+                      summary: summary,
+                      onOpenFocus: (focus) =>
+                          context.push('${Routes.laporan}?focus=$focus'),
+                    ),
                     loading: () => const SizedBox.shrink(),
                     error: (_, _) => const SizedBox.shrink(),
                   ),
@@ -405,35 +419,44 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final VoidCallback? onTap;
 
   const _StatCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: AppTheme.cardDecoration(),
-        child: Column(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(icon, color: color, size: 22),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: AppTheme.cardDecoration(),
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: color, size: 22),
+                ),
+                const SizedBox(height: 10),
+                Text(value, style: AppTheme.heading2.copyWith(color: color)),
+                Text(label, style: AppTheme.caption),
+              ],
             ),
-            const SizedBox(height: 10),
-            Text(value, style: AppTheme.heading2.copyWith(color: color)),
-            Text(label, style: AppTheme.caption),
-          ],
+          ),
         ),
       ),
     );
@@ -441,9 +464,13 @@ class _StatCard extends StatelessWidget {
 }
 
 class _SuratSummaryCard extends StatelessWidget {
-  const _SuratSummaryCard({required this.summary});
+  const _SuratSummaryCard({
+    required this.summary,
+    required this.onOpenFocus,
+  });
 
   final SuratDashboardSummary summary;
+  final ValueChanged<String> onOpenFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -492,26 +519,31 @@ class _SuratSummaryCard extends StatelessWidget {
                 'Total',
                 summary.total.toString(),
                 AppTheme.primaryColor,
+                () => onOpenFocus('surat_total'),
               ),
               _summaryChip(
                 'Perlu Aksi',
                 summary.actionRequired.toString(),
                 AppTheme.accentColor,
+                () => onOpenFocus('surat_action'),
               ),
               _summaryChip(
                 'Revisi',
                 summary.needRevision.toString(),
                 AppTheme.warningColor,
+                () => onOpenFocus('surat_revision'),
               ),
               _summaryChip(
                 'Selesai',
                 summary.completed.toString(),
                 AppTheme.successColor,
+                () => onOpenFocus('surat_completed'),
               ),
               _summaryChip(
                 'Ditolak',
                 summary.rejected.toString(),
                 AppTheme.errorColor,
+                () => onOpenFocus('surat_rejected'),
               ),
             ],
           ),
@@ -520,22 +552,31 @@ class _SuratSummaryCard extends StatelessWidget {
     );
   }
 
-  Widget _summaryChip(String label, String value, Color color) {
-    return Container(
-      width: 108,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value, style: AppTheme.heading3.copyWith(color: color)),
-          const SizedBox(height: 4),
-          Text(label, style: AppTheme.caption),
-        ],
+  Widget _summaryChip(
+    String label,
+    String value,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: 108,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.14)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value, style: AppTheme.heading3.copyWith(color: color)),
+            const SizedBox(height: 4),
+            Text(label, style: AppTheme.caption),
+          ],
+        ),
       ),
     );
   }

@@ -20,6 +20,7 @@ import '../features/surat/screens/surat_form_screen.dart';
 import '../features/surat/screens/surat_detail_screen.dart';
 import '../features/iuran/screens/iuran_list_screen.dart';
 import '../features/iuran/screens/iuran_form_screen.dart';
+import '../features/laporan/screens/laporan_screen.dart';
 import '../features/chat/screens/chat_list_screen.dart';
 import '../features/chat/screens/chat_room_screen.dart';
 import '../features/chat/screens/announcement_screen.dart';
@@ -48,6 +49,7 @@ class Routes {
   static const String suratDetail = '/surat/:id';
   static const String iuran = '/iuran';
   static const String iuranForm = '/iuran/form';
+  static const String laporan = '/laporan';
   static const String chat = '/chat';
   static const String chatRoom = '/chat/:id';
   static const String announcements = '/pengumuman';
@@ -215,6 +217,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.iuranForm,
         builder: (context, state) => const IuranFormScreen(),
+      ),
+      GoRoute(
+        path: Routes.laporan,
+        builder: (context, state) {
+          final focus = state.uri.queryParameters['focus'];
+          return LaporanScreen(initialFocus: focus);
+        },
       ),
       GoRoute(
         path: Routes.chatRoom,
