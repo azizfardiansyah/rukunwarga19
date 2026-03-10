@@ -1,11 +1,72 @@
-import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../app/router.dart';
+import 'dart:async';
 
-class MainScaffold extends ConsumerWidget {
-  final Widget child;
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../app/router.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/services/pocketbase_service.dart';
+import '../../features/chat/providers/chat_providers.dart';
+
+class MainScaffold extends ConsumerStatefulWidget {
   const MainScaffold({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<MainScaffold> createState() => _MainScaffoldState();
+}
+
+class _MainScaffoldState extends ConsumerState<MainScaffold> {
+  Future<void> Function()? _unsubscribeConversations;
+  Future<void> Function()? _unsubscribeMessages;
+  Future<void> Function()? _unsubscribeMembers;
+  Future<void> Function()? _unsubscribeAnnouncements;
+  Timer? _refreshDebounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindRealtime();
+  }
+
+  Future<void> _bindRealtime() async {
+    await _disposeRealtime();
+    _unsubscribeConversations = await pb
+        .collection(AppConstants.colConversations)
+        .subscribe('*', (_) => _scheduleRefresh());
+    _unsubscribeMessages = await pb
+        .collection(AppConstants.colMessages)
+        .subscribe('*', (_) => _scheduleRefresh());
+    _unsubscribeMembers = await pb
+        .collection(AppConstants.colConversationMembers)
+        .subscribe('*', (_) => _scheduleRefresh());
+    _unsubscribeAnnouncements = await pb
+        .collection(AppConstants.colAnnouncements)
+        .subscribe('*', (_) => _scheduleRefresh());
+  }
+
+  void _scheduleRefresh() {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) {
+        return;
+      }
+      ref.read(chatRefreshTickProvider.notifier).bump();
+    });
+  }
+
+  Future<void> _disposeRealtime() async {
+    await _unsubscribeConversations?.call();
+    await _unsubscribeMessages?.call();
+    await _unsubscribeMembers?.call();
+    await _unsubscribeAnnouncements?.call();
+    _unsubscribeConversations = null;
+    _unsubscribeMessages = null;
+    _unsubscribeMembers = null;
+    _unsubscribeAnnouncements = null;
+  }
 
   int _getSelectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
@@ -17,11 +78,19 @@ class MainScaffold extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _refreshDebounce?.cancel();
+    _disposeRealtime();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final selectedIndex = _getSelectedIndex(context);
+    final unreadCount = ref.watch(chatUnreadCountProvider);
 
     return Scaffold(
-      body: child,
+      body: widget.child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: (index) {
@@ -40,23 +109,33 @@ class MainScaffold extends ConsumerWidget {
               break;
           }
         },
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard),
             label: 'Dashboard',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.people_outlined),
             selectedIcon: Icon(Icons.people),
             label: 'Warga',
           ),
           NavigationDestination(
-            icon: Icon(Icons.chat_outlined),
-            selectedIcon: Icon(Icons.chat),
+            icon: unreadCount > 0
+                ? Badge(
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat_outlined),
+                  )
+                : const Icon(Icons.chat_outlined),
+            selectedIcon: unreadCount > 0
+                ? Badge(
+                    label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                    child: const Icon(Icons.chat),
+                  )
+                : const Icon(Icons.chat),
             label: 'Chat',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
             label: 'Settings',

@@ -108,6 +108,14 @@ Jika user mengetik `gas`:
 - Tetap lakukan pemeriksaan minimum (`flutter analyze), kecuali user meminta skip.
 - Keluarkan hasil akhir secara ringkas.
 
+## 9A. Pemicu Mode Analisis Saja
+
+Jika user mengetik `ASK`:
+- Hanya analisis masalah dan bahas solusinya.
+- Jangan eksekusi program, command, test, migration, build, atau edit file.
+- Fokus pada diagnosis, opsi solusi, risiko, dan rekomendasi langkah berikutnya.
+- Eksekusi hanya boleh dilakukan jika user kemudian memberi instruksi baru di luar mode `ASK`.
+
 ## 10. Aturan Utilitas Bersama (`lib/utils`)
 
 Jika agent AI menambahkan `helper`, `error_classifier`, formatters, state savety,`theme`, atau `constant` baru:
