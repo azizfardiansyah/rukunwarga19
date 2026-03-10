@@ -418,25 +418,31 @@ class AppTheme {
         return textSecondary;
       case 'submitted':
       case 'forwarded_to_rw':
-      case 'verified':
       case 'approved':
       case 'approved_rt':
       case 'approved_rw':
       case 'lunas':
         return primaryColor;
       case 'completed':
+      case 'paid':
+      case 'verified':
         return successColor;
       case 'need_revision':
       case 'perlu_revisi':
       case 'revisi':
+      case 'submitted_verification':
         return accentColor;
       case 'pending':
       case 'menunggu':
+      case 'unpaid':
         return warningColor;
       case 'rejected':
       case 'ditolak':
       case 'tertunggak':
+      case 'rejected_payment':
         return errorColor;
+      case 'closed':
+        return textSecondary;
       default:
         return textSecondary;
     }

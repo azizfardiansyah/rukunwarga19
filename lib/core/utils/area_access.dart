@@ -1,6 +1,7 @@
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
+import '../../shared/models/iuran_model.dart';
 import '../../shared/models/kartu_keluarga_model.dart';
 import '../../shared/models/surat_model.dart';
 import '../../shared/models/warga_model.dart';
@@ -303,6 +304,73 @@ String buildSuratScopeFilter(
   return baseConditions.join(' && ');
 }
 
+String buildIuranPeriodScopeFilter(
+  AuthState auth, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return 'id = ""';
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return '';
+  }
+
+  if (!context.hasRegionalScope) {
+    return 'id = ""';
+  }
+
+  final baseConditions = <String>[];
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    baseConditions.add('rw = ${context.rw}');
+  } else {
+    baseConditions.add('rt = ${context.rt}');
+    baseConditions.add('rw = ${context.rw}');
+  }
+
+  baseConditions.add(_buildRegionFilter(prefix: '', context: context));
+  return baseConditions.join(' && ');
+}
+
+String buildIuranBillScopeFilter(
+  AuthState auth, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return 'id = ""';
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return '';
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    if ((context.kkId ?? '').isNotEmpty) {
+      return 'kk = "${context.kkId}"';
+    }
+    return 'id = ""';
+  }
+
+  if (!context.hasRegionalScope) {
+    return 'id = ""';
+  }
+
+  final baseConditions = <String>[];
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    baseConditions.add('rw = ${context.rw}');
+  } else {
+    baseConditions.add('rt = ${context.rt}');
+    baseConditions.add('rw = ${context.rw}');
+  }
+
+  baseConditions.add(_buildRegionFilter(prefix: '', context: context));
+  return baseConditions.join(' && ');
+}
+
 bool canAccessWargaRecord(
   AuthState auth,
   WargaModel warga, {
@@ -443,4 +511,48 @@ bool canAccessSuratRecord(
   }
 
   return surat.rt == context.rt && surat.rw == context.rw;
+}
+
+bool canAccessIuranBillRecord(
+  AuthState auth,
+  IuranBillModel bill, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return false;
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return true;
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    return (context.kkId ?? '').isNotEmpty && context.kkId == bill.kkId;
+  }
+
+  if (!context.hasRegionalScope) {
+    return false;
+  }
+
+  final matchesRegion = context.hasRegionalCodes
+      ? _matchesScopedCode(context.desaCode, bill.desaCode) &&
+            _matchesScopedCode(context.kecamatanCode, bill.kecamatanCode) &&
+            _matchesScopedCode(context.kabupatenCode, bill.kabupatenCode) &&
+            _matchesScopedCode(context.provinsiCode, bill.provinsiCode)
+      : _matchesScopedArea(context.desaKelurahan, bill.desaKelurahan) &&
+            _matchesScopedArea(context.kecamatan, bill.kecamatan) &&
+            _matchesScopedArea(context.kabupatenKota, bill.kabupatenKota) &&
+            _matchesScopedArea(context.provinsi, bill.provinsi);
+
+  if (!matchesRegion) {
+    return false;
+  }
+
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    return bill.rw == context.rw;
+  }
+
+  return bill.rt == context.rt && bill.rw == context.rw;
 }

@@ -228,7 +228,9 @@ class _SuratFormScreenState extends ConsumerState<SuratFormScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.suratId == null ? 'Ajukan Surat' : 'Edit Pengajuan Surat',
+          widget.suratId == null
+              ? 'Ajukan Surat Pengantar'
+              : 'Edit Pengajuan Surat Pengantar',
         ),
       ),
       body: AppPageBackground(
@@ -261,7 +263,7 @@ class _SuratFormScreenState extends ConsumerState<SuratFormScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const AppSectionHeader(
-                              title: 'Form Pengajuan Surat',
+                              title: 'Form Pengajuan Surat Pengantar',
                               subtitle:
                                   'Lengkapi data surat dan lampiran pendukung sesuai kebutuhan.',
                             ),

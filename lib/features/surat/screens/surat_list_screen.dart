@@ -42,7 +42,7 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
     final normalizedRole = AppConstants.normalizeRole(auth.role);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Surat')),
+      appBar: AppBar(title: const Text('Surat Pengantar')),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -149,7 +149,7 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
               }
             },
             icon: Icons.add_rounded,
-            label: 'Ajukan Surat',
+            label: 'Ajukan Surat Pengantar',
             gradientColors: const [AppTheme.primaryDark, AppTheme.primaryColor],
           );
         },

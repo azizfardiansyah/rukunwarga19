@@ -45,7 +45,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
     final role = AppConstants.normalizeRole(auth.role);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Surat')),
+      appBar: AppBar(title: const Text('Detail Surat Pengantar')),
       body: AppPageBackground(
         child: detailAsync.when(
           data: (detail) {

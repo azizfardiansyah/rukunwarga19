@@ -66,8 +66,14 @@ class AppConstants {
   static const String colSuratAttachments = 'surat_attachments';
   static const String colSuratLogs = 'surat_logs';
   static const String colSuratTemplates = 'surat_templates';
-  static const String colJenisIuran = 'jenis_iuran';
-  static const String colIuran = 'iuran';
+  static const String colIuranTypes = 'iuran_types';
+  static const String colIuranPeriods = 'iuran_periods';
+  static const String colIuranBills = 'iuran_bills';
+  static const String colIuranPayments = 'iuran_payments';
+  @Deprecated('Use colIuranTypes instead.')
+  static const String colJenisIuran = colIuranTypes;
+  @Deprecated('Use colIuranBills instead.')
+  static const String colIuran = colIuranBills;
   static const String colConversations = 'conversations';
   static const String colConversationMembers = 'conversation_members';
   static const String colMessages = 'messages';
@@ -666,15 +672,146 @@ class AppConstants {
     ),
   ];
 
-  // === STATUS IURAN ===
-  static const String iuranLunas = 'lunas';
-  static const String iuranBelumBayar = 'belum_bayar';
-  static const String iuranTertunggak = 'tertunggak';
+  // === IURAN ===
+  static const String iuranFrequencyMingguan = 'mingguan';
+  static const String iuranFrequencyBulanan = 'bulanan';
+  static const String iuranFrequencyTahunan = 'tahunan';
+  static const String iuranFrequencyInsidental = 'insidental';
 
-  // === PERIODE IURAN ===
-  static const String periodeBulanan = 'bulanan';
-  static const String periodeTahunan = 'tahunan';
-  static const String periodeInsidental = 'insidental';
+  static const String iuranPeriodDraft = 'draft';
+  static const String iuranPeriodPublished = 'published';
+  static const String iuranPeriodClosed = 'closed';
+
+  static const String iuranTargetAllScope = 'all_scope';
+  static const String iuranTargetCustomTargets = 'custom_targets';
+
+  static const String iuranBillUnpaid = 'unpaid';
+  static const String iuranBillSubmittedVerification = 'submitted_verification';
+  static const String iuranBillPaid = 'paid';
+  static const String iuranBillRejectedPayment = 'rejected_payment';
+
+  static const String iuranPaymentSubmitted = 'submitted';
+  static const String iuranPaymentVerified = 'verified';
+  static const String iuranPaymentRejected = 'rejected';
+
+  static const String iuranMethodCash = 'cash';
+  static const String iuranMethodTransfer = 'transfer';
+
+  @Deprecated('Use iuranBillPaid instead.')
+  static const String iuranLunas = iuranBillPaid;
+  @Deprecated('Use iuranBillUnpaid instead.')
+  static const String iuranBelumBayar = iuranBillUnpaid;
+  @Deprecated('Use iuranBillRejectedPayment instead.')
+  static const String iuranTertunggak = iuranBillRejectedPayment;
+
+  static const List<String> iuranFrequencies = [
+    iuranFrequencyMingguan,
+    iuranFrequencyBulanan,
+    iuranFrequencyTahunan,
+    iuranFrequencyInsidental,
+  ];
+
+  static const List<String> iuranPeriodStatuses = [
+    iuranPeriodDraft,
+    iuranPeriodPublished,
+    iuranPeriodClosed,
+  ];
+
+  static const List<String> iuranBillStatuses = [
+    iuranBillUnpaid,
+    iuranBillSubmittedVerification,
+    iuranBillPaid,
+    iuranBillRejectedPayment,
+  ];
+
+  static const List<String> iuranPaymentStatuses = [
+    iuranPaymentSubmitted,
+    iuranPaymentVerified,
+    iuranPaymentRejected,
+  ];
+
+  static const List<String> iuranPaymentMethods = [
+    iuranMethodCash,
+    iuranMethodTransfer,
+  ];
+
+  static String iuranFrequencyLabel(String value) {
+    switch (value) {
+      case iuranFrequencyMingguan:
+        return 'Mingguan';
+      case iuranFrequencyBulanan:
+        return 'Bulanan';
+      case iuranFrequencyTahunan:
+        return 'Tahunan';
+      case iuranFrequencyInsidental:
+        return 'Insidental';
+      default:
+        return value;
+    }
+  }
+
+  static String iuranPeriodStatusLabel(String value) {
+    switch (value) {
+      case iuranPeriodDraft:
+        return 'Draft';
+      case iuranPeriodPublished:
+        return 'Terbit';
+      case iuranPeriodClosed:
+        return 'Ditutup';
+      default:
+        return value;
+    }
+  }
+
+  static String iuranTargetModeLabel(String value) {
+    switch (value) {
+      case iuranTargetAllScope:
+        return 'Semua KK dalam scope';
+      case iuranTargetCustomTargets:
+        return 'KK pilihan';
+      default:
+        return value;
+    }
+  }
+
+  static String iuranBillStatusLabel(String value) {
+    switch (value) {
+      case iuranBillUnpaid:
+        return 'Belum Bayar';
+      case iuranBillSubmittedVerification:
+        return 'Menunggu Verifikasi';
+      case iuranBillPaid:
+        return 'Lunas';
+      case iuranBillRejectedPayment:
+        return 'Bukti Ditolak';
+      default:
+        return value;
+    }
+  }
+
+  static String iuranPaymentStatusLabel(String value) {
+    switch (value) {
+      case iuranPaymentSubmitted:
+        return 'Menunggu Verifikasi';
+      case iuranPaymentVerified:
+        return 'Terverifikasi';
+      case iuranPaymentRejected:
+        return 'Ditolak';
+      default:
+        return value;
+    }
+  }
+
+  static String iuranMethodLabel(String value) {
+    switch (value) {
+      case iuranMethodCash:
+        return 'Cash';
+      case iuranMethodTransfer:
+        return 'Transfer';
+      default:
+        return value;
+    }
+  }
 
   // === SUBSCRIPTION ===
   static const String subscriptionPlanAdminRtMonthly = 'admin_rt_monthly';

@@ -1,0 +1,803 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:pocketbase/pocketbase.dart';
+
+import '../../features/auth/providers/auth_provider.dart';
+import '../../shared/models/iuran_model.dart';
+import '../../shared/models/kartu_keluarga_model.dart';
+import '../constants/app_constants.dart';
+import '../services/pocketbase_service.dart';
+import '../utils/area_access.dart';
+
+class IuranDashboardSummary {
+  const IuranDashboardSummary({
+    required this.totalBills,
+    required this.paidBills,
+    required this.outstandingBills,
+    required this.pendingVerificationBills,
+    required this.totalTagihan,
+    required this.totalLunas,
+    required this.totalTunggakan,
+  });
+
+  final int totalBills;
+  final int paidBills;
+  final int outstandingBills;
+  final int pendingVerificationBills;
+  final int totalTagihan;
+  final int totalLunas;
+  final int totalTunggakan;
+}
+
+class IuranKkOption {
+  const IuranKkOption({required this.kk, this.holderName});
+
+  final KartuKeluargaModel kk;
+  final String? holderName;
+
+  String get label {
+    final holder = (holderName ?? '').trim();
+    if (holder.isEmpty) {
+      return 'No. KK ${kk.noKk}';
+    }
+    return '$holder • ${kk.noKk}';
+  }
+}
+
+class IuranFormOptions {
+  const IuranFormOptions({required this.types, required this.targets});
+
+  final List<IuranTypeModel> types;
+  final List<IuranKkOption> targets;
+}
+
+class IuranListData {
+  const IuranListData({
+    required this.types,
+    required this.periods,
+    required this.bills,
+    required this.paymentsByBill,
+    required this.pendingPayments,
+    required this.summary,
+    required this.myKkId,
+  });
+
+  final List<IuranTypeModel> types;
+  final List<IuranPeriodModel> periods;
+  final List<IuranBillModel> bills;
+  final Map<String, List<IuranPaymentModel>> paymentsByBill;
+  final List<IuranPaymentModel> pendingPayments;
+  final IuranDashboardSummary summary;
+  final String? myKkId;
+
+  Map<String, IuranPeriodModel> get periodsById => {
+    for (final period in periods) period.id: period,
+  };
+
+  Map<String, IuranTypeModel> get typesById => {
+    for (final type in types) type.id: type,
+  };
+}
+
+class IuranTypeSubmitPayload {
+  const IuranTypeSubmitPayload({
+    required this.label,
+    required this.defaultAmount,
+    required this.defaultFrequency,
+    this.description = '',
+    this.isActive = true,
+  });
+
+  final String label;
+  final int defaultAmount;
+  final String defaultFrequency;
+  final String description;
+  final bool isActive;
+}
+
+class IuranPeriodTarget {
+  const IuranPeriodTarget({required this.kkId, this.overrideAmount});
+
+  final String kkId;
+  final int? overrideAmount;
+}
+
+class IuranPeriodSubmitPayload {
+  const IuranPeriodSubmitPayload({
+    required this.typeId,
+    required this.title,
+    required this.frequency,
+    required this.defaultAmount,
+    required this.dueDate,
+    required this.targetAllScope,
+    this.description = '',
+    this.targets = const [],
+  });
+
+  final String typeId;
+  final String title;
+  final String frequency;
+  final int defaultAmount;
+  final DateTime dueDate;
+  final bool targetAllScope;
+  final String description;
+  final List<IuranPeriodTarget> targets;
+}
+
+class IuranTransferSubmitPayload {
+  const IuranTransferSubmitPayload({
+    required this.billId,
+    required this.proofFile,
+    this.note = '',
+  });
+
+  final String billId;
+  final PlatformFile proofFile;
+  final String note;
+}
+
+class IuranPaymentReviewPayload {
+  const IuranPaymentReviewPayload({required this.paymentId, this.note = ''});
+
+  final String paymentId;
+  final String note;
+}
+
+class IuranService {
+  Future<IuranListData> fetchList(AuthState auth) async {
+    if (auth.user == null) {
+      return const IuranListData(
+        types: [],
+        periods: [],
+        bills: [],
+        paymentsByBill: {},
+        pendingPayments: [],
+        summary: IuranDashboardSummary(
+          totalBills: 0,
+          paidBills: 0,
+          outstandingBills: 0,
+          pendingVerificationBills: 0,
+          totalTagihan: 0,
+          totalLunas: 0,
+          totalTunggakan: 0,
+        ),
+        myKkId: null,
+      );
+    }
+
+    final access = await resolveAreaAccessContext(auth);
+    final normalizedRole = AppConstants.normalizeRole(auth.role);
+    final billFilter = buildIuranBillScopeFilter(auth, context: access);
+
+    final billRecords = await pb
+        .collection(AppConstants.colIuranBills)
+        .getFullList(sort: '-updated,-created', filter: billFilter);
+    final bills = billRecords.map(IuranBillModel.fromRecord).toList();
+
+    List<IuranPeriodModel> periods = const [];
+    final periodIds = bills
+        .map((item) => item.periodId)
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (periodIds.isNotEmpty) {
+      final periodRecords = await pb
+          .collection(AppConstants.colIuranPeriods)
+          .getFullList(sort: '-created', filter: _orFilter('id', periodIds));
+      periods = periodRecords.map(IuranPeriodModel.fromRecord).toList();
+    } else if (normalizedRole != AppConstants.roleWarga) {
+      final periodRecords = await pb
+          .collection(AppConstants.colIuranPeriods)
+          .getFullList(
+            sort: '-created',
+            filter: buildIuranPeriodScopeFilter(auth, context: access),
+          );
+      periods = periodRecords.map(IuranPeriodModel.fromRecord).toList();
+    }
+
+    final typeRecords = await pb
+        .collection(AppConstants.colIuranTypes)
+        .getFullList(
+          sort: 'sort_order,label',
+          filter: normalizedRole == AppConstants.roleWarga
+              ? 'is_active = true'
+              : '',
+        );
+    final types = typeRecords.map(IuranTypeModel.fromRecord).toList();
+
+    final paymentsByBill = <String, List<IuranPaymentModel>>{};
+    if (bills.isNotEmpty) {
+      final paymentRecords = await pb
+          .collection(AppConstants.colIuranPayments)
+          .getFullList(
+            sort: '-created',
+            filter: _orFilter('bill', bills.map((item) => item.id).toList()),
+          );
+      for (final record in paymentRecords) {
+        final payment = IuranPaymentModel.fromRecord(record);
+        paymentsByBill.putIfAbsent(payment.billId, () => []).add(payment);
+      }
+    }
+
+    for (final entry in paymentsByBill.entries) {
+      entry.value.sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
+    }
+
+    final enrichedBills = bills
+        .map(
+          (bill) => _deriveBillStateFromPayments(
+            bill,
+            paymentsByBill[bill.id] ?? const [],
+          ),
+        )
+        .toList();
+
+    final pendingPayments =
+        paymentsByBill.values
+            .expand((entries) => entries)
+            .where((item) => item.isSubmitted)
+            .toList()
+          ..sort(
+            (a, b) => b.timelineAt.compareTo(a.timelineAt),
+          );
+
+    final totalTagihan = enrichedBills.fold<int>(
+      0,
+      (sum, item) => sum + item.amount,
+    );
+    final totalLunas = enrichedBills
+        .where((item) => item.isPaid)
+        .fold<int>(0, (sum, item) => sum + item.amount);
+    final totalTunggakan = enrichedBills
+        .where((item) => !item.isPaid)
+        .fold<int>(0, (sum, item) => sum + item.amount);
+
+    return IuranListData(
+      types: types,
+      periods: periods,
+      bills: enrichedBills,
+      paymentsByBill: paymentsByBill,
+      pendingPayments: pendingPayments,
+      myKkId: access.kkId,
+      summary: IuranDashboardSummary(
+        totalBills: enrichedBills.length,
+        paidBills: enrichedBills.where((item) => item.isPaid).length,
+        outstandingBills: enrichedBills.where((item) => !item.isPaid).length,
+        pendingVerificationBills: enrichedBills
+            .where((item) => item.isSubmittedVerification)
+            .length,
+        totalTagihan: totalTagihan,
+        totalLunas: totalLunas,
+        totalTunggakan: totalTunggakan,
+      ),
+    );
+  }
+
+  Future<IuranFormOptions> fetchFormOptions(AuthState auth) async {
+    _assertAdminAccess(auth);
+
+    final types =
+        (await pb
+                .collection(AppConstants.colIuranTypes)
+                .getFullList(sort: 'sort_order,label'))
+            .map(IuranTypeModel.fromRecord)
+            .toList();
+    final targets = await _fetchScopedKkOptions(auth);
+
+    return IuranFormOptions(types: types, targets: targets);
+  }
+
+  Future<void> createType(
+    AuthState auth,
+    IuranTypeSubmitPayload payload,
+  ) async {
+    _assertAdminAccess(auth);
+
+    final label = payload.label.trim();
+    if (label.isEmpty) {
+      throw Exception('Nama jenis iuran wajib diisi.');
+    }
+    final code = _slugify(label);
+    final existing = await _tryFindFirst(
+      AppConstants.colIuranTypes,
+      'code = "${_escapeFilterValue(code)}"',
+    );
+    if (existing != null) {
+      throw Exception('Jenis iuran dengan nama serupa sudah ada.');
+    }
+
+    await pb
+        .collection(AppConstants.colIuranTypes)
+        .create(
+          body: {
+            'code': code,
+            'label': label,
+            'description': payload.description.trim(),
+            'default_amount': payload.defaultAmount,
+            'default_frequency': payload.defaultFrequency,
+            'is_active': payload.isActive,
+            'sort_order': DateTime.now().millisecondsSinceEpoch,
+          },
+        );
+  }
+
+  Future<void> createPeriod(
+    AuthState auth,
+    IuranPeriodSubmitPayload payload,
+  ) async {
+    _assertAdminAccess(auth);
+    if (payload.defaultAmount <= 0) {
+      throw Exception('Nominal default harus lebih besar dari nol.');
+    }
+
+    final access = await resolveAreaAccessContext(auth);
+    if (!access.hasRegionalScope) {
+      throw Exception('Data wilayah admin belum lengkap.');
+    }
+
+    final typeRecord = await pb
+        .collection(AppConstants.colIuranTypes)
+        .getOne(payload.typeId);
+    final type = IuranTypeModel.fromRecord(typeRecord);
+    final kkOptions = await _fetchScopedKkOptions(auth);
+    final kkById = {for (final option in kkOptions) option.kk.id: option};
+
+    final targetOptions = payload.targetAllScope
+        ? kkOptions
+        : payload.targets
+              .map((target) => kkById[target.kkId])
+              .whereType<IuranKkOption>()
+              .toList();
+    if (targetOptions.isEmpty) {
+      throw Exception('Pilih minimal satu KK target.');
+    }
+
+    final periodRecord = await pb
+        .collection(AppConstants.colIuranPeriods)
+        .create(
+          body: {
+            'iuran_type': type.id,
+            'type_label': type.label,
+            'title': payload.title.trim(),
+            'description': payload.description.trim(),
+            'frequency': payload.frequency,
+            'default_amount': payload.defaultAmount,
+            'due_date': payload.dueDate.toIso8601String(),
+            'status': AppConstants.iuranPeriodPublished,
+            'target_mode': payload.targetAllScope
+                ? AppConstants.iuranTargetAllScope
+                : AppConstants.iuranTargetCustomTargets,
+            'created_by': auth.user!.id,
+            'published_at': DateTime.now().toIso8601String(),
+            'rt': access.rt,
+            'rw': access.rw,
+            'desa_code': access.desaCode ?? '',
+            'kecamatan_code': access.kecamatanCode ?? '',
+            'kabupaten_code': access.kabupatenCode ?? '',
+            'provinsi_code': access.provinsiCode ?? '',
+            'desa_kelurahan': access.desaKelurahan ?? '',
+            'kecamatan': access.kecamatan ?? '',
+            'kabupaten_kota': access.kabupatenKota ?? '',
+            'provinsi': access.provinsi ?? '',
+          },
+        );
+
+    final overrideMap = {
+      for (final target in payload.targets) target.kkId: target.overrideAmount,
+    };
+
+    for (final option in targetOptions) {
+      final kk = option.kk;
+      final amount = overrideMap[kk.id] ?? payload.defaultAmount;
+      final billNumber = _buildBillNumber(
+        typeCode: type.code,
+        periodId: periodRecord.id,
+        kkNumber: kk.noKk,
+      );
+
+      await pb
+          .collection(AppConstants.colIuranBills)
+          .create(
+            body: {
+              'period': periodRecord.id,
+              'iuran_type': type.id,
+              'kk': kk.id,
+              'bill_number': billNumber,
+              'title': payload.title.trim(),
+              'type_label': type.label,
+              'kk_number': kk.noKk,
+              'kk_holder_name': option.holderName ?? '',
+              'frequency': payload.frequency,
+              'amount': amount,
+              'status': AppConstants.iuranBillUnpaid,
+              'due_date': payload.dueDate.toIso8601String(),
+              'rt': int.tryParse(kk.rt),
+              'rw': int.tryParse(kk.rw),
+              'desa_code': kk.desaCode ?? '',
+              'kecamatan_code': kk.kecamatanCode ?? '',
+              'kabupaten_code': kk.kabupatenCode ?? '',
+              'provinsi_code': kk.provinsiCode ?? '',
+              'desa_kelurahan': kk.desaKelurahan ?? '',
+              'kecamatan': kk.kecamatan ?? '',
+              'kabupaten_kota': kk.kabupatenKota ?? '',
+              'provinsi': kk.provinsi ?? '',
+            },
+          );
+    }
+  }
+
+  Future<void> submitTransfer(
+    AuthState auth,
+    IuranTransferSubmitPayload payload,
+  ) async {
+    if (auth.user == null) {
+      throw Exception('User belum login.');
+    }
+
+    final access = await resolveAreaAccessContext(auth);
+    final billRecord = await _loadAuthorizedBillRecord(auth, payload.billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    if ((access.kkId ?? '').isEmpty || access.kkId != bill.kkId) {
+      throw Exception('Tagihan ini bukan milik KK Anda.');
+    }
+    if (bill.isPaid) {
+      throw Exception('Tagihan ini sudah lunas.');
+    }
+    if (bill.isSubmittedVerification) {
+      throw Exception('Bukti transfer masih menunggu verifikasi admin.');
+    }
+    await _assertNoBlockingPayment(bill.id);
+
+    final file = _toMultipartFile('proof_file', payload.proofFile);
+    await pb
+        .collection(AppConstants.colIuranPayments)
+        .create(
+          body: {
+            'bill': bill.id,
+            'kk': bill.kkId,
+            'submitted_by': auth.user!.id,
+            'method': AppConstants.iuranMethodTransfer,
+            'amount': bill.amount,
+            'note': payload.note.trim(),
+            'status': AppConstants.iuranPaymentSubmitted,
+            'submitted_at': DateTime.now().toIso8601String(),
+          },
+          files: [file],
+        );
+
+    // Best-effort sync only. Warga is blocked by collection rule and the UI
+    // derives the effective state from the latest payment record instead.
+    try {
+      await pb
+          .collection(AppConstants.colIuranBills)
+          .update(
+            bill.id,
+            body: {
+              'status': AppConstants.iuranBillSubmittedVerification,
+              'payment_method': AppConstants.iuranMethodTransfer,
+              'payer_note': payload.note.trim(),
+              'submitted_by': auth.user!.id,
+              'submitted_at': DateTime.now().toIso8601String(),
+              'rejection_note': '',
+            },
+          );
+    } catch (_) {}
+  }
+
+  Future<void> recordCashPayment(
+    AuthState auth,
+    String billId, {
+    String note = '',
+  }) async {
+    _assertAdminAccess(auth);
+    final billRecord = await _loadAuthorizedBillRecord(auth, billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    if (bill.isPaid) {
+      throw Exception('Tagihan ini sudah lunas.');
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await pb
+        .collection(AppConstants.colIuranPayments)
+        .create(
+          body: {
+            'bill': bill.id,
+            'kk': bill.kkId,
+            'submitted_by': auth.user!.id,
+            'method': AppConstants.iuranMethodCash,
+            'amount': bill.amount,
+            'note': note.trim(),
+            'review_note': 'Pembayaran cash dicatat admin.',
+            'status': AppConstants.iuranPaymentVerified,
+            'submitted_at': now,
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+          },
+        );
+
+    await pb
+        .collection(AppConstants.colIuranBills)
+        .update(
+          bill.id,
+          body: {
+            'status': AppConstants.iuranBillPaid,
+            'payment_method': AppConstants.iuranMethodCash,
+            'payer_note': note.trim(),
+            'submitted_by': auth.user!.id,
+            'submitted_at': now,
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+            'paid_at': now,
+            'rejection_note': '',
+          },
+        );
+  }
+
+  Future<void> verifyPayment(
+    AuthState auth,
+    IuranPaymentReviewPayload payload,
+  ) async {
+    _assertAdminAccess(auth);
+    final paymentRecord = await pb
+        .collection(AppConstants.colIuranPayments)
+        .getOne(payload.paymentId);
+    final payment = IuranPaymentModel.fromRecord(paymentRecord);
+    final billRecord = await _loadAuthorizedBillRecord(auth, payment.billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    if (payment.isVerified) {
+      throw Exception('Pembayaran ini sudah diverifikasi.');
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await pb
+        .collection(AppConstants.colIuranPayments)
+        .update(
+          payment.id,
+          body: {
+            'status': AppConstants.iuranPaymentVerified,
+            'review_note': payload.note.trim(),
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+            'rejection_note': '',
+          },
+        );
+
+    await pb
+        .collection(AppConstants.colIuranBills)
+        .update(
+          bill.id,
+          body: {
+            'status': AppConstants.iuranBillPaid,
+            'payment_method': payment.method,
+            'submitted_by': payment.submittedBy,
+            'submitted_at': payment.submittedAt?.toIso8601String(),
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+            'paid_at': now,
+            'payer_note': payment.note ?? '',
+            'rejection_note': '',
+          },
+        );
+  }
+
+  Future<void> rejectPayment(
+    AuthState auth,
+    IuranPaymentReviewPayload payload,
+  ) async {
+    _assertAdminAccess(auth);
+    final paymentRecord = await pb
+        .collection(AppConstants.colIuranPayments)
+        .getOne(payload.paymentId);
+    final payment = IuranPaymentModel.fromRecord(paymentRecord);
+    final billRecord = await _loadAuthorizedBillRecord(auth, payment.billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    final note = payload.note.trim();
+    if (note.isEmpty) {
+      throw Exception('Catatan penolakan wajib diisi.');
+    }
+
+    final now = DateTime.now().toIso8601String();
+    await pb
+        .collection(AppConstants.colIuranPayments)
+        .update(
+          payment.id,
+          body: {
+            'status': AppConstants.iuranPaymentRejected,
+            'review_note': note,
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+            'rejection_note': note,
+          },
+        );
+
+    await pb
+        .collection(AppConstants.colIuranBills)
+        .update(
+          bill.id,
+          body: {
+            'status': AppConstants.iuranBillRejectedPayment,
+            'payment_method': payment.method,
+            'verified_by': auth.user!.id,
+            'verified_at': now,
+            'rejection_note': note,
+          },
+        );
+  }
+
+  Future<List<IuranKkOption>> _fetchScopedKkOptions(AuthState auth) async {
+    final access = await resolveAreaAccessContext(auth);
+    final kkRecords = await pb
+        .collection(AppConstants.colKartuKeluarga)
+        .getFullList(
+          sort: 'rw,rt,no_kk',
+          filter: buildKkScopeFilter(auth, context: access),
+        );
+    if (kkRecords.isEmpty) {
+      return const [];
+    }
+
+    final kepalaIds = kkRecords
+        .map((record) => record.getStringValue('kepala_keluarga'))
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    final wargaNameById = <String, String>{};
+    if (kepalaIds.isNotEmpty) {
+      final wargaRecords = await pb
+          .collection(AppConstants.colWarga)
+          .getFullList(filter: _orFilter('id', kepalaIds));
+      for (final record in wargaRecords) {
+        wargaNameById[record.id] = record.getStringValue('nama_lengkap');
+      }
+    }
+
+    return kkRecords.map((record) {
+      final kk = KartuKeluargaModel.fromRecord(record);
+      final kepalaId = record.getStringValue('kepala_keluarga');
+      return IuranKkOption(kk: kk, holderName: wargaNameById[kepalaId]);
+    }).toList();
+  }
+
+  Future<RecordModel> _loadAuthorizedBillRecord(
+    AuthState auth,
+    String billId,
+  ) async {
+    final access = await resolveAreaAccessContext(auth);
+    final billRecord = await pb
+        .collection(AppConstants.colIuranBills)
+        .getOne(billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    if (!canAccessIuranBillRecord(auth, bill, context: access)) {
+      throw Exception('Anda tidak memiliki akses ke tagihan ini.');
+    }
+    return billRecord;
+  }
+
+  void _assertAdminAccess(AuthState auth) {
+    if (auth.user == null || !AppConstants.isAdminRole(auth.role)) {
+      throw Exception('Hanya admin yang dapat mengelola iuran.');
+    }
+  }
+
+  http.MultipartFile _toMultipartFile(String field, PlatformFile file) {
+    final bytes = file.bytes;
+    if (bytes == null) {
+      throw Exception('File ${file.name} tidak dapat dibaca.');
+    }
+    return http.MultipartFile.fromBytes(field, bytes, filename: file.name);
+  }
+
+  Future<RecordModel?> _tryFindFirst(String collection, String filter) async {
+    try {
+      return await pb.collection(collection).getFirstListItem(filter);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _buildBillNumber({
+    required String typeCode,
+    required String periodId,
+    required String kkNumber,
+  }) {
+    final suffix = kkNumber.length >= 4
+        ? kkNumber.substring(kkNumber.length - 4)
+        : kkNumber;
+    return 'IUR-${typeCode.toUpperCase()}-${periodId.substring(0, 4).toUpperCase()}-$suffix';
+  }
+
+  String _slugify(String value) {
+    final lower = value.trim().toLowerCase();
+    final sanitized = lower.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return sanitized.replaceAll(RegExp(r'^_+|_+$'), '');
+  }
+
+  String _orFilter(String field, List<String> ids) {
+    return ids
+        .where((id) => id.trim().isNotEmpty)
+        .map((id) => '$field = "${_escapeFilterValue(id)}"')
+        .join(' || ');
+  }
+
+  String _escapeFilterValue(String value) {
+    return value.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+  }
+
+  Future<void> _assertNoBlockingPayment(String billId) async {
+    final paymentRecords = await pb
+        .collection(AppConstants.colIuranPayments)
+        .getFullList(
+          sort: '-created',
+          filter: 'bill = "${_escapeFilterValue(billId)}"',
+        );
+    if (paymentRecords.isEmpty) {
+      return;
+    }
+
+    final latestPayment = IuranPaymentModel.fromRecord(paymentRecords.first);
+    if (latestPayment.isSubmitted) {
+      throw Exception('Bukti transfer masih menunggu verifikasi admin.');
+    }
+    if (latestPayment.isVerified) {
+      throw Exception('Tagihan ini sudah tercatat lunas.');
+    }
+  }
+
+  IuranBillModel _deriveBillStateFromPayments(
+    IuranBillModel bill,
+    List<IuranPaymentModel> payments,
+  ) {
+    if (payments.isEmpty) {
+      return bill;
+    }
+
+    final latestPayment = payments.first;
+    if (latestPayment.isVerified) {
+      return bill.copyWith(
+        status: AppConstants.iuranBillPaid,
+        paymentMethod: latestPayment.method,
+        payerNote: latestPayment.note ?? bill.payerNote,
+        submittedBy: latestPayment.submittedBy,
+        submittedAt: latestPayment.submittedAt,
+        verifiedBy: latestPayment.verifiedBy,
+        verifiedAt: latestPayment.verifiedAt,
+        rejectionNote: '',
+        paidAt: latestPayment.verifiedAt ?? latestPayment.submittedAt,
+        updated: latestPayment.updated ?? bill.updated,
+      );
+    }
+    if (latestPayment.isSubmitted) {
+      return bill.copyWith(
+        status: AppConstants.iuranBillSubmittedVerification,
+        paymentMethod: latestPayment.method,
+        payerNote: latestPayment.note ?? bill.payerNote,
+        submittedBy: latestPayment.submittedBy,
+        submittedAt: latestPayment.submittedAt,
+        rejectionNote: '',
+        updated: latestPayment.updated ?? bill.updated,
+      );
+    }
+    if (latestPayment.isRejected && !bill.isPaid) {
+      return bill.copyWith(
+        status: AppConstants.iuranBillRejectedPayment,
+        paymentMethod: latestPayment.method,
+        payerNote: latestPayment.note ?? bill.payerNote,
+        submittedBy: latestPayment.submittedBy,
+        submittedAt: latestPayment.submittedAt,
+        verifiedBy: latestPayment.verifiedBy,
+        verifiedAt: latestPayment.verifiedAt,
+        rejectionNote:
+            latestPayment.rejectionNote ??
+            latestPayment.reviewNote ??
+            bill.rejectionNote,
+        updated: latestPayment.updated ?? bill.updated,
+      );
+    }
+
+    return bill;
+  }
+}
+
+final iuranServiceProvider = Provider<IuranService>((ref) => IuranService());

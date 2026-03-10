@@ -271,7 +271,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       const SizedBox(width: 10),
                       _StatCard(
                         icon: Icons.description_rounded,
-                        label: 'Surat',
+                        label: 'Surat Pengantar',
                         value: suratSummaryAsync.maybeWhen(
                           data: (summary) => summary.actionRequired.toString(),
                           orElse: () => '...',
@@ -341,7 +341,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                     _MenuCard(
                       icon: Icons.description_rounded,
-                      label: 'Surat',
+                      label: 'Surat Pengantar',
                       tone: const Color(0xFF64748B),
                       onTap: () => context.push(Routes.surat),
                     ),
@@ -472,7 +472,7 @@ class _SuratSummaryCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Ringkasan Surat', style: AppTheme.heading3),
+                    Text('Ringkasan Surat Pengantar', style: AppTheme.heading3),
                     const SizedBox(height: 2),
                     Text(
                       'Pantau antrean surat dan progres penyelesaiannya.',
