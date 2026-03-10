@@ -12,11 +12,12 @@ import 'package:pocketbase/pocketbase.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/indonesia_region_dataset_service.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
-import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../models/parsed_kk_member.dart';
 import '../services/kk_ocr_service.dart';
@@ -60,6 +61,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   List<String> _kecamatanSuggestions = const [];
   List<String> _kabupatenKotaSuggestions = const [];
   List<String> _provinsiSuggestions = const [];
+  IndonesiaRegionDataset? _wilayahDataset;
 
   bool get _isEdit => widget.kkId != null;
 
@@ -133,6 +135,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             : record.getStringValue('kota');
         _provinsiCtrl.text = record.getStringValue('provinsi');
         _existingScanKk = record.getStringValue('scan_kk');
+        _syncAreaSuggestions();
       });
     } catch (e) {
       if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
@@ -142,41 +145,60 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   }
 
   Future<void> _loadAreaSuggestions() async {
-    final auth = ref.read(authProvider);
-    if (auth.user == null) {
-      return;
-    }
-
     try {
-      final access = await resolveAreaAccessContext(auth);
-      final records = await pb
-          .collection(AppConstants.colKartuKeluarga)
-          .getFullList(
-            sort: '-updated',
-            filter: buildKkScopeFilter(auth, context: access),
-            fields:
-                'id,desa_kelurahan,kelurahan,kecamatan,kabupaten_kota,kota,provinsi',
-          );
-      final kkList = records.map(KartuKeluargaModel.fromRecord).toList();
+      final dataset = await IndonesiaRegionDatasetService.load();
       if (!mounted) {
         return;
       }
 
       setState(() {
-        _kelurahanSuggestions = _uniqueSuggestions(
-          kkList.map((item) => item.desaKelurahan),
-        );
-        _kecamatanSuggestions = _uniqueSuggestions(
-          kkList.map((item) => item.kecamatan),
-        );
-        _kabupatenKotaSuggestions = _uniqueSuggestions(
-          kkList.map((item) => item.kabupatenKota),
-        );
-        _provinsiSuggestions = _uniqueSuggestions(
-          kkList.map((item) => item.provinsi),
-        );
+        _wilayahDataset = dataset;
+        _syncAreaSuggestions();
       });
-    } catch (_) {}
+    } catch (_) {
+      final auth = ref.read(authProvider);
+      if (auth.user == null) {
+        return;
+      }
+
+      try {
+        final access = await resolveAreaAccessContext(auth);
+        final records = await pb
+            .collection(AppConstants.colKartuKeluarga)
+            .getFullList(
+              sort: '-updated',
+              filter: buildKkScopeFilter(auth, context: access),
+              fields:
+                  'id,desa_kelurahan,kelurahan,kecamatan,kabupaten_kota,kota,provinsi',
+            );
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _kelurahanSuggestions = _uniqueSuggestions(
+            records.map(
+              (item) => item.getStringValue('desa_kelurahan').isNotEmpty
+                  ? item.getStringValue('desa_kelurahan')
+                  : item.getStringValue('kelurahan'),
+            ),
+          );
+          _kecamatanSuggestions = _uniqueSuggestions(
+            records.map((item) => item.getStringValue('kecamatan')),
+          );
+          _kabupatenKotaSuggestions = _uniqueSuggestions(
+            records.map(
+              (item) => item.getStringValue('kabupaten_kota').isNotEmpty
+                  ? item.getStringValue('kabupaten_kota')
+                  : item.getStringValue('kota'),
+            ),
+          );
+          _provinsiSuggestions = _uniqueSuggestions(
+            records.map((item) => item.getStringValue('provinsi')),
+          );
+        });
+      } catch (_) {}
+    }
   }
 
   List<String> _uniqueSuggestions(Iterable<String?> values) {
@@ -219,11 +241,103 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     return [...startsWith, ...contains].take(6).toList();
   }
 
-  void _applySuggestion(TextEditingController controller, String value) {
+  void _applySuggestion(
+    TextEditingController controller,
+    String value, {
+    FocusNode? focusNode,
+    ValueChanged<String>? onChanged,
+  }) {
     controller
       ..text = value
       ..selection = TextSelection.collapsed(offset: value.length);
-    setState(() {});
+    onChanged?.call(value);
+    setState(_syncAreaSuggestions);
+    focusNode?.unfocus();
+  }
+
+  void _syncAreaSuggestions() {
+    final dataset = _wilayahDataset;
+    if (dataset == null) {
+      return;
+    }
+
+    _provinsiSuggestions = dataset.provinceNames();
+    _kabupatenKotaSuggestions = dataset.regencyNames(
+      provinceName: _provinsiCtrl.text,
+    );
+    _kecamatanSuggestions = dataset.districtNames(
+      provinceName: _provinsiCtrl.text,
+      regencyName: _kabupatenKotaCtrl.text,
+    );
+    _kelurahanSuggestions = dataset.villageNames(
+      provinceName: _provinsiCtrl.text,
+      regencyName: _kabupatenKotaCtrl.text,
+      districtName: _kecamatanCtrl.text,
+    );
+  }
+
+  void _onAreaFieldChanged(String _) {
+    setState(_syncAreaSuggestions);
+  }
+
+  ({
+    RegionEntry province,
+    RegionEntry regency,
+    RegionEntry district,
+    RegionEntry village,
+  })?
+  _resolveSelectedWilayahEntries() {
+    final dataset = _wilayahDataset;
+    if (dataset == null) {
+      return null;
+    }
+
+    final province = dataset.findProvince(_provinsiCtrl.text);
+    if (province == null) {
+      return null;
+    }
+
+    final regency = dataset.findRegency(
+      _kabupatenKotaCtrl.text,
+      provinceName: province.name,
+    );
+    if (regency == null) {
+      return null;
+    }
+
+    final district = dataset.findDistrict(
+      _kecamatanCtrl.text,
+      provinceName: province.name,
+      regencyName: regency.name,
+    );
+    if (district == null) {
+      return null;
+    }
+
+    final village = dataset.findVillage(
+      villageName: _kelurahanCtrl.text,
+      provinceName: province.name,
+      regencyName: regency.name,
+      districtName: district.name,
+    );
+    if (village == null) {
+      return null;
+    }
+
+    return (
+      province: province,
+      regency: regency,
+      district: district,
+      village: village,
+    );
+  }
+
+  bool _isValidWilayahFromDataset() {
+    if (_wilayahDataset == null) {
+      return true;
+    }
+
+    return _resolveSelectedWilayahEntries() != null;
   }
 
   Future<void> _pickImageFromDevice(ImageSource source) async {
@@ -467,6 +581,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       _kabupatenKotaCtrl.text = parsed.kabupatenKota.trim();
       _provinsiCtrl.text = parsed.provinsi.trim();
       _parsedMembers = parsed.members;
+      _syncAreaSuggestions();
     });
   }
 
@@ -522,6 +637,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     }
     if (!_isProvinsiValid) {
       issues.add('Provinsi belum diisi.');
+    }
+    if (_wilayahDataset != null && !_isValidWilayahFromDataset()) {
+      issues.add(
+        'Kombinasi desa/kecamatan/kabupaten/provinsi belum cocok dengan dataset wilayah Indonesia.',
+      );
     }
 
     return issues;
@@ -663,25 +783,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
   }
 
   String? _normalizeTanggalLahirToIso(String input) {
-    final raw = input.trim();
-    if (raw.isEmpty) return null;
-
-    final match = RegExp(
-      r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$',
-    ).firstMatch(raw);
-    if (match == null) return null;
-
-    final day = int.tryParse(match.group(1) ?? '');
-    final month = int.tryParse(match.group(2) ?? '');
-    final yearRaw = int.tryParse(match.group(3) ?? '');
-    if (day == null || month == null || yearRaw == null) return null;
-    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-
-    final year = yearRaw < 100
-        ? (yearRaw <= 30 ? 2000 + yearRaw : 1900 + yearRaw)
-        : yearRaw;
-    final date = DateTime(year, month, day);
-    return date.toIso8601String();
+    final parsed = Formatters.parseTanggalInput(input);
+    return parsed?.toIso8601String();
   }
 
   String _mapAgamaForStorage(String input) {
@@ -699,6 +802,18 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       return 'Islam'; // Fallback, not in DB
     }
     return AppConstants.daftarAgama.first;
+  }
+
+  String _mapGolonganDarahForStorage(String input) {
+    final upper = input.trim().toUpperCase();
+    if (upper.isEmpty || upper == '-' || upper.contains('TIDAK')) {
+      return AppConstants.daftarGolonganDarah.last;
+    }
+    if (upper.contains('AB')) return 'AB';
+    if (upper == '0' || upper.contains(' O') || upper == 'O') return 'O';
+    if (upper.contains('A')) return 'A';
+    if (upper.contains('B')) return 'B';
+    return AppConstants.daftarGolonganDarah.last;
   }
 
   /// Maps any hubungan value (from OCR or user input) to the PocketBase
@@ -750,6 +865,117 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           anggotaId,
           body: {'hubungan': _mapHubunganForStorage(hubungan)},
         );
+  }
+
+  Future<RecordModel?> _findExistingKkDokumen(String wargaId) async {
+    try {
+      final records = await pb
+          .collection(AppConstants.colDokumen)
+          .getList(
+            page: 1,
+            perPage: 1,
+            sort: '-updated',
+            filter:
+                'warga = "$wargaId" && jenis = "${AppConstants.jenisDokumen[1]}"',
+          );
+
+      if (records.items.isEmpty) {
+        return null;
+      }
+
+      return records.items.first;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<http.MultipartFile?> _buildKkDokumenFile(RecordModel kkRecord) async {
+    if (_scanBytes != null && (_scanFilename ?? '').isNotEmpty) {
+      return http.MultipartFile.fromBytes(
+        'file',
+        _scanBytes!,
+        filename: _scanFilename,
+      );
+    }
+
+    final storedFilename = kkRecord.getStringValue('scan_kk');
+    if (storedFilename.isEmpty) {
+      return null;
+    }
+
+    final response = await http.get(
+      Uri.parse(getFileUrl(kkRecord, storedFilename)),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Gagal mengambil file scan KK untuk sinkronisasi dokumen.',
+      );
+    }
+
+    return http.MultipartFile.fromBytes(
+      'file',
+      response.bodyBytes,
+      filename: storedFilename,
+    );
+  }
+
+  Future<void> _syncKkDokumen({
+    required RecordModel kkRecord,
+    required String wargaId,
+  }) async {
+    if (wargaId.trim().isEmpty) {
+      return;
+    }
+
+    final existingDokumen = await _findExistingKkDokumen(wargaId);
+    final uploadFile = await _buildKkDokumenFile(kkRecord);
+    final hasFreshScan = _scanBytes != null && (_scanFilename ?? '').isNotEmpty;
+    final baseBody = <String, dynamic>{
+      'warga': wargaId,
+      'jenis': 'Kartu Keluarga',
+    };
+
+    if (existingDokumen == null) {
+      if (uploadFile == null) {
+        return;
+      }
+
+      await pb
+          .collection(AppConstants.colDokumen)
+          .create(
+            body: {
+              ...baseBody,
+              'status_verifikasi': AppConstants.statusPending,
+              'catatan': '',
+              'diverifikasi_oleh': null,
+              'tanggal_verifikasi': null,
+            },
+            files: [uploadFile],
+          );
+      return;
+    }
+
+    if (uploadFile != null &&
+        (hasFreshScan || existingDokumen.getStringValue('file').isEmpty)) {
+      await pb
+          .collection(AppConstants.colDokumen)
+          .update(
+            existingDokumen.id,
+            body: {
+              ...baseBody,
+              'status_verifikasi': AppConstants.statusPending,
+              'catatan': '',
+              'diverifikasi_oleh': null,
+              'tanggal_verifikasi': null,
+            },
+            files: [uploadFile],
+          );
+      return;
+    }
+
+    await pb
+        .collection(AppConstants.colDokumen)
+        .update(existingDokumen.id, body: baseBody);
   }
 
   String _slugFirstName(String fullName) {
@@ -866,7 +1092,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'rt': rtNumber,
         'rw': rwNumber,
         'pendidikan': member.pendidikan.trim(),
-        'golongan_darah': member.golonganDarah.trim(),
+        'golongan_darah': _mapGolonganDarahForStorage(member.golonganDarah),
         'no_hp': null,
         'email': userEmail,
         'user_id': userId,
@@ -914,10 +1140,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     final namaCtrl = TextEditingController(text: member.nama);
     final nikCtrl = TextEditingController(text: member.nik);
     final tempatLahirCtrl = TextEditingController(text: member.tempatLahir);
-    final tanggalLahirCtrl = TextEditingController(text: member.tanggalLahir);
     final pendidikanCtrl = TextEditingController(text: member.pendidikan);
     final pekerjaanCtrl = TextEditingController(text: member.jenisPekerjaan);
-    final golonganDarahCtrl = TextEditingController(text: member.golonganDarah);
 
     var jenisKelamin = member.jenisKelamin.trim().toLowerCase() == 'perempuan'
         ? 'Perempuan'
@@ -937,6 +1161,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
       agama = AppConstants.daftarAgama.first;
     }
 
+    var golonganDarah = _mapGolonganDarahForStorage(
+      member.golonganDarah.isNotEmpty ? member.golonganDarah : '',
+    );
+    if (!AppConstants.daftarGolonganDarah.contains(golonganDarah)) {
+      golonganDarah = AppConstants.daftarGolonganDarah.last;
+    }
+
+    var tanggalLahir =
+        Formatters.parseTanggalInput(member.tanggalLahir.trim()) ??
+        Formatters.parseTanggal(member.tanggalLahir.trim());
+
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -952,13 +1187,19 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               TextInputType keyboardType = TextInputType.text,
               String? hintText,
               IconData? prefixIcon,
+              bool readOnly = false,
+              VoidCallback? onTap,
+              Widget? suffixIcon,
             }) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.only(bottom: 10),
                 child: TextField(
                   controller: controller,
                   enabled: isEditing,
+                  readOnly: readOnly || onTap != null,
+                  showCursor: !(readOnly || onTap != null),
                   keyboardType: keyboardType,
+                  onTap: isEditing ? onTap : null,
                   style: const TextStyle(fontSize: 14),
                   decoration: InputDecoration(
                     labelText: label,
@@ -970,13 +1211,14 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                             color: AppTheme.primaryColor,
                           )
                         : null,
+                    suffixIcon: suffixIcon,
                     filled: true,
                     fillColor: isEditing
                         ? Colors.white
                         : const Color(0xFFF5F7FA),
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
+                      horizontal: 14,
+                      vertical: 13,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -1016,7 +1258,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               IconData? prefixIcon,
             }) {
               return Padding(
-                padding: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.only(bottom: 10),
                 child: InputDecorator(
                   decoration: InputDecoration(
                     labelText: label,
@@ -1032,8 +1274,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         ? Colors.white
                         : const Color(0xFFF5F7FA),
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
+                      horizontal: 14,
+                      vertical: 2,
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -1074,6 +1316,93 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               );
             }
 
+            Widget buildDateField() {
+              final hasTanggal = tanggalLahir != null;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: InkWell(
+                  onTap: !isEditing
+                      ? null
+                      : () async {
+                          final picked = await showDatePicker(
+                            context: sheetContext,
+                            initialDate:
+                                tanggalLahir ??
+                                DateTime.now().subtract(
+                                  const Duration(days: 365 * 25),
+                                ),
+                            firstDate: DateTime(1900),
+                            lastDate: DateTime.now(),
+                          );
+                          if (picked == null) return;
+                          setSheetState(() => tanggalLahir = picked);
+                        },
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Tgl Lahir',
+                      prefixIcon: const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 20,
+                        color: AppTheme.primaryColor,
+                      ),
+                      suffixIcon: isEditing
+                          ? const Icon(
+                              Icons.expand_more_rounded,
+                              color: AppTheme.textSecondary,
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: isEditing
+                          ? Colors.white
+                          : const Color(0xFFF5F7FA),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: AppTheme.dividerColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: AppTheme.dividerColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: AppTheme.primaryColor,
+                          width: 1.5,
+                        ),
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: AppTheme.dividerColor.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      labelStyle: const TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    child: Text(
+                      hasTanggal
+                          ? Formatters.tanggalInput(tanggalLahir!)
+                          : 'Pilih tanggal',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: hasTanggal
+                            ? AppTheme.textPrimary
+                            : AppTheme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
             Future<void> saveMember() async {
               final nama = namaCtrl.text.trim();
               final nik = nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
@@ -1098,6 +1427,13 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 );
                 return;
               }
+              if (tanggalLahir == null) {
+                ErrorClassifier.showErrorSnackBar(
+                  sheetContext,
+                  'Tanggal lahir anggota wajib dipilih.',
+                );
+                return;
+              }
 
               final updatedMember = member.copyWith(
                 nama: nama,
@@ -1105,11 +1441,11 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                 hubungan: hubungan,
                 jenisKelamin: jenisKelamin,
                 tempatLahir: tempatLahirCtrl.text.trim(),
-                tanggalLahir: tanggalLahirCtrl.text.trim(),
+                tanggalLahir: Formatters.tanggalInput(tanggalLahir!),
                 agama: agama,
                 pendidikan: pendidikanCtrl.text.trim(),
                 jenisPekerjaan: pekerjaanCtrl.text.trim(),
-                golonganDarah: golonganDarahCtrl.text.trim(),
+                golonganDarah: golonganDarah,
               );
               setState(() {
                 final updated = [..._parsedMembers];
@@ -1133,10 +1469,12 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               namaCtrl.text = member.nama;
               nikCtrl.text = member.nik;
               tempatLahirCtrl.text = member.tempatLahir;
-              tanggalLahirCtrl.text = member.tanggalLahir;
               pendidikanCtrl.text = member.pendidikan;
               pekerjaanCtrl.text = member.jenisPekerjaan;
-              golonganDarahCtrl.text = member.golonganDarah;
+              tanggalLahir =
+                  Formatters.parseTanggalInput(member.tanggalLahir) ??
+                  Formatters.parseTanggal(member.tanggalLahir);
+              golonganDarah = _mapGolonganDarahForStorage(member.golonganDarah);
               jenisKelamin =
                   member.jenisKelamin.trim().toLowerCase() == 'perempuan'
                   ? 'Perempuan'
@@ -1315,41 +1653,60 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                                     prefixIcon: Icons.location_city_rounded,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 8),
+                                Expanded(child: buildDateField()),
+                              ],
+                            ),
+                            Row(
+                              children: [
                                 Expanded(
-                                  child: buildField(
-                                    label: 'Tgl Lahir',
-                                    controller: tanggalLahirCtrl,
-                                    hintText: 'DD-MM-YYYY',
-                                    prefixIcon: Icons.calendar_today_rounded,
+                                  flex: 2,
+                                  child: buildDropdown(
+                                    label: 'Agama',
+                                    value: agama,
+                                    items: AppConstants.daftarAgama,
+                                    prefixIcon: Icons.auto_awesome_rounded,
+                                    onChanged: (v) {
+                                      if (v == null) return;
+                                      setSheetState(() => agama = v);
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: buildDropdown(
+                                    label: 'Golongan Darah',
+                                    value: golonganDarah,
+                                    items: AppConstants.daftarGolonganDarah,
+                                    prefixIcon: Icons.bloodtype_rounded,
+                                    onChanged: (v) {
+                                      if (v == null) return;
+                                      setSheetState(() => golonganDarah = v);
+                                    },
                                   ),
                                 ),
                               ],
                             ),
-                            buildDropdown(
-                              label: 'Agama',
-                              value: agama,
-                              items: AppConstants.daftarAgama,
-                              prefixIcon: Icons.auto_awesome_rounded,
-                              onChanged: (v) {
-                                if (v == null) return;
-                                setSheetState(() => agama = v);
-                              },
-                            ),
-                            buildField(
-                              label: 'Pendidikan',
-                              controller: pendidikanCtrl,
-                              prefixIcon: Icons.school_rounded,
-                            ),
-                            buildField(
-                              label: 'Jenis Pekerjaan',
-                              controller: pekerjaanCtrl,
-                              prefixIcon: Icons.work_rounded,
-                            ),
-                            buildField(
-                              label: 'Golongan Darah',
-                              controller: golonganDarahCtrl,
-                              prefixIcon: Icons.bloodtype_rounded,
+                            Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: buildField(
+                                    label: 'Pendidikan',
+                                    controller: pendidikanCtrl,
+                                    prefixIcon: Icons.school_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  flex: 3,
+                                  child: buildField(
+                                    label: 'Jenis Pekerjaan',
+                                    controller: pekerjaanCtrl,
+                                    prefixIcon: Icons.work_rounded,
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 8),
                             // Action buttons
@@ -1497,6 +1854,12 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
           rwNumber == 0) {
         throw Exception('RT/RW tidak valid.');
       }
+      final selectedWilayah = _resolveSelectedWilayahEntries();
+      if (_wilayahDataset != null && selectedWilayah == null) {
+        throw Exception(
+          'Wilayah belum cocok dengan dataset Indonesia. Pilih ulang desa, kecamatan, kabupaten/kota, dan provinsi.',
+        );
+      }
       final existing = await pb
           .collection(AppConstants.colKartuKeluarga)
           .getList(
@@ -1517,10 +1880,17 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
         'alamat': _alamatCtrl.text.trim(),
         'rt': rtNumber,
         'rw': rwNumber,
-        'desa_kelurahan': _kelurahanCtrl.text.trim(),
-        'kecamatan': _kecamatanCtrl.text.trim(),
-        'kabupaten_kota': _kabupatenKotaCtrl.text.trim(),
-        'provinsi': _provinsiCtrl.text.trim(),
+        'desa_kelurahan':
+            selectedWilayah?.village.name ?? _kelurahanCtrl.text.trim(),
+        'kecamatan':
+            selectedWilayah?.district.name ?? _kecamatanCtrl.text.trim(),
+        'kabupaten_kota':
+            selectedWilayah?.regency.name ?? _kabupatenKotaCtrl.text.trim(),
+        'provinsi': selectedWilayah?.province.name ?? _provinsiCtrl.text.trim(),
+        'desa_code': selectedWilayah?.village.id ?? '',
+        'kecamatan_code': selectedWilayah?.district.id ?? '',
+        'kabupaten_code': selectedWilayah?.regency.id ?? '',
+        'provinsi_code': selectedWilayah?.province.id ?? '',
         'user_id': userId,
       };
 
@@ -1555,6 +1925,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
               kkRecord.id,
               body: {'kepala_keluarga': kepalaKeluargaWargaId},
             );
+        await _syncKkDokumen(
+          kkRecord: kkRecord,
+          wargaId: kepalaKeluargaWargaId,
+        );
       }
 
       if (mounted) {
@@ -1585,11 +1959,10 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     int maxLines = 1,
     List<String> suggestions = const [],
     FocusNode? focusNode,
+    ValueChanged<String>? onChanged,
   }) {
     final color = isValid ? AppTheme.successColor : AppTheme.errorColor;
-    final matches = (focusNode?.hasFocus ?? false)
-        ? _matchingSuggestions(controller.text, suggestions)
-        : const <String>[];
+    final matches = _matchingSuggestions(controller.text, suggestions);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1601,7 +1974,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             focusNode: focusNode,
             keyboardType: keyboardType,
             maxLines: maxLines,
-            onChanged: (_) => setState(() {}),
+            onChanged: onChanged ?? (_) => setState(() {}),
             decoration: InputDecoration(
               labelText: label,
               hintText: suggestions.isEmpty ? null : 'Ketik minimal 2 huruf',
@@ -1631,34 +2004,79 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
             ),
           ),
           if (matches.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: matches
-                    .map(
-                      (option) => ActionChip(
-                        onPressed: () => _applySuggestion(controller, option),
-                        backgroundColor: AppTheme.primaryColor.withValues(
-                          alpha: 0.08,
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                border: Border.all(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.18),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  for (var index = 0; index < matches.length; index++) ...[
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _applySuggestion(
+                          controller,
+                          matches[index],
+                          focusNode: focusNode,
+                          onChanged: onChanged,
                         ),
-                        side: BorderSide(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusSmall,
                         ),
-                        labelStyle: AppTheme.caption.copyWith(
-                          color: AppTheme.primaryColor,
-                          fontWeight: FontWeight.w600,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.place_rounded,
+                                size: 16,
+                                color: AppTheme.primaryColor,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  matches[index],
+                                  style: AppTheme.bodySmall.copyWith(
+                                    color: AppTheme.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                'Pilih',
+                                style: AppTheme.caption.copyWith(
+                                  color: AppTheme.primaryColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        avatar: const Icon(
-                          Icons.north_west_rounded,
-                          size: 14,
-                          color: AppTheme.primaryColor,
-                        ),
-                        label: Text(option),
                       ),
-                    )
-                    .toList(),
+                    ),
+                    if (index != matches.length - 1)
+                      Divider(
+                        height: 1,
+                        thickness: 1,
+                        color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                      ),
+                  ],
+                ],
               ),
             ),
         ],
@@ -1781,6 +2199,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKelurahanValid,
                         focusNode: _kelurahanFocusNode,
                         suggestions: _kelurahanSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1792,6 +2211,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKecamatanValid,
                         focusNode: _kecamatanFocusNode,
                         suggestions: _kecamatanSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                   ],
@@ -1806,6 +2226,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKabupatenKotaValid,
                         focusNode: _kabupatenKotaFocusNode,
                         suggestions: _kabupatenKotaSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1816,6 +2237,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isProvinsiValid,
                         focusNode: _provinsiFocusNode,
                         suggestions: _provinsiSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                   ],
@@ -2025,6 +2447,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKelurahanValid,
                         focusNode: _kelurahanFocusNode,
                         suggestions: _kelurahanSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -2036,6 +2459,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKecamatanValid,
                         focusNode: _kecamatanFocusNode,
                         suggestions: _kecamatanSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                   ],
@@ -2049,6 +2473,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isKabupatenKotaValid,
                         focusNode: _kabupatenKotaFocusNode,
                         suggestions: _kabupatenKotaSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -2059,6 +2484,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                         isValid: _isProvinsiValid,
                         focusNode: _provinsiFocusNode,
                         suggestions: _provinsiSuggestions,
+                        onChanged: _onAreaFieldChanged,
                       ),
                     ),
                   ],

@@ -330,6 +330,9 @@ class AppConstants {
     'Khatolik',
   ];
 
+  // === GOLONGAN DARAH ===
+  static const List<String> daftarGolonganDarah = ['A', 'B', 'AB', 'O', '-'];
+
   // === STATUS PERNIKAHAN (sesuai PocketBase select field warga.status_pernikahan) ===
   static const List<String> statusPernikahan = [
     'Menikah',

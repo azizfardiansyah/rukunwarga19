@@ -10,6 +10,10 @@ class AreaAccessContext {
   const AreaAccessContext({
     this.rt,
     this.rw,
+    this.desaCode,
+    this.kecamatanCode,
+    this.kabupatenCode,
+    this.provinsiCode,
     this.desaKelurahan,
     this.kecamatan,
     this.kabupatenKota,
@@ -20,6 +24,10 @@ class AreaAccessContext {
 
   final int? rt;
   final int? rw;
+  final String? desaCode;
+  final String? kecamatanCode;
+  final String? kabupatenCode;
+  final String? provinsiCode;
   final String? desaKelurahan;
   final String? kecamatan;
   final String? kabupatenKota;
@@ -28,12 +36,19 @@ class AreaAccessContext {
   final String? kkId;
 
   bool get hasArea => rt != null && rw != null && rt! > 0 && rw! > 0;
-  bool get hasRegionalScope =>
+  bool get hasRegionalCodes =>
+      hasArea &&
+      (desaCode ?? '').trim().isNotEmpty &&
+      (kecamatanCode ?? '').trim().isNotEmpty &&
+      (kabupatenCode ?? '').trim().isNotEmpty &&
+      (provinsiCode ?? '').trim().isNotEmpty;
+  bool get hasRegionalNames =>
       hasArea &&
       (desaKelurahan ?? '').trim().isNotEmpty &&
       (kecamatan ?? '').trim().isNotEmpty &&
       (kabupatenKota ?? '').trim().isNotEmpty &&
       (provinsi ?? '').trim().isNotEmpty;
+  bool get hasRegionalScope => hasRegionalCodes || hasRegionalNames;
 }
 
 int? recordNumericField(RecordModel record, String field) {
@@ -59,6 +74,15 @@ String _normalizeAreaValue(String? value) {
   return (value ?? '').trim().toLowerCase();
 }
 
+bool _matchesScopedCode(String? expected, String? actual) {
+  final normalizedExpected = (expected ?? '').trim();
+  final normalizedActual = (actual ?? '').trim();
+  if (normalizedExpected.isEmpty || normalizedActual.isEmpty) {
+    return false;
+  }
+  return normalizedExpected == normalizedActual;
+}
+
 bool _matchesScopedArea(String? expected, String? actual) {
   final normalizedExpected = _normalizeAreaValue(expected);
   final normalizedActual = _normalizeAreaValue(actual);
@@ -73,6 +97,15 @@ String _buildRegionFilter({
   required AreaAccessContext context,
 }) {
   final sanitizedPrefix = prefix.isEmpty ? '' : '$prefix.';
+  if (context.hasRegionalCodes) {
+    return [
+      '${sanitizedPrefix}desa_code = "${_escapeFilterValue(context.desaCode!)}"',
+      '${sanitizedPrefix}kecamatan_code = "${_escapeFilterValue(context.kecamatanCode!)}"',
+      '${sanitizedPrefix}kabupaten_code = "${_escapeFilterValue(context.kabupatenCode!)}"',
+      '${sanitizedPrefix}provinsi_code = "${_escapeFilterValue(context.provinsiCode!)}"',
+    ].join(' && ');
+  }
+
   return [
     '${sanitizedPrefix}desa_kelurahan ~ "${_escapeFilterValue(context.desaKelurahan!)}"',
     '${sanitizedPrefix}kecamatan ~ "${_escapeFilterValue(context.kecamatan!)}"',
@@ -88,6 +121,10 @@ Future<AreaAccessContext> resolveAreaAccessContext(AuthState auth) async {
 
   int? rt = recordNumericField(auth.user!, 'rt');
   int? rw = recordNumericField(auth.user!, 'rw');
+  String? desaCode = recordTextField(auth.user!, 'desa_code');
+  String? kecamatanCode = recordTextField(auth.user!, 'kecamatan_code');
+  String? kabupatenCode = recordTextField(auth.user!, 'kabupaten_code');
+  String? provinsiCode = recordTextField(auth.user!, 'provinsi_code');
   String? desaKelurahan = recordTextField(auth.user!, 'desa_kelurahan');
   String? kecamatan = recordTextField(auth.user!, 'kecamatan');
   String? kabupatenKota = recordTextField(auth.user!, 'kabupaten_kota');
@@ -119,14 +156,26 @@ Future<AreaAccessContext> resolveAreaAccessContext(AuthState auth) async {
         if (desaKelurahan.trim().isEmpty) {
           desaKelurahan = kkDesa;
         }
+        if (desaCode.trim().isEmpty) {
+          desaCode = recordTextField(kk, 'desa_code');
+        }
         if (kecamatan.trim().isEmpty) {
           kecamatan = recordTextField(kk, 'kecamatan');
+        }
+        if (kecamatanCode.trim().isEmpty) {
+          kecamatanCode = recordTextField(kk, 'kecamatan_code');
         }
         if (kabupatenKota.trim().isEmpty) {
           kabupatenKota = kkKabupaten;
         }
+        if (kabupatenCode.trim().isEmpty) {
+          kabupatenCode = recordTextField(kk, 'kabupaten_code');
+        }
         if (provinsi.trim().isEmpty) {
           provinsi = recordTextField(kk, 'provinsi');
+        }
+        if (provinsiCode.trim().isEmpty) {
+          provinsiCode = recordTextField(kk, 'provinsi_code');
         }
       } catch (_) {}
     }
@@ -135,6 +184,10 @@ Future<AreaAccessContext> resolveAreaAccessContext(AuthState auth) async {
   return AreaAccessContext(
     rt: rt,
     rw: rw,
+    desaCode: desaCode,
+    kecamatanCode: kecamatanCode,
+    kabupatenCode: kabupatenCode,
+    provinsiCode: provinsiCode,
     desaKelurahan: desaKelurahan,
     kecamatan: kecamatan,
     kabupatenKota: kabupatenKota,
@@ -243,11 +296,15 @@ bool canAccessWargaRecord(
     return false;
   }
 
-  final matchesRegion =
-      _matchesScopedArea(context.desaKelurahan, linkedKk.desaKelurahan) &&
-      _matchesScopedArea(context.kecamatan, linkedKk.kecamatan) &&
-      _matchesScopedArea(context.kabupatenKota, linkedKk.kabupatenKota) &&
-      _matchesScopedArea(context.provinsi, linkedKk.provinsi);
+  final matchesRegion = context.hasRegionalCodes
+      ? _matchesScopedCode(context.desaCode, linkedKk.desaCode) &&
+            _matchesScopedCode(context.kecamatanCode, linkedKk.kecamatanCode) &&
+            _matchesScopedCode(context.kabupatenCode, linkedKk.kabupatenCode) &&
+            _matchesScopedCode(context.provinsiCode, linkedKk.provinsiCode)
+      : _matchesScopedArea(context.desaKelurahan, linkedKk.desaKelurahan) &&
+            _matchesScopedArea(context.kecamatan, linkedKk.kecamatan) &&
+            _matchesScopedArea(context.kabupatenKota, linkedKk.kabupatenKota) &&
+            _matchesScopedArea(context.provinsi, linkedKk.provinsi);
 
   if (!matchesRegion) {
     return false;
@@ -287,11 +344,15 @@ bool canAccessKkRecord(
     return false;
   }
 
-  final matchesRegion =
-      _matchesScopedArea(context.desaKelurahan, kk.desaKelurahan) &&
-      _matchesScopedArea(context.kecamatan, kk.kecamatan) &&
-      _matchesScopedArea(context.kabupatenKota, kk.kabupatenKota) &&
-      _matchesScopedArea(context.provinsi, kk.provinsi);
+  final matchesRegion = context.hasRegionalCodes
+      ? _matchesScopedCode(context.desaCode, kk.desaCode) &&
+            _matchesScopedCode(context.kecamatanCode, kk.kecamatanCode) &&
+            _matchesScopedCode(context.kabupatenCode, kk.kabupatenCode) &&
+            _matchesScopedCode(context.provinsiCode, kk.provinsiCode)
+      : _matchesScopedArea(context.desaKelurahan, kk.desaKelurahan) &&
+            _matchesScopedArea(context.kecamatan, kk.kecamatan) &&
+            _matchesScopedArea(context.kabupatenKota, kk.kabupatenKota) &&
+            _matchesScopedArea(context.provinsi, kk.provinsi);
 
   if (!matchesRegion) {
     return false;

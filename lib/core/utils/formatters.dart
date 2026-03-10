@@ -15,6 +15,11 @@ class Formatters {
     return DateFormat('dd/MM/yyyy', 'id').format(date);
   }
 
+  /// Format tanggal form input: 07-02-2026
+  static String tanggalInput(DateTime date) {
+    return DateFormat('dd-MM-yyyy', 'id').format(date);
+  }
+
   /// Format tanggal & waktu: 7 Feb 2026, 10:30
   static String tanggalWaktu(DateTime date) {
     return DateFormat('d MMM yyyy, HH:mm', 'id').format(date);
@@ -51,6 +56,35 @@ class Formatters {
   static DateTime? parseTanggal(String? dateStr) {
     if (dateStr == null || dateStr.isEmpty) return null;
     return DateTime.tryParse(dateStr);
+  }
+
+  /// Parse tanggal dari input form Indonesia atau ISO.
+  static DateTime? parseTanggalInput(String? input) {
+    final raw = input?.trim() ?? '';
+    if (raw.isEmpty) return null;
+
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso;
+
+    final match = RegExp(
+      r'^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$',
+    ).firstMatch(raw);
+    if (match == null) return null;
+
+    final day = int.tryParse(match.group(1) ?? '');
+    final month = int.tryParse(match.group(2) ?? '');
+    final yearRaw = int.tryParse(match.group(3) ?? '');
+    if (day == null || month == null || yearRaw == null) return null;
+
+    final year = yearRaw < 100
+        ? (yearRaw <= 30 ? 2000 + yearRaw : 1900 + yearRaw)
+        : yearRaw;
+    final parsed = DateTime(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+
+    return parsed;
   }
 
   // === CURRENCY (RUPIAH) ===
@@ -138,9 +172,11 @@ class Formatters {
   static String capitalizeName(String name) {
     return name
         .split(' ')
-        .map((word) => word.isEmpty
-            ? ''
-            : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}')
+        .map(
+          (word) => word.isEmpty
+              ? ''
+              : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 

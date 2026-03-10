@@ -11,6 +11,10 @@ class KartuKeluargaModel {
   final String? kecamatan;
   final String? kabupatenKota;
   final String? provinsi;
+  final String? desaCode;
+  final String? kecamatanCode;
+  final String? kabupatenCode;
+  final String? provinsiCode;
   final String? scanKk; // file upload
   final DateTime? created;
   final DateTime? updated;
@@ -29,6 +33,10 @@ class KartuKeluargaModel {
     this.kecamatan,
     this.kabupatenKota,
     this.provinsi,
+    this.desaCode,
+    this.kecamatanCode,
+    this.kabupatenCode,
+    this.provinsiCode,
     this.scanKk,
     this.created,
     this.updated,
@@ -58,6 +66,10 @@ class KartuKeluargaModel {
           ? record.getStringValue('kabupaten_kota')
           : record.getStringValue('kota'),
       provinsi: record.getStringValue('provinsi'),
+      desaCode: _asString(record, 'desa_code'),
+      kecamatanCode: _asString(record, 'kecamatan_code'),
+      kabupatenCode: _asString(record, 'kabupaten_code'),
+      provinsiCode: _asString(record, 'provinsi_code'),
       scanKk: record.getStringValue('scan_kk'),
       created: DateTime.tryParse(record.getStringValue('created')),
       updated: DateTime.tryParse(record.getStringValue('updated')),
@@ -75,6 +87,10 @@ class KartuKeluargaModel {
       'kecamatan': kecamatan,
       'kabupaten_kota': kabupatenKota,
       'provinsi': provinsi,
+      'desa_code': desaCode,
+      'kecamatan_code': kecamatanCode,
+      'kabupaten_code': kabupatenCode,
+      'provinsi_code': provinsiCode,
     };
   }
 }
