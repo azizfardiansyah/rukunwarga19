@@ -16,6 +16,7 @@ import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 class WargaFormScreen extends ConsumerStatefulWidget {
   final String? wargaId;
@@ -381,24 +382,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga'),
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            child: Form(
+      appBar: AppBar(title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga')),
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: SingleChildScrollView(
+          child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -652,53 +640,32 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: AppTheme.primaryGradient,
-                      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryColor.withValues(alpha: 0.24),
-                          blurRadius: 18,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
+                  FilledButton.icon(
+                    onPressed: _isLoading ? null : _save,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppTheme.radiusLarge,
-                          ),
-                        ),
-                      ),
-                      icon: _isLoading
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Icon(
-                              _isEdit
-                                  ? Icons.save_rounded
-                                  : Icons.person_add_alt_1_rounded,
+                    icon: _isLoading
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: Colors.white,
                             ),
-                      label: Text(
-                        _isEdit ? 'Simpan Perubahan Warga' : 'Tambah Warga',
-                      ),
+                          )
+                        : Icon(
+                            _isEdit
+                                ? Icons.save_rounded
+                                : Icons.person_add_alt_1_rounded,
+                          ),
+                    label: Text(
+                      _isEdit ? 'Simpan Perubahan Warga' : 'Tambah Warga',
                     ),
                   ),
                 ],
               ),
             ),
-          ),
         ),
       ),
     );

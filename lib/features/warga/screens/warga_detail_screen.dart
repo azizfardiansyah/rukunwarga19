@@ -13,6 +13,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 typedef _WargaDetailData = ({
   RecordModel wargaRecord,
@@ -80,258 +81,192 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Detail Warga'),
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: -70,
-              right: -40,
-              child: _blob(const Color(0x3326A69A), 180),
-            ),
-            Positioned(
-              top: 120,
-              left: -60,
-              child: _blob(const Color(0x331565C0), 150),
-            ),
-            FutureBuilder<_WargaDetailData>(
-              future: _loadDetail(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppTheme.paddingLarge),
-                      child: AppTheme.glassContainer(
-                        opacity: 0.78,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.error_outline_rounded,
-                              size: 48,
-                              color: AppTheme.errorColor,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              ErrorClassifier.classify(snapshot.error).message,
-                              style: AppTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
+      appBar: AppBar(title: const Text('Detail Warga')),
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: FutureBuilder<_WargaDetailData>(
+          future: _loadDetail(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: AppSurfaceCard(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 48,
+                        color: AppTheme.errorColor,
                       ),
-                    ),
-                  );
-                }
+                      const SizedBox(height: 12),
+                      Text(
+                        ErrorClassifier.classify(snapshot.error).message,
+                        style: AppTheme.bodyMedium,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
 
-                final data = snapshot.data!;
-                final warga = data.warga;
-                final auth = ref.watch(authProvider);
-                final canEdit =
-                    auth.isAdmin ||
-                    (auth.user?.id != null && auth.user!.id == warga.userId);
-                final avatarFilename =
-                    data.userRecord?.getStringValue('avatar') ?? '';
-                final avatarUrl = avatarFilename.isNotEmpty
-                    ? getFileUrl(data.userRecord!, avatarFilename)
-                    : null;
-                final fotoWargaUrl = (warga.fotoWarga ?? '').isNotEmpty
-                    ? getFileUrl(data.wargaRecord, warga.fotoWarga!)
-                    : null;
-                final fotoKtpUrl = (warga.fotoKtp ?? '').isNotEmpty
-                    ? getFileUrl(data.wargaRecord, warga.fotoKtp!)
-                    : null;
+            final data = snapshot.data!;
+            final warga = data.warga;
+            final auth = ref.watch(authProvider);
+            final canEdit =
+                auth.isAdmin ||
+                (auth.user?.id != null && auth.user!.id == warga.userId);
+            final avatarFilename =
+                data.userRecord?.getStringValue('avatar') ?? '';
+            final avatarUrl = avatarFilename.isNotEmpty
+                ? getFileUrl(data.userRecord!, avatarFilename)
+                : null;
+            final fotoWargaUrl = (warga.fotoWarga ?? '').isNotEmpty
+                ? getFileUrl(data.wargaRecord, warga.fotoWarga!)
+                : null;
+            final fotoKtpUrl = (warga.fotoKtp ?? '').isNotEmpty
+                ? getFileUrl(data.wargaRecord, warga.fotoKtp!)
+                : null;
 
-                return SafeArea(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            return SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildOverviewCard(
+                    warga: warga,
+                    avatarUrl: avatarUrl,
+                    canEdit: canEdit,
+                    onEdit: canEdit ? _openEdit : null,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildSection(
+                    icon: Icons.badge_rounded,
+                    title: 'Identitas',
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildOverviewCard(
-                          warga: warga,
-                          avatarUrl: avatarUrl,
-                          canEdit: canEdit,
-                          onEdit: canEdit ? _openEdit : null,
+                        _InfoRow(
+                          label: 'NIK',
+                          value: Formatters.formatNik(warga.nik),
                         ),
-                        const SizedBox(height: 16),
-                        _buildSection(
-                          icon: Icons.badge_rounded,
-                          title: 'Identitas',
-                          child: Column(
-                            children: [
-                              _InfoRow(
-                                label: 'NIK',
-                                value: Formatters.formatNik(warga.nik),
-                              ),
-                              _InfoRow(
-                                label: 'Tempat/Tgl Lahir',
-                                value:
-                                    '${warga.tempatLahir.isEmpty ? "-" : warga.tempatLahir}, '
-                                    '${warga.tanggalLahir != null ? Formatters.tanggalLengkap(warga.tanggalLahir!) : "-"}',
-                              ),
-                              _InfoRow(
-                                label: 'Jenis Kelamin',
-                                value: warga.jenisKelamin,
-                              ),
-                              _InfoRow(label: 'Agama', value: warga.agama),
-                              _InfoRow(
-                                label: 'Status Pernikahan',
-                                value: warga.statusPernikahan,
-                              ),
-                              _InfoRow(
-                                label: 'Pendidikan',
-                                value: warga.pendidikan.isEmpty
-                                    ? '-'
-                                    : warga.pendidikan,
-                              ),
-                              _InfoRow(
-                                label: 'Pekerjaan',
-                                value: warga.pekerjaan.isEmpty
-                                    ? '-'
-                                    : warga.pekerjaan,
-                              ),
-                              _InfoRow(
-                                label: 'Golongan Darah',
-                                value: warga.golonganDarah.isEmpty
-                                    ? '-'
-                                    : warga.golonganDarah,
-                                isLast: true,
-                              ),
-                            ],
-                          ),
+                        _InfoRow(
+                          label: 'Tempat/Tgl Lahir',
+                          value:
+                              '${warga.tempatLahir.isEmpty ? "-" : warga.tempatLahir}, '
+                              '${warga.tanggalLahir != null ? Formatters.tanggalLengkap(warga.tanggalLahir!) : "-"}',
                         ),
-                        const SizedBox(height: 14),
-                        _buildSection(
-                          icon: Icons.home_rounded,
-                          title: 'Alamat & Kontak',
-                          child: Column(
-                            children: [
-                              _InfoRow(label: 'Alamat', value: warga.alamat),
-                              _InfoRow(
-                                label: 'RT/RW',
-                                value: 'RT ${warga.rt} / RW ${warga.rw}',
-                              ),
-                              _InfoRow(
-                                label: 'No. HP',
-                                value: warga.noHp.isEmpty
-                                    ? '-'
-                                    : Formatters.formatNoHp(warga.noHp),
-                              ),
-                              _InfoRow(
-                                label: 'Email',
-                                value: (warga.email ?? '').isEmpty
-                                    ? '-'
-                                    : warga.email!,
-                                isLast: true,
-                              ),
-                            ],
-                          ),
+                        _InfoRow(
+                          label: 'Jenis Kelamin',
+                          value: warga.jenisKelamin,
                         ),
-                        const SizedBox(height: 14),
-                        _buildSection(
-                          icon: Icons.photo_library_rounded,
-                          title: 'Dokumen & Foto',
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _PhotoCard(
-                                      title: 'Avatar User',
-                                      subtitle: avatarUrl == null
-                                          ? 'Belum ada avatar'
-                                          : 'Dari collection users',
-                                      imageUrl: avatarUrl,
-                                      placeholderIcon:
-                                          Icons.account_circle_rounded,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _PhotoCard(
-                                      title: 'Foto Warga',
-                                      subtitle: fotoWargaUrl == null
-                                          ? 'Belum ada foto warga'
-                                          : 'Dokumen warga',
-                                      imageUrl: fotoWargaUrl,
-                                      placeholderIcon: Icons.person_rounded,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              _PhotoCard(
-                                title: 'Foto KTP',
-                                subtitle: fotoKtpUrl == null
-                                    ? 'Belum ada foto KTP'
-                                    : 'Dokumen identitas',
-                                imageUrl: fotoKtpUrl,
-                                placeholderIcon: Icons.badge_outlined,
-                                wide: true,
-                              ),
-                            ],
-                          ),
+                        _InfoRow(label: 'Agama', value: warga.agama),
+                        _InfoRow(
+                          label: 'Status Pernikahan',
+                          value: warga.statusPernikahan,
                         ),
-                        if (canEdit) ...[
-                          const SizedBox(height: 18),
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.primaryGradient,
-                              borderRadius: BorderRadius.circular(
-                                AppTheme.radiusLarge,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppTheme.primaryColor.withValues(
-                                    alpha: 0.25,
-                                  ),
-                                  blurRadius: 18,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: ElevatedButton.icon(
-                              onPressed: _openEdit,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppTheme.radiusLarge,
-                                  ),
-                                ),
-                              ),
-                              icon: const Icon(Icons.edit_rounded),
-                              label: const Text('Edit Data Warga'),
-                            ),
-                          ),
-                        ],
+                        _InfoRow(
+                          label: 'Pendidikan',
+                          value: warga.pendidikan.isEmpty
+                              ? '-'
+                              : warga.pendidikan,
+                        ),
+                        _InfoRow(
+                          label: 'Pekerjaan',
+                          value: warga.pekerjaan.isEmpty ? '-' : warga.pekerjaan,
+                        ),
+                        _InfoRow(
+                          label: 'Golongan Darah',
+                          value: warga.golonganDarah.isEmpty
+                              ? '-'
+                              : warga.golonganDarah,
+                          isLast: true,
+                        ),
                       ],
                     ),
                   ),
-                );
-              },
-            ),
-          ],
+                  const SizedBox(height: 14),
+                  _buildSection(
+                    icon: Icons.home_rounded,
+                    title: 'Alamat & Kontak',
+                    child: Column(
+                      children: [
+                        _InfoRow(label: 'Alamat', value: warga.alamat),
+                        _InfoRow(
+                          label: 'RT/RW',
+                          value: 'RT ${warga.rt} / RW ${warga.rw}',
+                        ),
+                        _InfoRow(
+                          label: 'No. HP',
+                          value: warga.noHp.isEmpty
+                              ? '-'
+                              : Formatters.formatNoHp(warga.noHp),
+                        ),
+                        _InfoRow(
+                          label: 'Email',
+                          value: (warga.email ?? '').isEmpty ? '-' : warga.email!,
+                          isLast: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _buildSection(
+                    icon: Icons.photo_library_rounded,
+                    title: 'Dokumen & Foto',
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _PhotoCard(
+                                title: 'Avatar User',
+                                subtitle: avatarUrl == null
+                                    ? 'Belum ada avatar'
+                                    : 'Dari collection users',
+                                imageUrl: avatarUrl,
+                                placeholderIcon: Icons.account_circle_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _PhotoCard(
+                                title: 'Foto Warga',
+                                subtitle: fotoWargaUrl == null
+                                    ? 'Belum ada foto warga'
+                                    : 'Dokumen warga',
+                                imageUrl: fotoWargaUrl,
+                                placeholderIcon: Icons.person_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _PhotoCard(
+                          title: 'Foto KTP',
+                          subtitle: fotoKtpUrl == null
+                              ? 'Belum ada foto KTP'
+                              : 'Dokumen identitas',
+                          imageUrl: fotoKtpUrl,
+                          placeholderIcon: Icons.badge_outlined,
+                          wide: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (canEdit) ...[
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _openEdit,
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Edit Data Warga'),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
         ),
       ),
       floatingActionButton: FloatingActionButton.small(
@@ -456,8 +391,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
     required String title,
     required Widget child,
   }) {
-    return AppTheme.glassContainer(
-      opacity: 0.74,
+    return AppSurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -507,15 +441,6 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
     );
   }
 
-  Widget _blob(Color color, double size) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-      ),
-    );
-  }
 }
 
 class _InfoRow extends StatelessWidget {

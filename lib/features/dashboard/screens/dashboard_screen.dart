@@ -291,27 +291,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _MenuCard(
                         icon: Icons.people_rounded,
                         label: 'Data Warga',
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
-                        ),
+                        tone: AppTheme.primaryColor,
                         onTap: () => context.go(Routes.warga),
                       ),
                     if (showSelfWargaSetup)
                       _MenuCard(
                         icon: Icons.person_add_alt_1_rounded,
                         label: 'Lengkapi Warga',
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
-                        ),
+                        tone: AppTheme.primaryColor,
                         onTap: () => context.push(Routes.wargaForm),
                       ),
                     if (!isWarga)
                       _MenuCard(
                         icon: Icons.family_restroom_rounded,
                         label: 'Kartu Keluarga',
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
-                        ),
+                        tone: AppTheme.secondaryColor,
                         onTap: () {
                           final hasKK = ref
                               .read(hasKartuKeluargaProvider)
@@ -330,42 +324,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _MenuCard(
                         icon: Icons.add_home_work_rounded,
                         label: 'Lengkapi KK',
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF00897B), Color(0xFF4DB6AC)],
-                        ),
+                        tone: AppTheme.secondaryColor,
                         onTap: () => context.go(Routes.kkForm),
                       ),
                     _MenuCard(
                       icon: Icons.badge_rounded,
                       label: 'Dokumen',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFE65100), Color(0xFFFFA726)],
-                      ),
+                      tone: AppTheme.accentColor,
                       onTap: () => context.push(Routes.dokumen),
                     ),
                     if (!isWarga)
                       _MenuCard(
                         icon: Icons.description_rounded,
                         label: 'Surat',
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF6A1B9A), Color(0xFFAB47BC)],
-                        ),
+                        tone: const Color(0xFF64748B),
                         onTap: () => context.push(Routes.surat),
                       ),
                     _MenuCard(
                       icon: Icons.payments_rounded,
                       label: 'Iuran',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
-                      ),
+                      tone: AppTheme.primaryDark,
                       onTap: () => context.push(Routes.iuran),
                     ),
                     _MenuCard(
                       icon: Icons.campaign_rounded,
                       label: 'Pengumuman',
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFC62828), Color(0xFFEF5350)],
-                      ),
+                      tone: const Color(0xFF8D6E63),
                       onTap: () => context.push(Routes.announcements),
                     ),
                   ],
@@ -419,17 +403,24 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 4),
-              Text(value, style: AppTheme.heading2.copyWith(color: color)),
-              Text(label, style: AppTheme.caption),
-            ],
-          ),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.cardDecoration(),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 10),
+            Text(value, style: AppTheme.heading2.copyWith(color: color)),
+            Text(label, style: AppTheme.caption),
+          ],
         ),
       ),
     );
@@ -440,13 +431,13 @@ class _MenuCard extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final LinearGradient? gradient;
+  final Color tone;
 
   const _MenuCard({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.gradient,
+    required this.tone,
   });
 
   @override
@@ -458,23 +449,38 @@ class _MenuCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         child: Container(
           decoration: BoxDecoration(
-            gradient: gradient,
+            gradient: LinearGradient(
+              colors: [
+                tone.withValues(alpha: 0.92),
+                tone.withValues(alpha: 0.78),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
             boxShadow: [
               BoxShadow(
-                color: (gradient?.colors.first ?? AppTheme.primaryColor)
-                    .withValues(alpha: 0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
+                color: tone.withValues(alpha: 0.18),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(12),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 32, color: Colors.white),
-              const SizedBox(height: 8),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, size: 22, color: Colors.white),
+              ),
+              const SizedBox(height: 12),
               Text(
                 label,
                 style: AppTheme.bodySmall.copyWith(

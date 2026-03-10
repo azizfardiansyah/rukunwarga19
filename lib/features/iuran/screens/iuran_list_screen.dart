@@ -8,6 +8,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/iuran_model.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 final iuranListProvider = FutureProvider.autoDispose<List<IuranModel>>((ref) async {
   final result = await pb.collection(AppConstants.colIuran).getList(
@@ -26,16 +27,25 @@ class IuranListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Iuran Warga')),
-      body: iuranAsync.when(
+      body: AppPageBackground(
+        child: iuranAsync.when(
         data: (list) {
-          if (list.isEmpty) return const Center(child: Text('Belum ada data iuran'));
+          if (list.isEmpty) {
+            return const AppEmptyState(
+              icon: Icons.payments_outlined,
+              title: 'Belum ada data iuran',
+              message: 'Data pembayaran iuran akan muncul di sini.',
+            );
+          }
           return ListView.builder(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: EdgeInsets.zero,
             itemCount: list.length,
             itemBuilder: (context, index) {
               final iuran = list[index];
-              return Card(
+              return AppSurfaceCard(
+                margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: Icon(
                     iuran.isLunas ? Icons.check_circle : Icons.warning,
                     color: AppTheme.statusColor(iuran.status),
@@ -53,8 +63,9 @@ class IuranListScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
       ),
+      ),
       floatingActionButton: isAdmin
-          ? FloatingActionButton(
+          ? FilledButton.tonal(
               onPressed: () => context.push(Routes.iuranForm),
               child: const Icon(Icons.add),
             )

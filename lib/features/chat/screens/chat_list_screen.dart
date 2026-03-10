@@ -1,14 +1,12 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/chat_service.dart';
-import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
@@ -26,50 +24,10 @@ class ChatListScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatListScreenState extends ConsumerState<ChatListScreen> {
+  final _searchCtrl = TextEditingController();
   _ChatSection _section = _ChatSection.inbox;
   bool _showArchived = false;
-  Future<void> Function()? _unsubscribeConversations;
-  Future<void> Function()? _unsubscribeMessages;
-  Future<void> Function()? _unsubscribeMembers;
-  Future<void> Function()? _unsubscribeAnnouncements;
-  Timer? _refreshDebounce;
-  Timer? _pollTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _bindRealtime();
-    _pollTimer = Timer.periodic(
-      const Duration(seconds: 4),
-      (_) => _triggerRefresh(includeAnnouncements: _section == _ChatSection.announcements),
-    );
-  }
-
-  Future<void> _bindRealtime() async {
-    await _disposeRealtime();
-    _unsubscribeConversations = await pb
-        .collection(AppConstants.colConversations)
-        .subscribe('*', (_) => _scheduleRefresh());
-    _unsubscribeMessages = await pb
-        .collection(AppConstants.colMessages)
-        .subscribe('*', (_) => _scheduleRefresh());
-    _unsubscribeMembers = await pb
-        .collection(AppConstants.colConversationMembers)
-        .subscribe('*', (_) => _scheduleRefresh());
-    _unsubscribeAnnouncements = await pb
-        .collection(AppConstants.colAnnouncements)
-        .subscribe('*', (_) => _scheduleRefresh(includeAnnouncements: true));
-  }
-
-  void _scheduleRefresh({bool includeAnnouncements = false}) {
-    _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 220), () {
-      if (!mounted) {
-        return;
-      }
-      _triggerRefresh(includeAnnouncements: includeAnnouncements);
-    });
-  }
+  String get _searchQuery => _searchCtrl.text.trim().toLowerCase();
 
   void _triggerRefresh({bool includeAnnouncements = false}) {
     ref.read(chatRefreshTickProvider.notifier).bump();
@@ -78,22 +36,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     }
   }
 
-  Future<void> _disposeRealtime() async {
-    await _unsubscribeConversations?.call();
-    await _unsubscribeMessages?.call();
-    await _unsubscribeMembers?.call();
-    await _unsubscribeAnnouncements?.call();
-    _unsubscribeConversations = null;
-    _unsubscribeMessages = null;
-    _unsubscribeMembers = null;
-    _unsubscribeAnnouncements = null;
-  }
-
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _refreshDebounce?.cancel();
-    _disposeRealtime();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -104,6 +49,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final announcementsAsync = ref.watch(chatAnnouncementsProvider);
     final bootstrapData = bootstrapAsync.asData?.value;
     final announcementsData = announcementsAsync.asData?.value;
+    final showBootstrap = bootstrapData != null;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -131,13 +77,17 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               onTap: () => context.push(Routes.announcements),
               icon: Icons.campaign_rounded,
               label: 'Kelola Pengumuman',
-              gradientColors: const [Color(0xFFFF8F00), Color(0xFFFFA726)],
+              gradientColors: const [AppTheme.accentColor, Color(0xFFE0B56C)],
             )
           : null,
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
+            colors: [
+              const Color(0xFFF2F7F5),
+              Colors.white.withValues(alpha: 0.98),
+              const Color(0xFFF7FBF9),
+            ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -156,15 +106,39 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   areaLabel: bootstrapData?.area.scopeLabel ?? '',
                   data: bootstrapData,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+                _buildSearchField(),
+                const SizedBox(height: 8),
                 _buildSectionSelector(),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Expanded(
-                  child: bootstrapAsync.when(
-                    data: (data) => RefreshIndicator(
-                      onRefresh: _refresh,
-                      child: switch (_section) {
-                        _ChatSection.inbox => _buildConversationList(
+                  child: showBootstrap
+                      ? RefreshIndicator(
+                          onRefresh: _refresh,
+                          child: switch (_section) {
+                            _ChatSection.inbox => _buildConversationList(
+                                items: bootstrapData.inbox,
+                                emptyTitle: 'Belum ada inbox layanan',
+                                emptySubtitle:
+                                    'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
+                                emptyIcon: Icons.mark_chat_unread_outlined,
+                              ),
+                            _ChatSection.groups => _buildConversationList(
+                                items: bootstrapData.groups,
+                                emptyTitle: 'Belum ada grup wilayah',
+                                emptySubtitle:
+                                    'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
+                                emptyIcon: Icons.groups_2_outlined,
+                              ),
+                            _ChatSection.announcements =>
+                              _buildAnnouncementPreview(announcementsAsync),
+                          },
+                        )
+                      : bootstrapAsync.when(
+                          data: (data) => RefreshIndicator(
+                            onRefresh: _refresh,
+                            child: switch (_section) {
+                              _ChatSection.inbox => _buildConversationList(
                             items: data.inbox,
                             emptyTitle: 'Belum ada inbox layanan',
                             emptySubtitle:
@@ -181,33 +155,69 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         _ChatSection.announcements =>
                           _buildAnnouncementPreview(announcementsAsync),
                       },
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => Center(
-                      child: AppTheme.glassContainer(
-                        opacity: 0.76,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              ErrorClassifier.classify(error).message,
-                              style: AppTheme.bodyMedium,
-                              textAlign: TextAlign.center,
+                          ),
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (error, _) => Center(
+                            child: AppTheme.glassContainer(
+                              opacity: 0.76,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    ErrorClassifier.classify(error).message,
+                                    style: AppTheme.bodyMedium,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  ElevatedButton(
+                                    onPressed: _refresh,
+                                    child: const Text('Coba Lagi'),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 10),
-                            ElevatedButton(
-                              onPressed: _refresh,
-                              child: const Text('Coba Lagi'),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchField() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.dividerColor),
+      ),
+      child: TextField(
+        controller: _searchCtrl,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          hintText: switch (_section) {
+            _ChatSection.inbox => 'Cari nama, isi chat, atau percakapan...',
+            _ChatSection.groups => 'Cari grup, isi chat, atau RT/RW...',
+            _ChatSection.announcements => 'Cari judul, isi, atau pembuat...',
+          },
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: _searchCtrl.text.isEmpty
+              ? null
+              : IconButton(
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    setState(() {});
+                  },
+                  icon: const Icon(Icons.close_rounded),
+                ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 12,
           ),
         ),
       ),
@@ -238,11 +248,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF0D47A1), Color(0xFF1976D2), Color(0xFF42A5F5)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        gradient: AppTheme.headerGradient,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -364,6 +370,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   }) {
     final filtered = items
         .where((item) => _showArchived ? item.isArchived : !item.isArchived)
+        .where(_matchesConversationSearch)
         .toList(growable: false);
 
     if (filtered.isEmpty) {
@@ -403,7 +410,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       itemCount: filtered.length,
       padding: const EdgeInsets.only(bottom: 8),
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final conversation = filtered[index];
         final scopeLabel = conversation.isPrivate
@@ -412,197 +419,220 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 ? 'RT ${conversation.rt.toString().padLeft(2, '0')} / RW ${conversation.rw.toString().padLeft(2, '0')}'
                 : 'RW ${conversation.rw.toString().padLeft(2, '0')}';
 
-        return InkWell(
-          onTap: () async {
-            await context.push(
-              Routes.chatRoom.replaceFirst(':id', conversation.id),
-            );
-            if (mounted) {
-              await _refresh();
-            }
-          },
-          borderRadius: BorderRadius.circular(18),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppTheme.dividerColor),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.05),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
+        return Slidable(
+          key: ValueKey(conversation.id),
+          startActionPane: ActionPane(
+            motion: const DrawerMotion(),
+            extentRatio: 0.46,
+            children: [
+              SlidableAction(
+                onPressed: (_) => _handleConversationAction(
+                  conversation: conversation,
+                  action: 'unread',
                 ),
-              ],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                icon: conversation.unreadCount > 0
+                    ? Icons.mark_chat_read_rounded
+                    : Icons.mark_chat_unread_rounded,
+                label: conversation.unreadCount > 0 ? 'Baca' : 'Unread',
+              ),
+              SlidableAction(
+                onPressed: (_) => _handleConversationAction(
+                  conversation: conversation,
+                  action: 'pin',
+                ),
+                backgroundColor: AppTheme.accentColor,
+                foregroundColor: Colors.white,
+                icon: conversation.isPinned
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined,
+                label: conversation.isPinned ? 'Unpin' : 'Pin',
+              ),
+            ],
+          ),
+          endActionPane: ActionPane(
+            motion: const DrawerMotion(),
+            extentRatio: 0.68,
+            children: [
+              SlidableAction(
+                onPressed: (_) => _showConversationMore(conversation),
+                backgroundColor: const Color(0xFF54616B),
+                foregroundColor: Colors.white,
+                icon: Icons.more_horiz_rounded,
+                label: 'More',
+              ),
+              SlidableAction(
+                onPressed: (_) => _handleConversationAction(
+                  conversation: conversation,
+                  action: 'mute',
+                ),
+                backgroundColor: const Color(0xFF5E6B66),
+                foregroundColor: Colors.white,
+                icon: conversation.isMuted
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_off_rounded,
+                label: conversation.isMuted ? 'Unmute' : 'Mute',
+              ),
+              SlidableAction(
+                onPressed: (_) => _handleConversationAction(
+                  conversation: conversation,
+                  action: 'archive',
+                ),
+                backgroundColor: AppTheme.secondaryColor,
+                foregroundColor: Colors.white,
+                icon: conversation.isArchived
+                    ? Icons.unarchive_outlined
+                    : Icons.archive_outlined,
+                label: conversation.isArchived ? 'Unarsip' : 'Arsip',
+              ),
+            ],
+          ),
+          child: InkWell(
+            onTap: () async {
+              await context.push(
+                Routes.chatRoom.replaceFirst(':id', conversation.id),
+              );
+              if (mounted) {
+                await _refresh();
+              }
+            },
+            borderRadius: BorderRadius.circular(18),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: AppTheme.dividerColor),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.04),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
                     gradient: conversation.isPrivate
                         ? const LinearGradient(
-                            colors: [Color(0xFF00897B), Color(0xFF26A69A)],
+                            colors: [AppTheme.primaryColor, AppTheme.primaryLight],
                           )
                         : conversation.isGroupRt
                             ? const LinearGradient(
-                                colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+                                colors: [Color(0xFF2E5F55), AppTheme.primaryColor],
                               )
                             : const LinearGradient(
-                                colors: [Color(0xFFFF8F00), Color(0xFFFFB300)],
+                                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
                               ),
-                    borderRadius: BorderRadius.circular(15),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      conversation.isPrivate
+                          ? Icons.support_agent_rounded
+                          : conversation.isGroupRt
+                              ? Icons.groups_rounded
+                              : Icons.hub_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                   ),
-                  child: Icon(
-                    conversation.isPrivate
-                        ? Icons.support_agent_rounded
-                        : conversation.isGroupRt
-                            ? Icons.groups_rounded
-                            : Icons.hub_rounded,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          if (conversation.isPinned) ...[
-                            const Icon(
-                              Icons.push_pin_rounded,
-                              size: 15,
-                              color: Color(0xFFFF8F00),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              conversation.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTheme.bodyLarge.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.textPrimary,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                conversation.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.bodyLarge.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                          ),
-                          if (conversation.lastMessageAt != null)
                             Text(
-                              Formatters.tanggalRelatif(
-                                conversation.lastMessageAt!,
-                              ),
+                              conversation.lastMessageAt != null
+                                  ? Formatters.waktuRingkas(conversation.lastMessageAt!)
+                                  : '',
                               style: AppTheme.caption.copyWith(
                                 color: AppTheme.textSecondary,
                               ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(scopeLabel, style: AppTheme.caption),
-                          ),
-                          if (conversation.isMuted)
-                            const Icon(
-                              Icons.notifications_off_rounded,
-                              size: 15,
-                              color: AppTheme.textSecondary,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              (conversation.lastMessage ?? '').trim().isNotEmpty
-                                  ? conversation.lastMessage!.trim()
-                                  : conversation.subtitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTheme.bodyMedium.copyWith(
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Expanded(child: Text(scopeLabel, style: AppTheme.caption)),
+                            if (conversation.isPinned)
+                              const Icon(
+                                Icons.push_pin_rounded,
+                                size: 14,
+                                color: AppTheme.accentColor,
+                              ),
+                            if (conversation.isMuted) ...[
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.notifications_off_rounded,
+                                size: 14,
                                 color: AppTheme.textSecondary,
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              if (conversation.unreadCount > 0)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    gradient: AppTheme.primaryGradient,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    conversation.unreadCount > 99
-                                        ? '99+'
-                                        : '${conversation.unreadCount}',
-                                    style: AppTheme.caption.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              PopupMenuButton<String>(
-                                tooltip: 'Aksi chat',
-                                padding: EdgeInsets.zero,
-                                icon: const Icon(
-                                  Icons.more_horiz_rounded,
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                (conversation.lastMessage ?? '').trim().isNotEmpty
+                                    ? conversation.lastMessage!.trim()
+                                    : conversation.subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.bodyMedium.copyWith(
                                   color: AppTheme.textSecondary,
+                                  height: 1.3,
                                 ),
-                                onSelected: (value) =>
-                                    _handleConversationAction(
-                                  conversation: conversation,
-                                  action: value,
+                              ),
+                            ),
+                            if (conversation.unreadCount > 0) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
                                 ),
-                                itemBuilder: (context) => [
-                                  PopupMenuItem(
-                                    value: 'pin',
-                                    child: Text(
-                                      conversation.isPinned
-                                          ? 'Lepas pin'
-                                          : 'Pin chat',
-                                    ),
+                                decoration: BoxDecoration(
+                                  gradient: AppTheme.primaryGradient,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  conversation.unreadCount > 99
+                                      ? '99+'
+                                      : '${conversation.unreadCount}',
+                                  style: AppTheme.caption.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
                                   ),
-                                  PopupMenuItem(
-                                    value: 'mute',
-                                    child: Text(
-                                      conversation.isMuted
-                                          ? 'Aktifkan notifikasi'
-                                          : 'Mute chat',
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'archive',
-                                    child: Text(
-                                      conversation.isArchived
-                                          ? 'Keluarkan dari arsip'
-                                          : 'Arsipkan chat',
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ],
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -613,6 +643,106 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Widget _buildAnnouncementPreview(
     AsyncValue<ChatAnnouncementsData> announcementsAsync,
   ) {
+    final data = announcementsAsync.asData?.value;
+    if (data != null) {
+      final items = data.items.where(_matchesAnnouncementSearch).toList(growable: false);
+      if (items.isEmpty) {
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 48),
+            Center(
+              child: AppTheme.glassContainer(
+                opacity: 0.72,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.campaign_outlined,
+                      size: 44,
+                      color: AppTheme.textSecondary,
+                    ),
+                    const SizedBox(height: 12),
+                    Text('Tidak ada hasil pengumuman', style: AppTheme.heading3),
+                    const SizedBox(height: 6),
+                    Text(
+                      _searchQuery.isEmpty
+                          ? 'Pengumuman resmi RT/RW akan muncul di sini.'
+                          : 'Ubah kata kunci pencarian untuk melihat hasil lain.',
+                      style: AppTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      return ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: items.length,
+        padding: const EdgeInsets.only(bottom: 10),
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppTheme.dividerColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        item.targetLabel,
+                        style: AppTheme.caption.copyWith(
+                          color: AppTheme.accentColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      item.createdAt != null
+                          ? Formatters.waktuRingkas(item.createdAt!)
+                          : '',
+                      style: AppTheme.caption,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(item.title, style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text(
+                  item.content,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.bodyMedium.copyWith(height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Oleh ${item.authorName}',
+                  style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
     return announcementsAsync.when(
       data: (data) {
         if (data.items.isEmpty) {
@@ -647,66 +777,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           );
         }
 
-        return ListView.separated(
-          physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: data.items.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final item = data.items[index];
-            return Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppTheme.dividerColor),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.accentColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          item.targetLabel,
-                          style: AppTheme.caption.copyWith(
-                            color: AppTheme.accentColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        item.createdAt != null
-                            ? Formatters.tanggalRelatif(item.createdAt!)
-                            : '',
-                        style: AppTheme.caption,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(item.title, style: AppTheme.heading3),
-                  const SizedBox(height: 4),
-                  Text(item.content, style: AppTheme.bodyMedium),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Oleh ${item.authorName}',
-                    style: AppTheme.caption.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
+        return const SizedBox.shrink();
       },
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) =>
@@ -727,6 +798,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             isPinned: !conversation.isPinned,
           );
           break;
+        case 'unread':
+          if (conversation.unreadCount > 0) {
+            await service.markConversationRead(conversation.id);
+          } else {
+            await service.markConversationUnread(conversation.id);
+          }
+          break;
         case 'mute':
           await service.setConversationPreference(
             conversationId: conversation.id,
@@ -746,6 +824,106 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         ErrorClassifier.showErrorSnackBar(context, error);
       }
     }
+  }
+
+  Future<void> _showConversationMore(ConversationModel conversation) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Wrap(
+            children: [
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  conversation.isPinned
+                      ? Icons.push_pin_rounded
+                      : Icons.push_pin_outlined,
+                ),
+                title: Text(conversation.isPinned ? 'Lepas pin' : 'Pin chat'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _handleConversationAction(
+                    conversation: conversation,
+                    action: 'pin',
+                  );
+                },
+              ),
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  conversation.isMuted
+                      ? Icons.notifications_active_rounded
+                      : Icons.notifications_off_rounded,
+                ),
+                title: Text(
+                  conversation.isMuted ? 'Aktifkan notifikasi' : 'Mute chat',
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _handleConversationAction(
+                    conversation: conversation,
+                    action: 'mute',
+                  );
+                },
+              ),
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  conversation.isArchived
+                      ? Icons.unarchive_outlined
+                      : Icons.archive_outlined,
+                ),
+                title: Text(
+                  conversation.isArchived
+                      ? 'Keluarkan dari arsip'
+                      : 'Arsipkan chat',
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _handleConversationAction(
+                    conversation: conversation,
+                    action: 'archive',
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _matchesConversationSearch(ConversationModel item) {
+    if (_searchQuery.isEmpty) {
+      return true;
+    }
+    final haystack = [
+      item.name,
+      item.subtitle,
+      item.lastMessage ?? '',
+      'rt ${item.rt}',
+      'rw ${item.rw}',
+    ].join(' ').toLowerCase();
+    return haystack.contains(_searchQuery);
+  }
+
+  bool _matchesAnnouncementSearch(AnnouncementModel item) {
+    if (_searchQuery.isEmpty) {
+      return true;
+    }
+    final haystack = [
+      item.title,
+      item.content,
+      item.authorName,
+      item.targetLabel,
+    ].join(' ').toLowerCase();
+    return haystack.contains(_searchQuery);
   }
 
   Future<void> _refresh() async {

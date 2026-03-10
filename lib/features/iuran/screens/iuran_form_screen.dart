@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../app/theme.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 class IuranFormScreen extends ConsumerStatefulWidget {
   const IuranFormScreen({super.key});
@@ -52,33 +52,41 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Catat Iuran')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextFormField(
-                controller: _jumlahCtrl,
-                decoration: const InputDecoration(labelText: 'Jumlah (Rp)', prefixText: 'Rp '),
-                keyboardType: TextInputType.number,
-                validator: (v) => v == null || v.isEmpty ? 'Jumlah wajib diisi' : null,
+      body: AppPageBackground(
+        child: SingleChildScrollView(
+          child: AppSurfaceCard(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const AppSectionHeader(
+                    title: 'Catat Pembayaran Iuran',
+                    subtitle: 'Masukkan nominal dan keterangan pencatatan.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _jumlahCtrl,
+                    decoration: const InputDecoration(labelText: 'Jumlah (Rp)', prefixText: 'Rp '),
+                    keyboardType: TextInputType.number,
+                    validator: (v) => v == null || v.isEmpty ? 'Jumlah wajib diisi' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _keteranganCtrl,
+                    decoration: const InputDecoration(labelText: 'Keterangan'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: _isLoading ? null : _save,
+                    child: _isLoading
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Simpan'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _keteranganCtrl,
-                decoration: const InputDecoration(labelText: 'Keterangan'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _save,
-                child: _isLoading
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Simpan'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

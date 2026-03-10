@@ -128,8 +128,16 @@ class MessageModel {
     required this.text,
     required this.messageType,
     required this.isMine,
+    required this.isStarred,
+    required this.isPinned,
+    required this.isDeleted,
     this.attachmentName,
     this.attachmentUrl,
+    this.replyToId,
+    this.replySenderName,
+    this.replySnippet,
+    this.forwardedFromId,
+    this.forwardedFromName,
     this.createdAt,
   });
 
@@ -140,11 +148,21 @@ class MessageModel {
   final String text;
   final String messageType;
   final bool isMine;
+  final bool isStarred;
+  final bool isPinned;
+  final bool isDeleted;
   final String? attachmentName;
   final String? attachmentUrl;
+  final String? replyToId;
+  final String? replySenderName;
+  final String? replySnippet;
+  final String? forwardedFromId;
+  final String? forwardedFromName;
   final DateTime? createdAt;
 
   bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
+  bool get hasReply => (replyToId ?? '').trim().isNotEmpty;
+  bool get isForwarded => (forwardedFromId ?? '').trim().isNotEmpty;
 
   factory MessageModel.fromJson(Map<String, dynamic> json) {
     return MessageModel(
@@ -155,8 +173,16 @@ class MessageModel {
       text: json['text']?.toString() ?? '',
       messageType: json['messageType']?.toString() ?? 'text',
       isMine: json['isMine'] == true,
+      isStarred: json['isStarred'] == true,
+      isPinned: json['isPinned'] == true,
+      isDeleted: json['isDeleted'] == true,
       attachmentName: json['attachmentName']?.toString(),
       attachmentUrl: json['attachmentUrl']?.toString(),
+      replyToId: json['replyToId']?.toString(),
+      replySenderName: json['replySenderName']?.toString(),
+      replySnippet: json['replySnippet']?.toString(),
+      forwardedFromId: json['forwardedFromId']?.toString(),
+      forwardedFromName: json['forwardedFromName']?.toString(),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
     );
   }
@@ -170,7 +196,12 @@ class MessageModel {
       text: record.getStringValue('text'),
       messageType: record.getStringValue('message_type'),
       isMine: false,
+      isStarred: record.data['is_starred'] == true,
+      isPinned: record.data['is_pinned'] == true,
+      isDeleted: record.getStringValue('deleted_at').isNotEmpty,
       attachmentName: record.getStringValue('attachment'),
+      replyToId: record.getStringValue('reply_to'),
+      forwardedFromId: record.getStringValue('forwarded_from'),
       createdAt: DateTime.tryParse(record.getStringValue('created')),
     );
   }

@@ -28,12 +28,12 @@ class FloatingActionPill extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.34)),
         boxShadow: [
           BoxShadow(
-            color: colors.first.withValues(alpha: 0.26),
-            blurRadius: 18,
+            color: colors.first.withValues(alpha: 0.14),
+            blurRadius: 22,
             offset: const Offset(0, 10),
           ),
         ],
@@ -41,23 +41,23 @@ class FloatingActionPill extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(11),
                   ),
-                  child: Icon(icon, color: Colors.white, size: 19),
+                  child: Icon(icon, color: Colors.white, size: 18),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Text(
                   label,
                   style: AppTheme.bodyMedium.copyWith(

@@ -49,13 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF0D47A1), Color(0xFF1976D2), Color(0xFF42A5F5)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: AppTheme.headerGradient),
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -180,16 +174,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             // Login button
                             SizedBox(
                               height: 52,
-                              child: ElevatedButton(
+                              child: FilledButton(
                                 onPressed: _isLoading ? null : _login,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppTheme.primaryColor,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                  ),
-                                  elevation: 0,
-                                ),
                                 child: _isLoading
                                     ? const SizedBox(
                                         height: 20,

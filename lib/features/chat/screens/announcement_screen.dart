@@ -69,13 +69,16 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
               onTap: () => _showCreateDialog(context, ref),
               icon: Icons.add_comment_rounded,
               label: 'Buat Pengumuman',
-              gradientColors: const [Color(0xFFFF8F00), Color(0xFFFFB74D)],
+              gradientColors: const [AppTheme.accentColor, Color(0xFFE0B56C)],
             )
           : null,
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFF4F8FF), Color(0xFFF9FCFF)],
+            colors: [
+              const Color(0xFFF2F7F5),
+              Colors.white.withValues(alpha: 0.98),
+            ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -111,9 +114,9 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
             return RefreshIndicator(
               onRefresh: () async => ref.invalidate(announcementListProvider),
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 90),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
                 itemCount: data.items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final ann = data.items[index];
                   return _AnnouncementCard(item: ann);
@@ -231,10 +234,10 @@ class _AnnouncementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.dividerColor),
       ),
       child: Column(
@@ -243,7 +246,7 @@ class _AnnouncementCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppTheme.accentColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
@@ -259,17 +262,25 @@ class _AnnouncementCard extends StatelessWidget {
               const Spacer(),
               Text(
                 item.createdAt != null
-                    ? Formatters.tanggalRelatif(item.createdAt!)
+                    ? Formatters.waktuRingkas(item.createdAt!)
                     : '',
                 style: AppTheme.caption,
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(item.title, style: AppTheme.heading3),
+          Text(
+            item.title,
+            style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: 4),
-          Text(item.content, style: AppTheme.bodyMedium),
-          const SizedBox(height: 8),
+          Text(
+            item.content,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.bodyMedium.copyWith(height: 1.35),
+          ),
+          const SizedBox(height: 6),
           Text(
             'Oleh ${item.authorName}',
             style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),

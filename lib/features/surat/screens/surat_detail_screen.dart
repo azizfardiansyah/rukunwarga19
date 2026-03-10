@@ -7,6 +7,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../shared/models/surat_model.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 class SuratDetailScreen extends ConsumerWidget {
   final String suratId;
@@ -18,7 +19,8 @@ class SuratDetailScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Detail Surat')),
-      body: FutureBuilder(
+      body: AppPageBackground(
+        child: FutureBuilder(
         future: pb.collection(AppConstants.colSurat).getOne(suratId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -28,47 +30,50 @@ class SuratDetailScreen extends ConsumerWidget {
 
           final surat = SuratModel.fromRecord(snapshot.data!);
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: EdgeInsets.zero,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(child: Text(surat.jenis, style: AppTheme.heading3)),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                              decoration: BoxDecoration(
+                AppSurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: Text(surat.jenis, style: AppTheme.heading3)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppTheme.statusColor(surat.status).withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              surat.status.toUpperCase(),
+                              style: TextStyle(
                                 color: AppTheme.statusColor(surat.status),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                surat.status.toUpperCase(),
-                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ],
-                        ),
-                        const Divider(),
-                        Text('Keperluan', style: AppTheme.bodySmall),
-                        const SizedBox(height: 4),
-                        Text(surat.keperluan, style: AppTheme.bodyMedium),
-                        if (surat.catatan != null && surat.catatan!.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Text('Catatan', style: AppTheme.bodySmall),
-                          const SizedBox(height: 4),
-                          Text(surat.catatan!, style: AppTheme.bodyMedium),
+                          ),
                         ],
+                      ),
+                      const Divider(height: 24),
+                      Text('Keperluan', style: AppTheme.bodySmall),
+                      const SizedBox(height: 4),
+                      Text(surat.keperluan, style: AppTheme.bodyMedium),
+                      if (surat.catatan != null && surat.catatan!.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        Text('Diajukan: ${surat.created != null ? Formatters.tanggalWaktu(surat.created!) : "-"}',
-                            style: AppTheme.caption),
+                        Text('Catatan', style: AppTheme.bodySmall),
+                        const SizedBox(height: 4),
+                        Text(surat.catatan!, style: AppTheme.bodyMedium),
                       ],
-                    ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Diajukan: ${surat.created != null ? Formatters.tanggalWaktu(surat.created!) : "-"}',
+                        style: AppTheme.caption,
+                      ),
+                    ],
                   ),
                 ),
                 if (isAdmin && surat.isPending) ...[
@@ -110,6 +115,7 @@ class SuratDetailScreen extends ConsumerWidget {
             ),
           );
         },
+      ),
       ),
     );
   }

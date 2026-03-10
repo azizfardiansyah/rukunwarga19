@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../app/theme.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 class NotifikasiScreen extends StatelessWidget {
   const NotifikasiScreen({super.key});
@@ -8,14 +8,11 @@ class NotifikasiScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Notifikasi')),
-      body: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.notifications_none, size: 64, color: Colors.grey),
-            SizedBox(height: 16),
-            Text('Belum ada notifikasi', style: AppTheme.bodyMedium),
-          ],
+      body: const AppPageBackground(
+        child: AppEmptyState(
+          icon: Icons.notifications_none_rounded,
+          title: 'Belum ada notifikasi',
+          message: 'Pembaruan aplikasi dan aktivitas penting akan muncul di sini.',
         ),
       ),
     );

@@ -13,6 +13,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/dokumen_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 
 class DokumenListData {
@@ -88,12 +89,7 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
     final activeSection = canVerify ? _section : _DokumenSection.mine;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Dokumen'),
-      ),
+      appBar: AppBar(title: const Text('Dokumen')),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: activeSection == _DokumenSection.mine
           ? FloatingActionPill(
@@ -105,62 +101,51 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
               },
               icon: Icons.upload_file_rounded,
               label: 'Upload Dokumen',
-              gradientColors: const [Color(0xFF0D47A1), Color(0xFF1976D2)],
+              gradientColors: const [
+                AppTheme.primaryDark,
+                AppTheme.primaryColor,
+              ],
             )
           : null,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFEAF3FF), Color(0xFFF7FBFF), Color(0xFFF5FFFC)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              children: [
-                _buildHero(canVerify, activeSection),
-                const SizedBox(height: 12),
-                _buildSectionSelector(canVerify, activeSection),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: dokumenAsync.when(
-                    data: (data) => RefreshIndicator(
-                      onRefresh: _refresh,
-                      child: activeSection == _DokumenSection.mine
-                          ? _buildMyDocuments(data)
-                          : _buildVerificationDocuments(data),
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => Center(
-                      child: AppTheme.glassContainer(
-                        opacity: 0.74,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              ErrorClassifier.classify(error).message,
-                              style: AppTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 10),
-                            ElevatedButton(
-                              onPressed: () =>
-                                  ref.invalidate(dokumenListProvider),
-                              child: const Text('Coba Lagi'),
-                            ),
-                          ],
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          children: [
+            _buildHero(canVerify, activeSection),
+            const SizedBox(height: 12),
+            _buildSectionSelector(canVerify, activeSection),
+            const SizedBox(height: 14),
+            Expanded(
+              child: dokumenAsync.when(
+                data: (data) => RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: activeSection == _DokumenSection.mine
+                      ? _buildMyDocuments(data)
+                      : _buildVerificationDocuments(data),
+                ),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: AppSurfaceCard(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          ErrorClassifier.classify(error).message,
+                          style: AppTheme.bodyMedium,
+                          textAlign: TextAlign.center,
                         ),
-                      ),
+                        const SizedBox(height: 10),
+                        FilledButton(
+                          onPressed: () => ref.invalidate(dokumenListProvider),
+                          child: const Text('Coba Lagi'),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -174,68 +159,28 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
         ? 'Pantau status dokumen Anda, lalu unggah dokumen baru jika dibutuhkan.'
         : 'Review dokumen warga sesuai wilayah akses Anda dan tindak lanjuti statusnya.';
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              activeSection == _DokumenSection.mine
-                  ? 'Dokumen Saya'
-                  : 'Verifikasi Dokumen',
-              style: AppTheme.caption.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: AppTheme.heading2.copyWith(
-              color: Colors.white,
-              height: 1.15,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: AppTheme.bodyMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.88),
-            ),
-          ),
-          if (canVerify && activeSection == _DokumenSection.verification) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _heroChip(Icons.pending_actions_rounded, 'Pending'),
-                _heroChip(Icons.edit_note_rounded, 'Perlu Revisi'),
-                _heroChip(Icons.verified_rounded, 'Terverifikasi'),
-                _heroChip(Icons.cancel_outlined, 'Ditolak'),
-              ],
-            ),
-          ],
-        ],
-      ),
+    return AppHeroPanel(
+      eyebrow: activeSection == _DokumenSection.mine
+          ? 'Dokumen Saya'
+          : 'Verifikasi Dokumen',
+      icon: activeSection == _DokumenSection.mine
+          ? Icons.folder_outlined
+          : Icons.fact_check_outlined,
+      title: title,
+      subtitle: subtitle,
+      chips: canVerify && activeSection == _DokumenSection.verification
+          ? [
+              _heroChip(Icons.pending_actions_rounded, 'Pending'),
+              _heroChip(Icons.edit_note_rounded, 'Perlu Revisi'),
+              _heroChip(Icons.verified_rounded, 'Terverifikasi'),
+              _heroChip(Icons.cancel_outlined, 'Ditolak'),
+            ]
+          : const [],
     );
   }
 
   Widget _buildSectionSelector(bool canVerify, _DokumenSection activeSection) {
-    return AppTheme.glassContainer(
-      opacity: 0.76,
+    return AppSurfaceCard(
       padding: const EdgeInsets.all(6),
       child: Row(
         children: [
@@ -395,8 +340,7 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
       (value: 'all', label: 'Semua'),
     ];
 
-    return AppTheme.glassContainer(
-      opacity: 0.74,
+    return AppSurfaceCard(
       padding: const EdgeInsets.all(12),
       child: Wrap(
         spacing: 8,
@@ -536,26 +480,11 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
   }
 
   Widget _heroChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: AppTheme.caption.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
+    return AppHeroBadge(
+      label: label,
+      foregroundColor: Colors.white,
+      backgroundColor: Colors.white.withValues(alpha: 0.16),
+      icon: icon,
     );
   }
 }
@@ -612,8 +541,7 @@ class _EmptyStateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppTheme.glassContainer(
-      opacity: 0.74,
+    return AppSurfaceCard(
       child: Column(
         children: [
           Icon(
@@ -660,8 +588,7 @@ class _DokumenCard extends StatelessWidget {
     final wargaName = warga?.namaLengkap ?? 'Warga tidak ditemukan';
     final fileName = document.file;
 
-    return AppTheme.glassContainer(
-      opacity: 0.74,
+    return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -7,6 +7,7 @@ import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/surat_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 final suratListProvider = FutureProvider.autoDispose<List<SuratModel>>((ref) async {
   final result = await pb.collection(AppConstants.colSurat).getList(
@@ -24,16 +25,25 @@ class SuratListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Surat Pengantar')),
-      body: suratAsync.when(
+      body: AppPageBackground(
+        child: suratAsync.when(
         data: (list) {
-          if (list.isEmpty) return const Center(child: Text('Belum ada surat'));
+          if (list.isEmpty) {
+            return const AppEmptyState(
+              icon: Icons.description_outlined,
+              title: 'Belum ada surat',
+              message: 'Pengajuan surat akan muncul di sini.',
+            );
+          }
           return ListView.builder(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: EdgeInsets.zero,
             itemCount: list.length,
             itemBuilder: (context, index) {
               final surat = list[index];
-              return Card(
+              return AppSurfaceCard(
+                margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.description,
                       color: AppTheme.statusColor(surat.status)),
                   title: Text(surat.jenis),
@@ -64,7 +74,8 @@ class SuratListScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
       ),
-      floatingActionButton: FloatingActionButton(
+      ),
+      floatingActionButton: FilledButton.tonal(
         onPressed: () => context.push(Routes.suratForm),
         child: const Icon(Icons.add),
       ),

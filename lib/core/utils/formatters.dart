@@ -27,13 +27,23 @@ class Formatters {
 
   /// Format waktu saja: 10:30
   static String waktu(DateTime date) {
-    return DateFormat('HH:mm').format(date);
+    return DateFormat('HH:mm').format(date.toLocal());
   }
 
   /// Format relatif: Hari ini, Kemarin, 3 hari lalu, dll
   static String tanggalRelatif(DateTime date) {
+    final normalized = date.toLocal();
     final now = DateTime.now();
-    final diff = now.difference(date);
+    var diff = now.difference(normalized);
+
+    if (diff.isNegative) {
+      final futureMinutes = diff.inMinutes.abs();
+      if (futureMinutes <= 1) return 'Baru saja';
+      if (futureMinutes < 60) return '$futureMinutes menit lagi';
+      final futureHours = diff.inHours.abs();
+      if (futureHours < 24) return '$futureHours jam lagi';
+      diff = Duration.zero;
+    }
 
     if (diff.inDays == 0) {
       if (diff.inHours == 0) {
@@ -48,8 +58,32 @@ class Formatters {
     } else if (diff.inDays < 30) {
       return '${(diff.inDays / 7).floor()} minggu lalu';
     } else {
-      return tanggalPendek(date);
+      return tanggalPendek(normalized);
     }
+  }
+
+  /// Format ringkas untuk daftar chat/pengumuman.
+  static String waktuRingkas(DateTime date) {
+    final normalized = date.toLocal();
+    final now = DateTime.now();
+    final startNow = DateTime(now.year, now.month, now.day);
+    final startDate = DateTime(
+      normalized.year,
+      normalized.month,
+      normalized.day,
+    );
+    final dayDiff = startNow.difference(startDate).inDays;
+
+    if (dayDiff <= 0) {
+      return DateFormat('HH:mm', 'id').format(normalized);
+    }
+    if (dayDiff == 1) {
+      return 'Kemarin';
+    }
+    if (dayDiff < 7) {
+      return DateFormat('EEE', 'id').format(normalized);
+    }
+    return DateFormat('dd/MM', 'id').format(normalized);
   }
 
   /// Parse string tanggal dari PocketBase (ISO 8601)

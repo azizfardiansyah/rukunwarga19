@@ -188,9 +188,20 @@ class ChatService {
           sort: 'created',
           filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
         );
-    final senderNames = await _loadSenderNames(
-      records.map((record) => _recordText(record, 'sender')).toSet(),
-    );
+    final replyIds = records
+        .map((record) => _recordText(record, 'reply_to'))
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final forwardedIds = records
+        .map((record) => _recordText(record, 'forwarded_from'))
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final relatedRecords = await _loadMessagesByIds({...replyIds, ...forwardedIds});
+    final senderIds = <String>{
+      ...records.map((record) => _recordText(record, 'sender')),
+      ...relatedRecords.values.map((record) => _recordText(record, 'sender')),
+    };
+    final senderNames = await _loadSenderNames(senderIds);
 
     final updatedMembership = await _markConversationReadByMember(membership.id);
 
@@ -203,22 +214,11 @@ class ChatService {
       ),
       messages: records
           .map(
-            (record) => MessageModel(
-              id: record.id,
-              conversationId: _recordText(record, 'conversation'),
-              senderId: _recordText(record, 'sender'),
-              senderName:
-                  senderNames[_recordText(record, 'sender')] ?? 'Pengguna',
-              text: _recordText(record, 'text'),
-              messageType: _recordText(record, 'message_type').isEmpty
-                  ? 'text'
-                  : _recordText(record, 'message_type'),
-              isMine: _recordText(record, 'sender') == authUser.id,
-              attachmentName: _recordText(record, 'attachment').isEmpty
-                  ? null
-                  : _recordText(record, 'attachment'),
-              attachmentUrl: _fileUrl(record, 'attachment'),
-              createdAt: DateTime.tryParse(_recordText(record, 'created')),
+            (record) => _buildMessageModel(
+              record,
+              currentUserId: authUser.id,
+              senderNames: senderNames,
+              relatedRecords: relatedRecords,
             ),
           )
           .toList(growable: false),
@@ -229,6 +229,8 @@ class ChatService {
     required String conversationId,
     required String text,
     PlatformFile? attachment,
+    String? replyToId,
+    String? forwardedFromId,
   }) async {
     final auth = _auth;
     final authUser = auth.user;
@@ -272,19 +274,32 @@ class ChatService {
       files.add(await _multipartFromPlatformFile('attachment', attachment));
     }
 
+    final body = <String, dynamic>{
+      'conversation': conversationId,
+      'sender': authUser.id,
+      'text': trimmedText,
+      'message_type': attachment != null ? 'file' : 'text',
+      'is_starred': false,
+      'is_pinned': false,
+    };
+    if ((replyToId ?? '').isNotEmpty) {
+      body['reply_to'] = replyToId;
+    }
+    if ((forwardedFromId ?? '').isNotEmpty) {
+      body['forwarded_from'] = forwardedFromId;
+    }
+
     final record = await pb.collection(AppConstants.colMessages).create(
-      body: {
-        'conversation': conversationId,
-        'sender': authUser.id,
-        'text': trimmedText,
-        'message_type': attachment != null ? 'file' : 'text',
-      },
+      body: body,
       files: files,
     );
 
-    final preview = trimmedText.isNotEmpty
-        ? trimmedText
-        : 'Lampiran: ${attachment?.name ?? 'file'}';
+    final preview = _previewForMessage(
+      text: trimmedText,
+      attachmentName: attachment?.name ?? _recordText(record, 'attachment'),
+      isForwarded: (forwardedFromId ?? '').isNotEmpty,
+      isReply: (replyToId ?? '').isNotEmpty,
+    );
     await pb.collection(AppConstants.colConversations).update(
       conversationId,
       body: {
@@ -295,21 +310,20 @@ class ChatService {
 
     await _markConversationReadByMember(membership.id);
 
-    return MessageModel(
-      id: record.id,
-      conversationId: conversationId,
-      senderId: authUser.id,
-      senderName: await _resolveSenderName(authUser.id) ?? _userDisplayName(authUser),
-      text: _recordText(record, 'text'),
-      messageType: _recordText(record, 'message_type').isEmpty
-          ? 'text'
-          : _recordText(record, 'message_type'),
-      isMine: true,
-      attachmentName: _recordText(record, 'attachment').isEmpty
-          ? null
-          : _recordText(record, 'attachment'),
-      attachmentUrl: _fileUrl(record, 'attachment'),
-      createdAt: DateTime.tryParse(_recordText(record, 'created')),
+    final relatedRecords = await _loadMessagesByIds({
+      if ((replyToId ?? '').isNotEmpty) replyToId!,
+      if ((forwardedFromId ?? '').isNotEmpty) forwardedFromId!,
+    });
+    final senderNames = await _loadSenderNames({
+      authUser.id,
+      ...relatedRecords.values.map((item) => _recordText(item, 'sender')),
+    });
+
+    return _buildMessageModel(
+      record,
+      currentUserId: authUser.id,
+      senderNames: senderNames,
+      relatedRecords: relatedRecords,
     );
   }
 
@@ -324,6 +338,22 @@ class ChatService {
       userId: authUser.id,
     );
     await _markConversationReadByMember(membership.id);
+  }
+
+  Future<void> markConversationUnread(String conversationId) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      return;
+    }
+
+    final membership = await _ensureMembership(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await pb.collection(AppConstants.colConversationMembers).update(
+      membership.id,
+      body: {'last_read_at': null},
+    );
   }
 
   Future<void> setConversationPreference({
@@ -362,6 +392,118 @@ class ChatService {
           membership.id,
           body: body,
         );
+  }
+
+  Future<void> toggleMessageStar(String messageId) async {
+    final message = await _loadAccessibleMessage(messageId);
+    await pb.collection(AppConstants.colMessages).update(
+      message.id,
+      body: {'is_starred': !(message.data['is_starred'] == true)},
+    );
+  }
+
+  Future<void> toggleMessagePin(String messageId) async {
+    final message = await _loadAccessibleMessage(messageId);
+    await pb.collection(AppConstants.colMessages).update(
+      message.id,
+      body: {'is_pinned': !(message.data['is_pinned'] == true)},
+    );
+  }
+
+  Future<void> deleteMessage(String messageId) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final message = await _loadAccessibleMessage(messageId);
+    if (_recordText(message, 'sender') != authUser.id && !_auth.isSysadmin) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Hanya pengirim yang dapat menghapus pesan.'},
+      );
+    }
+
+    await pb.collection(AppConstants.colMessages).update(
+      message.id,
+      body: {
+        'text': '',
+        'deleted_at': DateTime.now().toIso8601String(),
+        'deleted_by': authUser.id,
+      },
+    );
+    await _syncConversationPreview(_recordText(message, 'conversation'));
+  }
+
+  Future<void> forwardMessage({
+    required String messageId,
+    required String targetConversationId,
+  }) async {
+    final message = await _loadAccessibleMessage(messageId);
+    final attachmentUrl = _fileUrl(message, 'attachment');
+    final files = <http.MultipartFile>[];
+    if ((attachmentUrl ?? '').isNotEmpty) {
+      files.add(
+        await _multipartFromUrl(
+          'attachment',
+          attachmentUrl!,
+          filename: _recordText(message, 'attachment'),
+        ),
+      );
+    }
+
+    final text = _recordText(message, 'text');
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final targetConversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(targetConversationId);
+    final area = await resolveAreaAccessContext(_auth);
+    if (!_canAccessConversation(
+      auth: _auth,
+      context: area,
+      conversation: targetConversation,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Tujuan forward tidak dapat diakses.'},
+      );
+    }
+
+    final created = await pb.collection(AppConstants.colMessages).create(
+      body: {
+        'conversation': targetConversationId,
+        'sender': authUser.id,
+        'text': text,
+        'message_type': files.isNotEmpty ? 'file' : 'text',
+        'forwarded_from': messageId,
+        'is_starred': false,
+        'is_pinned': false,
+      },
+      files: files,
+    );
+
+    await pb.collection(AppConstants.colConversations).update(
+      targetConversationId,
+      body: {
+        'last_message': _previewForMessage(
+          text: text,
+          attachmentName: _recordText(created, 'attachment'),
+          isForwarded: true,
+          isReply: false,
+        ),
+        'last_message_at': DateTime.now().toIso8601String(),
+      },
+    );
   }
 
   Future<ChatAnnouncementsData> getAnnouncements() async {
@@ -873,6 +1015,94 @@ class ChatService {
     return null;
   }
 
+  Future<Map<String, RecordModel>> _loadMessagesByIds(Set<String> ids) async {
+    final result = <String, RecordModel>{};
+    for (final id in ids.where((item) => item.isNotEmpty)) {
+      try {
+        final record = await pb.collection(AppConstants.colMessages).getOne(id);
+        result[id] = record;
+      } catch (_) {}
+    }
+    return result;
+  }
+
+  Future<RecordModel> _loadAccessibleMessage(String messageId) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final message = await pb.collection(AppConstants.colMessages).getOne(messageId);
+    final conversationId = _recordText(message, 'conversation');
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+    final area = await resolveAreaAccessContext(auth);
+    if (!_canAccessConversation(
+      auth: auth,
+      context: area,
+      conversation: conversation,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses pesan ditolak.'},
+      );
+    }
+    return message;
+  }
+
+  MessageModel _buildMessageModel(
+    RecordModel record, {
+    required String currentUserId,
+    required Map<String, String> senderNames,
+    required Map<String, RecordModel> relatedRecords,
+  }) {
+    final replyId = _recordText(record, 'reply_to');
+    final replyRecord = relatedRecords[replyId];
+    final forwardedId = _recordText(record, 'forwarded_from');
+    final forwardedRecord = relatedRecords[forwardedId];
+    final isDeleted = _recordText(record, 'deleted_at').isNotEmpty;
+
+    return MessageModel(
+      id: record.id,
+      conversationId: _recordText(record, 'conversation'),
+      senderId: _recordText(record, 'sender'),
+      senderName: senderNames[_recordText(record, 'sender')] ?? 'Pengguna',
+      text: _recordText(record, 'text'),
+      messageType: _recordText(record, 'message_type').isEmpty
+          ? 'text'
+          : _recordText(record, 'message_type'),
+      isMine: _recordText(record, 'sender') == currentUserId,
+      isStarred: record.data['is_starred'] == true,
+      isPinned: record.data['is_pinned'] == true,
+      isDeleted: isDeleted,
+      attachmentName: isDeleted || _recordText(record, 'attachment').isEmpty
+          ? null
+          : _recordText(record, 'attachment'),
+      attachmentUrl: isDeleted ? null : _fileUrl(record, 'attachment'),
+      replyToId: replyId.isEmpty ? null : replyId,
+      replySenderName: replyRecord == null
+          ? null
+          : senderNames[_recordText(replyRecord, 'sender')] ?? 'Pengguna',
+      replySnippet: replyRecord == null
+          ? null
+          : _recordText(replyRecord, 'text').isNotEmpty
+              ? _recordText(replyRecord, 'text')
+              : _recordText(replyRecord, 'attachment').isNotEmpty
+                  ? 'Lampiran: ${_recordText(replyRecord, 'attachment')}'
+                  : 'Pesan',
+      forwardedFromId: forwardedId.isEmpty ? null : forwardedId,
+      forwardedFromName: forwardedRecord == null
+          ? null
+          : senderNames[_recordText(forwardedRecord, 'sender')] ?? 'Pengguna',
+      createdAt: DateTime.tryParse(_recordText(record, 'created')),
+    );
+  }
+
   ConversationModel _conversationFromRecord(
     RecordModel record, {
     required String currentUserId,
@@ -1015,6 +1245,79 @@ class ChatService {
     throw ClientException(
       statusCode: 400,
       response: const {'message': 'File lampiran tidak valid.'},
+    );
+  }
+
+  Future<http.MultipartFile> _multipartFromUrl(
+    String field,
+    String url, {
+    required String filename,
+  }) async {
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Lampiran forward tidak dapat diunduh.'},
+      );
+    }
+    return http.MultipartFile.fromBytes(
+      field,
+      response.bodyBytes,
+      filename: filename,
+    );
+  }
+
+  String _previewForMessage({
+    required String text,
+    required String attachmentName,
+    required bool isForwarded,
+    required bool isReply,
+  }) {
+    final base = text.trim().isNotEmpty
+        ? text.trim()
+        : 'Lampiran: ${attachmentName.isEmpty ? 'file' : attachmentName}';
+    if (isForwarded) {
+      return 'Meneruskan: $base';
+    }
+    if (isReply) {
+      return 'Balasan: $base';
+    }
+    return base;
+  }
+
+  Future<void> _syncConversationPreview(String conversationId) async {
+    final latest = await pb.collection(AppConstants.colMessages).getList(
+          page: 1,
+          perPage: 1,
+          sort: '-created',
+          filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
+        );
+    if (latest.items.isEmpty) {
+      await pb.collection(AppConstants.colConversations).update(
+        conversationId,
+        body: {
+          'last_message': '',
+          'last_message_at': null,
+        },
+      );
+      return;
+    }
+
+    final record = latest.items.first;
+    final preview = _recordText(record, 'deleted_at').isNotEmpty
+        ? 'Pesan dihapus'
+        : _previewForMessage(
+            text: _recordText(record, 'text'),
+            attachmentName: _recordText(record, 'attachment'),
+            isForwarded: _recordText(record, 'forwarded_from').isNotEmpty,
+            isReply: _recordText(record, 'reply_to').isNotEmpty,
+          );
+    await pb.collection(AppConstants.colConversations).update(
+      conversationId,
+      body: {
+        'last_message': preview,
+        'last_message_at': _recordText(record, 'created'),
+      },
     );
   }
 
