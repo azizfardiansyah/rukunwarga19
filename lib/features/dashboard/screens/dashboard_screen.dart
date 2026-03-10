@@ -8,7 +8,9 @@ import '../../../app/theme.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/surat_service.dart';
 import '../../../core/utils/area_access.dart';
+import '../../surat/providers/surat_providers.dart';
 
 class DashboardStats {
   const DashboardStats({required this.totalWarga, required this.totalKk});
@@ -105,6 +107,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final roleLabel = AppConstants.roleLabel(authState.role);
     final isWarga =
         AppConstants.normalizeRole(authState.role) == AppConstants.roleWarga;
+    final suratSummaryAsync = ref.watch(suratDashboardSummaryProvider);
 
     // Listen for hasKartuKeluarga changes and navigate if needed
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
@@ -269,7 +272,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _StatCard(
                         icon: Icons.description_rounded,
                         label: 'Surat',
-                        value: '-',
+                        value: suratSummaryAsync.maybeWhen(
+                          data: (summary) => summary.actionRequired.toString(),
+                          orElse: () => '...',
+                        ),
                         color: AppTheme.accentColor,
                       ),
                     ],
@@ -333,13 +339,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       tone: AppTheme.accentColor,
                       onTap: () => context.push(Routes.dokumen),
                     ),
-                    if (!isWarga)
-                      _MenuCard(
-                        icon: Icons.description_rounded,
-                        label: 'Surat',
-                        tone: const Color(0xFF64748B),
-                        onTap: () => context.push(Routes.surat),
-                      ),
+                    _MenuCard(
+                      icon: Icons.description_rounded,
+                      label: 'Surat',
+                      tone: const Color(0xFF64748B),
+                      onTap: () => context.push(Routes.surat),
+                    ),
                     _MenuCard(
                       icon: Icons.payments_rounded,
                       label: 'Iuran',
@@ -354,6 +359,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ],
                 ),
+                if (!isWarga) ...[
+                  const SizedBox(height: 18),
+                  suratSummaryAsync.when(
+                    data: (summary) => _SuratSummaryCard(summary: summary),
+                    loading: () => const SizedBox.shrink(),
+                    error: (_, _) => const SizedBox.shrink(),
+                  ),
+                ],
                 if (showSetupMenu) ...[
                   const SizedBox(height: 16),
                   Container(
@@ -422,6 +435,107 @@ class _StatCard extends StatelessWidget {
             Text(label, style: AppTheme.caption),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SuratSummaryCard extends StatelessWidget {
+  const _SuratSummaryCard({required this.summary});
+
+  final SuratDashboardSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: AppTheme.cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.analytics_outlined,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Ringkasan Surat', style: AppTheme.heading3),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Pantau antrean surat dan progres penyelesaiannya.',
+                      style: AppTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _summaryChip(
+                'Total',
+                summary.total.toString(),
+                AppTheme.primaryColor,
+              ),
+              _summaryChip(
+                'Perlu Aksi',
+                summary.actionRequired.toString(),
+                AppTheme.accentColor,
+              ),
+              _summaryChip(
+                'Revisi',
+                summary.needRevision.toString(),
+                AppTheme.warningColor,
+              ),
+              _summaryChip(
+                'Selesai',
+                summary.completed.toString(),
+                AppTheme.successColor,
+              ),
+              _summaryChip(
+                'Ditolak',
+                summary.rejected.toString(),
+                AppTheme.errorColor,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryChip(String label, String value, Color color) {
+    return Container(
+      width: 108,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value, style: AppTheme.heading3.copyWith(color: color)),
+          const SizedBox(height: 4),
+          Text(label, style: AppTheme.caption),
+        ],
       ),
     );
   }

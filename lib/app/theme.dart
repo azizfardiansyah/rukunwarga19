@@ -110,20 +110,21 @@ class AppTheme {
 
   // === LIGHT THEME ===
   static ThemeData get lightTheme {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: primaryColor,
-      brightness: Brightness.light,
-    ).copyWith(
-      primary: primaryColor,
-      secondary: secondaryColor,
-      surface: surfaceColor,
-      surfaceContainerHighest: const Color(0xFFF0F3F1),
-      error: errorColor,
-      onPrimary: Colors.white,
-      onSurface: textPrimary,
-      onSecondary: textPrimary,
-      outline: dividerColor,
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: primaryColor,
+          brightness: Brightness.light,
+        ).copyWith(
+          primary: primaryColor,
+          secondary: secondaryColor,
+          surface: surfaceColor,
+          surfaceContainerHighest: const Color(0xFFF0F3F1),
+          error: errorColor,
+          onPrimary: Colors.white,
+          onSurface: textPrimary,
+          onSecondary: textPrimary,
+          outline: dividerColor,
+        );
 
     final baseTextTheme = Typography.material2021().black.apply(
       bodyColor: textPrimary,
@@ -174,10 +175,7 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: primaryColor,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -189,10 +187,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: primaryColor,
           side: const BorderSide(color: dividerColor),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -235,9 +230,7 @@ class AppTheme {
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surfaceColor.withValues(alpha: 0.9),
@@ -266,9 +259,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: const Color(0xFF24322E),
         contentTextStyle: bodyMedium.copyWith(color: Colors.white),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         behavior: SnackBarBehavior.floating,
       ),
       dialogTheme: DialogThemeData(
@@ -423,9 +414,17 @@ class AppTheme {
   // === HELPER: Status Color ===
   static Color statusColor(String status) {
     switch (status.toLowerCase()) {
+      case 'draft':
+        return textSecondary;
+      case 'submitted':
+      case 'forwarded_to_rw':
       case 'verified':
       case 'approved':
+      case 'approved_rt':
+      case 'approved_rw':
       case 'lunas':
+        return primaryColor;
+      case 'completed':
         return successColor;
       case 'need_revision':
       case 'perlu_revisi':

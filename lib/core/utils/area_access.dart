@@ -2,6 +2,7 @@ import 'package:pocketbase/pocketbase.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
 import '../../shared/models/kartu_keluarga_model.dart';
+import '../../shared/models/surat_model.dart';
 import '../../shared/models/warga_model.dart';
 import '../constants/app_constants.dart';
 import '../services/pocketbase_service.dart';
@@ -268,6 +269,40 @@ String buildKkScopeFilter(
   return baseConditions.join(' && ');
 }
 
+String buildSuratScopeFilter(
+  AuthState auth, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return 'id = ""';
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return '';
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    return 'submitted_by = "${auth.user!.id}"';
+  }
+
+  if (!context.hasRegionalScope) {
+    return 'id = ""';
+  }
+
+  final baseConditions = <String>[];
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    baseConditions.add('rw = ${context.rw}');
+  } else {
+    baseConditions.add('rt = ${context.rt}');
+    baseConditions.add('rw = ${context.rw}');
+  }
+
+  baseConditions.add(_buildRegionFilter(prefix: '', context: context));
+  return baseConditions.join(' && ');
+}
+
 bool canAccessWargaRecord(
   AuthState auth,
   WargaModel warga, {
@@ -363,4 +398,49 @@ bool canAccessKkRecord(
   }
 
   return kk.rt == '${context.rt}' && kk.rw == '${context.rw}';
+}
+
+bool canAccessSuratRecord(
+  AuthState auth,
+  SuratModel surat, {
+  required AreaAccessContext context,
+}) {
+  if (auth.user == null) {
+    return false;
+  }
+
+  final normalizedRole = AppConstants.normalizeRole(auth.role);
+
+  if (AppConstants.isSysadminRole(normalizedRole)) {
+    return true;
+  }
+
+  if (normalizedRole == AppConstants.roleWarga) {
+    return surat.submittedBy == auth.user!.id ||
+        surat.wargaId == context.wargaId;
+  }
+
+  if (!context.hasRegionalScope) {
+    return false;
+  }
+
+  final matchesRegion = context.hasRegionalCodes
+      ? _matchesScopedCode(context.desaCode, surat.desaCode) &&
+            _matchesScopedCode(context.kecamatanCode, surat.kecamatanCode) &&
+            _matchesScopedCode(context.kabupatenCode, surat.kabupatenCode) &&
+            _matchesScopedCode(context.provinsiCode, surat.provinsiCode)
+      : _matchesScopedArea(context.desaKelurahan, surat.desaKelurahan) &&
+            _matchesScopedArea(context.kecamatan, surat.kecamatan) &&
+            _matchesScopedArea(context.kabupatenKota, surat.kabupatenKota) &&
+            _matchesScopedArea(context.provinsi, surat.provinsi);
+
+  if (!matchesRegion) {
+    return false;
+  }
+
+  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+    return surat.rw == context.rw;
+  }
+
+  return surat.rt == context.rt && surat.rw == context.rw;
 }
