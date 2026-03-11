@@ -98,6 +98,26 @@ class FinanceService {
     return FinanceTransactionModel.fromRecord(record);
   }
 
+  Future<FinanceTransactionModel?> getTransactionBySourceReference({
+    required String sourceModule,
+    required String sourceReference,
+  }) async {
+    final profile = await _requireAccessProfile();
+    if (sourceReference.trim().isEmpty) {
+      return null;
+    }
+
+    final record = await _tryFindFirst(
+      AppConstants.colFinanceTransactions,
+      [
+        'workspace = "${_escapeFilterValue(profile.workspace.id)}"',
+        'source_module = "${_escapeFilterValue(sourceModule.trim().toLowerCase())}"',
+        'source_reference = "${_escapeFilterValue(sourceReference.trim())}"',
+      ].join(' && '),
+    );
+    return record == null ? null : FinanceTransactionModel.fromRecord(record);
+  }
+
   Future<FinanceTransactionModel> createTransaction({
     required String orgUnitId,
     required String accountId,
@@ -166,6 +186,190 @@ class FinanceService {
     return FinanceTransactionModel.fromRecord(record);
   }
 
+  Future<FinanceTransactionModel> saveDraftTransaction({
+    String? transactionId,
+    required String orgUnitId,
+    required String accountId,
+    required String direction,
+    required String category,
+    required String title,
+    required int amount,
+    required String paymentMethod,
+    String sourceModule = 'manual',
+    String? description,
+    PlatformFile? proofFile,
+  }) async {
+    final profile = await _requireAccessProfile();
+    if (!profile.canSubmitFinanceForUnit(orgUnitId)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Anda tidak memiliki hak input keuangan.'},
+      );
+    }
+
+    final makerMembership = profile.primaryMembershipForUnit(orgUnitId);
+    if (makerMembership == null && !profile.member.isSysadmin) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Jabatan maker untuk unit belum ditemukan.',
+        },
+      );
+    }
+
+    final body = <String, dynamic>{
+      'workspace': profile.workspace.id,
+      'org_unit': orgUnitId,
+      'account': accountId,
+      'source_module': sourceModule,
+      'direction': direction.trim().toLowerCase(),
+      'category': category.trim(),
+      'title': title.trim(),
+      'description': (description ?? '').trim(),
+      'amount': amount,
+      'payment_method': paymentMethod.trim().toLowerCase(),
+      'maker_member': profile.member.id,
+      'maker_jabatan_snapshot':
+          makerMembership?.jabatan?.label ??
+          (profile.member.isSysadmin ? 'Sysadmin' : 'Operator'),
+      'approval_status': 'draft',
+      'publish_status': 'pending',
+      'submitted_at': '',
+      'approved_at': '',
+      'published_at': '',
+    };
+
+    final files = <http.MultipartFile>[];
+    if (proofFile != null) {
+      files.add(await _multipartFromPlatformFile('proof_file', proofFile));
+    }
+
+    if ((transactionId ?? '').trim().isEmpty) {
+      final record = await pb
+          .collection(AppConstants.colFinanceTransactions)
+          .create(body: body, files: files);
+      return FinanceTransactionModel.fromRecord(record);
+    }
+
+    final existing = await getTransaction(transactionId!);
+    if (existing.approvalStatus != 'draft') {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Hanya draft yang bisa diedit.'},
+      );
+    }
+    if (!profile.member.isSysadmin &&
+        existing.makerMemberId != profile.member.id) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Hanya maker yang bisa mengedit draft ini.',
+        },
+      );
+    }
+
+    final record = await pb
+        .collection(AppConstants.colFinanceTransactions)
+        .update(transactionId, body: body, files: files);
+    return FinanceTransactionModel.fromRecord(record);
+  }
+
+  Future<FinanceTransactionModel> createRecordedIncomingTransaction({
+    required String orgUnitId,
+    required String accountId,
+    required String category,
+    required String title,
+    required int amount,
+    required String paymentMethod,
+    required String sourceModule,
+    required String sourceReference,
+    String? description,
+  }) async {
+    final profile = await _requireAccessProfile();
+    final existing = await getTransactionBySourceReference(
+      sourceModule: sourceModule,
+      sourceReference: sourceReference,
+    );
+    if (existing != null) {
+      return existing;
+    }
+
+    final makerMembership = profile.primaryMembershipForUnit(orgUnitId);
+    final now = DateTime.now().toIso8601String();
+    final record = await pb
+        .collection(AppConstants.colFinanceTransactions)
+        .create(
+          body: {
+            'workspace': profile.workspace.id,
+            'org_unit': orgUnitId,
+            'account': accountId,
+            'source_module': sourceModule.trim().toLowerCase(),
+            'source_reference': sourceReference.trim(),
+            'direction': 'in',
+            'category': category.trim(),
+            'title': title.trim(),
+            'description': (description ?? '').trim(),
+            'amount': amount,
+            'payment_method': paymentMethod.trim().toLowerCase(),
+            'maker_member': profile.member.id,
+            'maker_jabatan_snapshot':
+                makerMembership?.jabatan?.label ??
+                (profile.member.isSysadmin ? 'Sysadmin' : 'Operator'),
+            'approval_status': 'approved',
+            'publish_status': 'pending',
+            'submitted_at': now,
+            'approved_at': now,
+          },
+        );
+    return FinanceTransactionModel.fromRecord(record);
+  }
+
+  Future<FinanceTransactionModel> submitTransaction({
+    required String transactionId,
+  }) async {
+    final profile = await _requireAccessProfile();
+    final transaction = await getTransaction(transactionId);
+
+    if (transaction.approvalStatus != 'draft') {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Hanya draft yang bisa disubmit.'},
+      );
+    }
+    if (!profile.canSubmitFinanceForUnit(transaction.orgUnitId)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Anda tidak memiliki hak submit keuangan.'},
+      );
+    }
+    if (!profile.member.isSysadmin &&
+        transaction.makerMemberId != profile.member.id) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Hanya maker yang bisa submit draft transaksi ini.',
+        },
+      );
+    }
+
+    final now = DateTime.now().toIso8601String();
+    final needsChecker = _requiresTwoWayVerification(
+      direction: transaction.direction,
+      paymentMethod: transaction.paymentMethod,
+    );
+    final record = await pb
+        .collection(AppConstants.colFinanceTransactions)
+        .update(
+          transaction.id,
+          body: {
+            'approval_status': needsChecker ? 'submitted' : 'approved',
+            'submitted_at': now,
+            'approved_at': needsChecker ? '' : now,
+          },
+        );
+    return FinanceTransactionModel.fromRecord(record);
+  }
+
   Future<FinanceTransactionModel> approveTransaction({
     required String transactionId,
     String note = '',
@@ -200,6 +404,12 @@ class FinanceService {
       throw ClientException(
         statusCode: 400,
         response: const {'message': 'Transaksi belum approved.'},
+      );
+    }
+    if (transaction.isPublished) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Transaksi ini sudah dipublikasikan.'},
       );
     }
     if (!profile.canPublishFinanceByPlan ||
@@ -247,6 +457,14 @@ class FinanceService {
         statusCode: 400,
         response: const {
           'message': 'Transaksi ini tidak memerlukan checker tambahan.',
+        },
+      );
+    }
+    if (!transaction.isSubmitted) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Hanya transaksi submitted yang bisa diproses.',
         },
       );
     }
@@ -391,6 +609,14 @@ class FinanceService {
   }
 
   String get _currentUserId => pb.authStore.record?.id ?? '';
+
+  Future<RecordModel?> _tryFindFirst(String collection, String filter) async {
+    try {
+      return await pb.collection(collection).getFirstListItem(filter);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 Future<http.MultipartFile> _multipartFromPlatformFile(

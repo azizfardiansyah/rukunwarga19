@@ -4,11 +4,15 @@ import 'package:http/http.dart' as http;
 import 'package:pocketbase/pocketbase.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
+import '../../shared/models/finance_model.dart';
 import '../../shared/models/iuran_model.dart';
 import '../../shared/models/kartu_keluarga_model.dart';
+import '../../shared/models/workspace_access_model.dart';
 import '../constants/app_constants.dart';
+import '../services/finance_service.dart';
 import '../services/pocketbase_service.dart';
 import '../utils/area_access.dart';
+import 'workspace_access_service.dart';
 
 class IuranDashboardSummary {
   const IuranDashboardSummary({
@@ -58,6 +62,7 @@ class IuranListData {
     required this.periods,
     required this.bills,
     required this.paymentsByBill,
+    required this.financeTransactionsByBillId,
     required this.pendingPayments,
     required this.summary,
     required this.myKkId,
@@ -67,6 +72,7 @@ class IuranListData {
   final List<IuranPeriodModel> periods;
   final List<IuranBillModel> bills;
   final Map<String, List<IuranPaymentModel>> paymentsByBill;
+  final Map<String, FinanceTransactionModel> financeTransactionsByBillId;
   final List<IuranPaymentModel> pendingPayments;
   final IuranDashboardSummary summary;
   final String? myKkId;
@@ -78,6 +84,10 @@ class IuranListData {
   Map<String, IuranTypeModel> get typesById => {
     for (final type in types) type.id: type,
   };
+
+  FinanceTransactionModel? financeTransactionForBill(String billId) {
+    return financeTransactionsByBillId[billId];
+  }
 }
 
 class IuranTypeSubmitPayload {
@@ -145,6 +155,10 @@ class IuranPaymentReviewPayload {
 }
 
 class IuranService {
+  IuranService(this._ref);
+
+  final Ref _ref;
+
   Future<IuranListData> fetchList(AuthState auth) async {
     if (auth.user == null) {
       return const IuranListData(
@@ -152,6 +166,7 @@ class IuranService {
         periods: [],
         bills: [],
         paymentsByBill: {},
+        financeTransactionsByBillId: {},
         pendingPayments: [],
         summary: IuranDashboardSummary(
           totalBills: 0,
@@ -167,7 +182,6 @@ class IuranService {
     }
 
     final access = await resolveAreaAccessContext(auth);
-    final normalizedRole = AppConstants.normalizeRole(auth.role);
     final billFilter = buildIuranBillScopeFilter(auth, context: access);
 
     final billRecords = await pb
@@ -186,7 +200,7 @@ class IuranService {
           .collection(AppConstants.colIuranPeriods)
           .getFullList(sort: '-created', filter: _orFilter('id', periodIds));
       periods = periodRecords.map(IuranPeriodModel.fromRecord).toList();
-    } else if (normalizedRole != AppConstants.roleWarga) {
+    } else if (auth.isOperator || auth.isSysadmin) {
       final periodRecords = await pb
           .collection(AppConstants.colIuranPeriods)
           .getFullList(
@@ -200,9 +214,7 @@ class IuranService {
         .collection(AppConstants.colIuranTypes)
         .getFullList(
           sort: 'sort_order,label',
-          filter: normalizedRole == AppConstants.roleWarga
-              ? 'is_active = true'
-              : '',
+          filter: auth.isOperator || auth.isSysadmin ? '' : 'is_active = true',
         );
     final types = typeRecords.map(IuranTypeModel.fromRecord).toList();
 
@@ -224,6 +236,10 @@ class IuranService {
       entry.value.sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
     }
 
+    final financeTransactionsByBillId = await _loadFinanceTransactionsByBillId(
+      paymentsByBill,
+    );
+
     final enrichedBills = bills
         .map(
           (bill) => _deriveBillStateFromPayments(
@@ -238,9 +254,7 @@ class IuranService {
             .expand((entries) => entries)
             .where((item) => item.isSubmitted)
             .toList()
-          ..sort(
-            (a, b) => b.timelineAt.compareTo(a.timelineAt),
-          );
+          ..sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
 
     final totalTagihan = enrichedBills.fold<int>(
       0,
@@ -258,6 +272,7 @@ class IuranService {
       periods: periods,
       bills: enrichedBills,
       paymentsByBill: paymentsByBill,
+      financeTransactionsByBillId: financeTransactionsByBillId,
       pendingPayments: pendingPayments,
       myKkId: access.kkId,
       summary: IuranDashboardSummary(
@@ -498,7 +513,7 @@ class IuranService {
     }
 
     final now = DateTime.now().toIso8601String();
-    await pb
+    final paymentRecord = await pb
         .collection(AppConstants.colIuranPayments)
         .create(
           body: {
@@ -532,6 +547,14 @@ class IuranService {
             'rejection_note': '',
           },
         );
+
+    final payment = IuranPaymentModel.fromRecord(paymentRecord);
+    await _ensureFinanceTransactionForPayment(
+      auth: auth,
+      bill: bill,
+      payment: payment,
+      note: note.trim(),
+    );
   }
 
   Future<void> verifyPayment(
@@ -550,7 +573,7 @@ class IuranService {
     }
 
     final now = DateTime.now().toIso8601String();
-    await pb
+    final updatedPaymentRecord = await pb
         .collection(AppConstants.colIuranPayments)
         .update(
           payment.id,
@@ -579,6 +602,14 @@ class IuranService {
             'rejection_note': '',
           },
         );
+
+    final verifiedPayment = IuranPaymentModel.fromRecord(updatedPaymentRecord);
+    await _ensureFinanceTransactionForPayment(
+      auth: auth,
+      bill: bill,
+      payment: verifiedPayment,
+      note: payload.note.trim(),
+    );
   }
 
   Future<void> rejectPayment(
@@ -676,7 +707,7 @@ class IuranService {
   }
 
   void _assertAdminAccess(AuthState auth) {
-    if (auth.user == null || !AppConstants.isAdminRole(auth.role)) {
+    if (auth.user == null || (!auth.isOperator && !auth.isSysadmin)) {
       throw Exception('Hanya admin yang dapat mengelola iuran.');
     }
   }
@@ -798,6 +829,260 @@ class IuranService {
 
     return bill;
   }
+
+  Future<Map<String, FinanceTransactionModel>> _loadFinanceTransactionsByBillId(
+    Map<String, List<IuranPaymentModel>> paymentsByBill,
+  ) async {
+    if (paymentsByBill.isEmpty) {
+      return const {};
+    }
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      return const {};
+    }
+
+    final latestPaymentByBill = <String, IuranPaymentModel>{};
+    for (final entry in paymentsByBill.entries) {
+      if (entry.value.isNotEmpty) {
+        latestPaymentByBill[entry.key] = entry.value.first;
+      }
+    }
+    final sourceReferences = latestPaymentByBill.values
+        .map((payment) => payment.id)
+        .where((id) => id.trim().isNotEmpty)
+        .toList(growable: false);
+    if (sourceReferences.isEmpty) {
+      return const {};
+    }
+
+    final records = await pb
+        .collection(AppConstants.colFinanceTransactions)
+        .getFullList(
+          sort: '-created',
+          filter: [
+            'workspace = "${_escapeFilterValue(profile.workspace.id)}"',
+            'source_module = "iuran"',
+            '(${_orFilter('source_reference', sourceReferences)})',
+          ].join(' && '),
+        );
+
+    final financeBySourceReference = <String, FinanceTransactionModel>{};
+    for (final record in records) {
+      final transaction = FinanceTransactionModel.fromRecord(record);
+      if ((transaction.sourceReference ?? '').isNotEmpty) {
+        financeBySourceReference[transaction.sourceReference!] = transaction;
+      }
+    }
+
+    final financeByBillId = <String, FinanceTransactionModel>{};
+    for (final entry in latestPaymentByBill.entries) {
+      final transaction = financeBySourceReference[entry.value.id];
+      if (transaction != null) {
+        financeByBillId[entry.key] = transaction;
+      }
+    }
+    return financeByBillId;
+  }
+
+  Future<void> publishFinanceForBill(
+    AuthState auth,
+    String billId, {
+    String? announcementTitle,
+    String? announcementContent,
+  }) async {
+    _assertAdminAccess(auth);
+    final billRecord = await _loadAuthorizedBillRecord(auth, billId);
+    final bill = IuranBillModel.fromRecord(billRecord);
+    final payment = await _loadLatestVerifiedPayment(bill.id);
+    if (payment == null) {
+      throw Exception(
+        'Pembayaran terverifikasi untuk tagihan ini belum ditemukan.',
+      );
+    }
+
+    final financeService = _ref.read(financeServiceProvider);
+    final transaction = await financeService.getTransactionBySourceReference(
+      sourceModule: 'iuran',
+      sourceReference: payment.id,
+    );
+    if (transaction == null) {
+      throw Exception(
+        'Ledger finance untuk tagihan iuran ini belum tersedia. Verifikasi ulang pembayaran atau cek akun kas unit.',
+      );
+    }
+
+    await financeService.publishTransaction(
+      transactionId: transaction.id,
+      announcementTitle: announcementTitle,
+      announcementContent: announcementContent,
+    );
+  }
+
+  Future<IuranPaymentModel?> _loadLatestVerifiedPayment(String billId) async {
+    final records = await pb
+        .collection(AppConstants.colIuranPayments)
+        .getFullList(
+          sort: '-verified_at,-created',
+          filter:
+              'bill = "${_escapeFilterValue(billId)}" && status = "${AppConstants.iuranPaymentVerified}"',
+        );
+    if (records.isEmpty) {
+      return null;
+    }
+    return IuranPaymentModel.fromRecord(records.first);
+  }
+
+  Future<void> _ensureFinanceTransactionForPayment({
+    required AuthState auth,
+    required IuranBillModel bill,
+    required IuranPaymentModel payment,
+    required String note,
+  }) async {
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      throw Exception('Workspace aktif belum tersedia.');
+    }
+
+    final existing = await _ref
+        .read(financeServiceProvider)
+        .getTransactionBySourceReference(
+          sourceModule: 'iuran',
+          sourceReference: payment.id,
+        );
+    if (existing != null) {
+      return;
+    }
+
+    final orgUnits = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getOrgUnits(profile.workspace.id);
+    final targetUnit = _pickIuranOrgUnit(orgUnits, bill);
+    if (targetUnit == null) {
+      throw Exception(
+        'Unit organisasi untuk tagihan iuran ini belum ditemukan. Pastikan unit RT/RW resmi tersedia.',
+      );
+    }
+
+    final accounts = await _ref.read(financeServiceProvider).getAccounts();
+    final account = _pickFinanceAccount(
+      accounts: accounts,
+      orgUnits: orgUnits,
+      targetUnit: targetUnit,
+      paymentMethod: payment.method,
+    );
+    if (account == null) {
+      throw Exception(
+        'Akun kas aktif untuk unit ${targetUnit.name} belum tersedia. Tambahkan finance account terlebih dahulu.',
+      );
+    }
+
+    final title =
+        'Iuran ${bill.typeLabel} - ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber}';
+    final descriptionParts = <String>[
+      'Tagihan ${bill.title}',
+      'No. KK ${bill.kkNumber}',
+      if ((bill.kkHolderName ?? '').trim().isNotEmpty)
+        'Kepala KK ${bill.kkHolderName}',
+      if (note.trim().isNotEmpty) 'Catatan: ${note.trim()}',
+    ];
+
+    await _ref
+        .read(financeServiceProvider)
+        .createRecordedIncomingTransaction(
+          orgUnitId: targetUnit.id,
+          accountId: account.id,
+          category: 'iuran',
+          title: title,
+          amount: payment.amount,
+          paymentMethod: payment.method,
+          sourceModule: 'iuran',
+          sourceReference: payment.id,
+          description: descriptionParts.join(' • '),
+        );
+  }
+
+  FinanceAccountModel? _pickFinanceAccount({
+    required List<FinanceAccountModel> accounts,
+    required List<OrgUnitModel> orgUnits,
+    required OrgUnitModel targetUnit,
+    required String paymentMethod,
+  }) {
+    FinanceAccountModel? byUnitAndType(String unitId, String type) {
+      for (final account in accounts) {
+        if (account.orgUnitId == unitId && account.type == type) {
+          return account;
+        }
+      }
+      return null;
+    }
+
+    FinanceAccountModel? byUnit(String unitId) {
+      for (final account in accounts) {
+        if (account.orgUnitId == unitId) {
+          return account;
+        }
+      }
+      return null;
+    }
+
+    final preferredType = paymentMethod == AppConstants.iuranMethodTransfer
+        ? 'bank'
+        : 'cash';
+    final direct =
+        byUnitAndType(targetUnit.id, preferredType) ?? byUnit(targetUnit.id);
+    if (direct != null) {
+      return direct;
+    }
+
+    OrgUnitModel? fallbackRwUnit;
+    for (final unit in orgUnits) {
+      if (unit.type == AppConstants.unitTypeRw &&
+          unit.scopeRw != null &&
+          unit.scopeRw == targetUnit.scopeRw) {
+        fallbackRwUnit = unit;
+        break;
+      }
+    }
+    if (fallbackRwUnit != null) {
+      return byUnitAndType(fallbackRwUnit.id, preferredType) ??
+          byUnit(fallbackRwUnit.id);
+    }
+
+    for (final account in accounts) {
+      if (account.type == preferredType) {
+        return account;
+      }
+    }
+    return accounts.isNotEmpty ? accounts.first : null;
+  }
+
+  OrgUnitModel? _pickIuranOrgUnit(
+    List<OrgUnitModel> orgUnits,
+    IuranBillModel bill,
+  ) {
+    for (final unit in orgUnits) {
+      if (bill.rt != null &&
+          bill.rt! > 0 &&
+          unit.type == AppConstants.unitTypeRt &&
+          unit.scopeRw == (bill.rw ?? 0) &&
+          unit.scopeRt == bill.rt &&
+          unit.status == 'active') {
+        return unit;
+      }
+    }
+    for (final unit in orgUnits) {
+      if (unit.type == AppConstants.unitTypeRw &&
+          unit.scopeRw == (bill.rw ?? 0) &&
+          unit.status == 'active') {
+        return unit;
+      }
+    }
+    return null;
+  }
 }
 
-final iuranServiceProvider = Provider<IuranService>((ref) => IuranService());
+final iuranServiceProvider = Provider<IuranService>((ref) => IuranService(ref));

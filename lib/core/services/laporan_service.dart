@@ -155,9 +155,7 @@ class LaporanOperationalData {
     return DokumenDashboardSummary(
       total: filteredDokumen.length,
       pending: filteredDokumen.where((item) => item.isPending).length,
-      needRevision: filteredDokumen
-          .where((item) => item.isNeedRevision)
-          .length,
+      needRevision: filteredDokumen.where((item) => item.isNeedRevision).length,
       verified: filteredDokumen.where((item) => item.isVerified).length,
       rejected: filteredDokumen.where((item) => item.isRejected).length,
     );
@@ -241,14 +239,17 @@ class LaporanOperationalData {
 }
 
 class LaporanService {
+  LaporanService(this._ref);
+
+  final Ref _ref;
   final SuratService _suratService = SuratService();
-  final IuranService _iuranService = IuranService();
+  late final IuranService _iuranService = IuranService(_ref);
 
   Future<LaporanOperationalData> fetchOperationalData(
     AuthState auth, {
     required LaporanRangePreset preset,
   }) async {
-    if (auth.user == null || !AppConstants.isAdminRole(auth.role)) {
+    if (auth.user == null || (!auth.isOperator && !auth.isSysadmin)) {
       throw Exception('Hanya admin yang dapat melihat laporan.');
     }
 
@@ -272,67 +273,73 @@ class LaporanService {
         );
 
     final scopedWarga = {
-      for (final record in wargaRecords) record.id: WargaModel.fromRecord(record),
+      for (final record in wargaRecords)
+        record.id: WargaModel.fromRecord(record),
     };
 
     final dokumenRecords = await pb
         .collection(AppConstants.colDokumen)
         .getFullList(sort: '-updated,-created');
-    final filteredDokumen = dokumenRecords
-        .map(DokumenModel.fromRecord)
-        .where((item) => scopedWarga.containsKey(item.warga))
-        .where(
-          (item) => _matchesRange(
-            item.updated ?? item.created,
-            range.start,
-            range.end,
-          ),
-        )
-        .toList()
-      ..sort(
-        (a, b) =>
-            (b.updated ?? b.created ?? DateTime.now()).compareTo(
+    final filteredDokumen =
+        dokumenRecords
+            .map(DokumenModel.fromRecord)
+            .where((item) => scopedWarga.containsKey(item.warga))
+            .where(
+              (item) => _matchesRange(
+                item.updated ?? item.created,
+                range.start,
+                range.end,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b.updated ?? b.created ?? DateTime.now()).compareTo(
               a.updated ?? a.created ?? DateTime.now(),
             ),
-      );
+          );
 
-    final filteredSurat = suratData.requests
-        .where(
-          (item) => _matchesRange(
-            item.submittedAt ?? item.created ?? item.updated,
-            range.start,
-            range.end,
-          ),
-        )
-        .toList()
-      ..sort(
-        (a, b) =>
-            (b.submittedAt ?? b.updated ?? b.created ?? DateTime.now())
+    final filteredSurat =
+        suratData.requests
+            .where(
+              (item) => _matchesRange(
+                item.submittedAt ?? item.created ?? item.updated,
+                range.start,
+                range.end,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) =>
+                (b.submittedAt ?? b.updated ?? b.created ?? DateTime.now())
+                    .compareTo(
+                      a.submittedAt ?? a.updated ?? a.created ?? DateTime.now(),
+                    ),
+          );
+
+    final filteredBills =
+        iuranData.bills
+            .where(
+              (item) => _matchesRange(
+                item.dueDate ?? item.updated ?? item.created,
+                range.start,
+                range.end,
+              ),
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b.dueDate ?? b.updated ?? b.created ?? DateTime.now())
                 .compareTo(
-                  a.submittedAt ?? a.updated ?? a.created ?? DateTime.now(),
+                  a.dueDate ?? a.updated ?? a.created ?? DateTime.now(),
                 ),
-      );
+          );
 
-    final filteredBills = iuranData.bills
-        .where(
-          (item) => _matchesRange(
-            item.dueDate ?? item.updated ?? item.created,
-            range.start,
-            range.end,
-          ),
-        )
-        .toList()
-      ..sort(
-        (a, b) =>
-            (b.dueDate ?? b.updated ?? b.created ?? DateTime.now()).compareTo(
-              a.dueDate ?? a.updated ?? a.created ?? DateTime.now(),
-            ),
-      );
-
-    final filteredPendingPayments = iuranData.pendingPayments
-        .where((item) => _matchesRange(item.timelineAt, range.start, range.end))
-        .toList()
-      ..sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
+    final filteredPendingPayments =
+        iuranData.pendingPayments
+            .where(
+              (item) => _matchesRange(item.timelineAt, range.start, range.end),
+            )
+            .toList()
+          ..sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
 
     final mutasiRequests = filteredSurat
         .where((item) => _mutasiSuratCodes.contains(item.jenisSurat))
@@ -393,5 +400,5 @@ class LaporanService {
 }
 
 final laporanServiceProvider = Provider<LaporanService>(
-  (ref) => LaporanService(),
+  (ref) => LaporanService(ref),
 );

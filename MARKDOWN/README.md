@@ -1,245 +1,487 @@
-# rukunwarga19
+# RukunWarga
 
-## Tech Stack
-* **Frontend:** Flutter (Android, iOS, Web)
-* **Backend:** PocketBase (auth, database, file storage, REST API)
-* **State Management:** Riverpod
-* **Routing:** GoRouter
-* **PocketBase SDK:** pocketbase dart package (CRUD langsung dari kode Flutter)
-* **Local Notification:** flutter_local_notifications
-## Arsitektur
-Flutter app langsung CRUD ke PocketBase menggunakan PocketBase Dart SDK (`pocketbase` package). PocketBase berjalan sebagai single binary server yang menangani:
-* Authentication & authorization (role-based)
-* Database (SQLite built-in)
-* File storage (upload KTP, KK, dokumen)
-* Real-time subscriptions
-## Struktur Role/User
-1. **User Biasa (warga)** — Lihat data sendiri, upload dokumen sendiri, ajukan surat
-2. **Admin (pengurus RT/RW)** — Kelola data warga, verifikasi dokumen, buat laporan, kelola iuran
-3. **Superuser** — Semua akses admin + kelola user & role, konfigurasi sistem, hapus data
-## Fitur Utama
-### 1. Autentikasi & Otorisasi
-* Login/register dengan email & password
-* Role-based access control (user, admin, superuser)
-* Session management
-### 2. Data Warga
-* CRUD data warga: nama lengkap, NIK, tempat/tanggal lahir, jenis kelamin, agama, status pernikahan, pekerjaan, alamat lengkap (RT/RW), nomor HP, email
-* Pencarian & filter warga
-* Riwayat perubahan data
-### 3. Kartu Keluarga (KK)
-* CRUD data KK: nomor KK, kepala keluarga, anggota keluarga, alamat
-* Relasi antar anggota keluarga
-* Upload scan dokumen KK
-### 4. KTP
-* Data KTP terhubung dengan data warga
-* Upload scan KTP (depan & belakang)
-* Status verifikasi dokumen
-### 5. Upload & Manajemen Dokumen
-* Upload scan dokumen (KTP, KK, akta, dll.)
-* Preview dokumen
-* Status verifikasi (pending, verified, rejected)
-* Kategori dokumen
-### 6. Surat Pengantar
-* Ajukan surat pengantar (warga)
-* Template surat: pengantar RT/RW, domisili, keterangan tidak mampu, dll.
-* Approval workflow (warga ajukan → admin review → approved/rejected)
-* Cetak/download surat (PDF)
-* Riwayat surat
-### 7. Iuran Warga
-* Kelola jenis iuran (bulanan, tahunan, insidental)
-* Catat pembayaran per warga
-* Status pembayaran (lunas, belum bayar, tertunggak)
-* Laporan iuran per periode
-### 8. Laporan & Dashboard
-* Dashboard statistik: jumlah warga, jumlah KK, demografi
-* Laporan iuran
-* Laporan dokumen
-* Export laporan (PDF/Excel)
+Tanggal pembaruan: 2026-03-11
 
-## Struktur Folder Flutter
-```warp-runnable-command
-lib/
-├── main.dart
-├── app/
-│   ├── app.dart
-│   ├── router.dart
-│   └── theme.dart              # Mengelola semua tema (colors, text styles, component themes)
-├── core/
-│   ├── constants/
-│   ├── services/
-│   │   ├── pocketbase_service.dart
-│   │   ├── auth_service.dart
-│   │   └── notification_service.dart  # Local notifications
-│   └── utils/
-│       ├── formatters.dart      # Format tanggal, currency (Rupiah), NIK, no HP, dll.
-│       └── error_classifier.dart # Klasifikasi & handling error (network, auth, validation, dll.)
-├── features/
-│   ├── auth/
-│   │   ├── models/
-│   │   ├── providers/
-│   │   └── screens/
-│   ├── dashboard/
-│   ├── warga/
-│   ├── kartu_keluarga/
-│   ├── ktp/
-│   ├── dokumen/
-│   ├── surat/
-│   ├── iuran/
-│   ├── notifikasi/
-│   ├── chat/
-│   └── settings/
-└── shared/
-    ├── models/
-    ├── widgets/
-    └── providers/
-```
-### 9. Notifikasi Lokal
-* Notifikasi status surat (diajukan, disetujui, ditolak)
-* Pengingat iuran yang belum dibayar / jatuh tempo
-* Notifikasi verifikasi dokumen
-* Notifikasi dari admin ke warga
+Dokumen ini adalah README utama yang menggabungkan isi:
 
-### 10. Chat & Komunikasi
-**Chat Pribadi (warga ↔ pengurus)**
-* Kirim teks & gambar
-* Status pesan (terkirim, dibaca)
-* Riwayat percakapan
-**Grup Chat**
-* Grup per RT (otomatis berdasarkan data RT warga)
-* Grup 1 RW (seluruh warga RW 19)
-* Admin bisa setting/kelola grup
-* Kirim teks & gambar
-**Broadcast/Pengumuman**
-* Admin kirim pengumuman ke semua warga atau per RT
-* Read-only (satu arah)
-* Riwayat pengumuman
-* Notifikasi lokal saat ada pesan/pengumuman baru
-## PocketBase Collections
-1. **users** — Auth collection (email, password, role, nama)
-2. **warga** — Data warga (NIK, nama, ttl, alamat, dll.)
-3. **kartu_keluarga** — Data KK (no_kk, kepala_keluarga → warga)
-4. **anggota_kk** — Relasi anggota KK (kk → kartu_keluarga, warga → warga, hubungan)
-5. **dokumen** — Upload dokumen (warga → warga, jenis, file, status_verifikasi)
-6. **surat** — Surat pengantar (warga → warga, jenis, status, catatan)
-7. **jenis_iuran** — Master jenis iuran (nama, nominal, periode)
-8. **iuran** — Pembayaran iuran (warga → warga, jenis → jenis_iuran, tanggal, jumlah, status)
-9. **conversations** — Data percakapan (type: private/group_rt/group_rw, nama, target_rt)
-10. **conversation_members** — Anggota percakapan (conversation → conversations, user → users)
-11. **messages** — Pesan chat (conversation → conversations, sender → users, text, image, created)
-12. **message_reads** — Status baca pesan (message → messages, user → users, read_at)
-13. **announcements** — Pengumuman (author → users, judul, isi, target: all/rt_tertentu)
+- `chat.md`
+- `implementation_blueprint.md`
+- `iuran.md`
+- `jabatan_master_flag_schema.md`
+- `manual_smoke_runbook.md`
+- `midtransapi.md`
+- `rukunwarga_saas_model.md`
+- `service_permission_matrix.md`
+- `surat.md`
+- `testing_matrix.md`
+- `ui_permission_matrix.md`
 
-### Hak Akses Data KK
-* **Admin (pengurus RT/RW):** Hanya bisa display semua data KK dan anggota KK.
-* **Kepala Keluarga:** Bisa mengedit data anggota warga yang terdaftar dalam KK miliknya (validasi: hanya KK sendiri).
-* **Anggota KK:** Hanya bisa mengedit data warga miliknya sendiri.
+`RULES.md` tetap dipisah karena dipakai sebagai aturan agent AI dan bukan
+dokumen produk utama.
 
-## Validasi & Flow Data Warga, KK, dan Anggota KK
-- Field user_id pada data warga selalu terisi sesuai user yang login (otomatis saat simpan).
-- Validasi: user_id tidak lagi unik, sehingga user dapat membuat lebih dari satu data warga (misal untuk anggota keluarga lain).
-- Setelah data warga berhasil ditambah atau diupdate, aplikasi otomatis redirect ke dashboard.
-- Jika warga ditambah dari detail KK, field no_kk di warga form otomatis terisi dari argument route (no_kk KK yang sedang dibuka).
-- Setelah warga berhasil dibuat, aplikasi otomatis menambah record anggota_kk (relasi warga ke KK, dengan hubungan dipilih dari dropdown di form warga).
-- Dropdown hubungan (misal: kepala keluarga, istri, anak, dll) muncul di form warga jika akses dari KK detail.
-- Daftar anggota keluarga di detail KK diambil dari collection anggota_kk, menampilkan nama dari warga yang terkait.
-- Tombol "Tambah Anggota KK" di detail KK akan membuka form warga dengan no_kk terisi.
-- Routing: setelah data warga atau KK berhasil dibuat/diupdate, redirect ke dashboard (context.go('/'), dengan Future.microtask untuk reliability).
+## 1. Ringkasan Produk
 
-### Hak Akses & Edit
-- Admin (pengurus RT/RW): hanya bisa display semua data KK dan anggota KK.
-- Kepala Keluarga: bisa mengedit data anggota warga yang terdaftar dalam KK miliknya (validasi: hanya KK sendiri).
-- Anggota KK: hanya bisa mengedit data warga miliknya sendiri.
+RukunWarga adalah aplikasi manajemen komunitas berbasis Flutter dan PocketBase
+untuk operasional tingkat RW, RT, DKM, dan Posyandu.
 
-### PocketBase Collections & Rules
-- Collection anggota_kk: relasi antara KK dan warga, dengan field hubungan.
-- Collection warga: user_id selalu terisi, tidak perlu unik.
-- Collection kartu_keluarga: satu user bisa punya satu atau lebih KK, kepala_keluarga direlasikan ke warga.
-- Pastikan rules di PocketBase sesuai dengan flow dan hak akses di atas.
+Scope utama produk:
 
-## Tahapan Implementasi
-### Fase 1: Setup & Fondasi
-* Inisialisasi project Flutter
-* Setup PocketBase (collections, rules, migrations)
-* Implementasi auth (login, register, role management)
-* Setup routing & theme
-### Fase 2: Data Warga & Keluarga
-* CRUD data warga
-* CRUD kartu keluarga & anggota
-* Upload & preview dokumen (KTP, KK)
-### Fase 3: Surat & Iuran
-* Sistem surat pengantar dengan workflow
-* Manajemen iuran warga
-### Fase 4: Chat & Komunikasi
-* Chat pribadi (warga ↔ pengurus)
-* Grup chat (per RT & 1 RW)
-* Broadcast pengumuman
-* Real-time via PocketBase subscriptions
-### Fase 5: Dashboard & Laporan
-* Dashboard statistik
-* Laporan & export
-### Fase 6: Polish
-* Responsive design (mobile & web)
-* Error handling & validasi
-* Testing
+- data warga dan kartu keluarga
+- dokumen dan verifikasi
+- surat pengantar dan approval
+- iuran per KK
+- chat, pengumuman, dan broadcast
+- struktur organisasi dan pengurus
+- kas masuk dan keluar dengan maker-checker
+- subscription operator berbasis seat
 
-### Implementasi CRUD Warga, Kartu Keluarga, dan Anggota KK
+## 2. Tech Stack
 
+- Frontend: Flutter
+- Backend: PocketBase
+- State management: Riverpod
+- Routing: GoRouter
+- Realtime: PocketBase subscription
+- Payment gateway: Midtrans Snap
 
-#### Routing & Auto-fill
-- Routing setelah save/update selalu menggunakan `context.go('/')` (Future.microtask).
-- Field no_kk di form warga auto-filled dari route argument jika dibuka dari KK detail.
-- Tombol "Tambah Anggota KK" di detail KK membuka form warga dengan no_kk pre-filled.
+## 3. Arsitektur Dasar
 
-#### Hak Akses
-- **Admin:** Hanya display semua data KK dan anggota KK.
-- **Kepala Keluarga:** Edit anggota warga dalam KK miliknya.
-- **Anggota KK:** Edit data warga miliknya sendiri.
+Flutter app berkomunikasi langsung ke PocketBase. PocketBase menangani:
 
-#### Dokumentasi & Error Handling
-- Semua flow, validasi, dan akses didokumentasikan di README.
-- Error handling dan routing diperbaiki agar konsisten.
+- auth dan session
+- collection database
+- file storage
+- realtime subscription
+- migration schema
+- hook backend untuk business rule tertentu
 
----
+## 4. Model SaaS Final
 
-## Update Alur & Validasi 
+### Prinsip inti
 
-### Alur Onboarding User Baru
-- user di wajibkan register terlebih dahulu untuk membuat user login,
-- Setelah register berhasil, user otomatis masuk ke collection `users` (auth collection PocketBase).
-- User baru dianggap sebagai **kepala keluarga** untuk proses input KK pertama.
-- Saat login pertama, jika belum punya data KK (`kartu_keluarga`), app mengarahkan user ke form KK.
+- `1 workspace data = 1 RW / yuridiksi`
+- beberapa operator di RW yang sama masuk ke workspace data yang sama
+- billing memakai model `seat-based per akun operator`
+- setiap akun operator wajib punya subscription aktif sendiri
+- satu user bisa punya banyak workspace
+- satu user bisa punya banyak jabatan
+- owner workspace mengikuti akun aktif dengan rank plan tertinggi
+- jika owner expired, ownership pindah ke akun aktif tertinggi berikutnya
 
-### Alur Input KK dengan Scan
-- Menu: `Kartu Keluarga` -> `Tambah KK + Scan Anggota`.
-- APK (Android/iOS): user bisa ambil foto dari kamera atau tambah dari galeri, lalu OCR mem-parsing daftar anggota keluarga.
-- PWA (Web): user tambah gambar KK dari galeri/file picker, lalu tekan tombol **Scan** untuk OCR native browser (Tesseract.js) dan parser data KK.
-- Hasil parser tampil dalam list draft anggota.
-- Jika ada data kurang/keliru, user bisa `Edit` setiap anggota sebelum simpan.
-- Jika parser belum menangkap semua anggota, user bisa `Tambah Manual`.
+### Layer akses final
 
-### Validasi Sebelum Simpan KK
-- Nomor KK wajib 16 digit.
-- Alamat wajib diisi.
-- Setiap anggota wajib memiliki:
-  - `nama_lengkap`
-  - `nik` 16 digit
-- Save diblok jika ada anggota yang belum valid.
+#### `system_role`
 
-### Sinkron Data Saat Save
-- Simpan/Update `kartu_keluarga` lebih dulu (termasuk file `scan_kk` /wajib).
-- Untuk setiap anggota hasil parser:
-  - Buat/cek data `warga` berdasarkan `nik`.
-  - Buat relasi `anggota_kk` (`no_kk` relasi ke ID KK, `warga`, `hubungan_`, `status`).
-  - Kepala keluarga dihubungkan ke user yang sedang login.
+- `warga`
+- `operator`
+- `sysadmin`
 
-### Auto-Create User untuk Anggota KK
-- Untuk anggota selain kepala keluarga, sistem membuat akun baru di collection `users` secara otomatis.
-- Format email default: `nama_depan@gmail.com`.
-  - Contoh: `Asep Arno` -> `asep@gmail.com`.
-- Password default: `12345678`.
-- Jika email bentrok, sistem menambahkan suffix angka agar tetap unik.
+#### `plan_code`
 
-### Aturan Akses Data Setelah Onboarding
-- Jika user sudah terdaftar dan sudah punya KK, menu KK menampilkan data miliknya dan bisa lanjut CRUD.
-- Menu `Warga` menampilkan data warga sesuai user login.
-- Admin/superuser tetap dapat melihat data lintas user.
+- `free`
+- `rt`
+- `rw`
+- `rw_pro`
+
+#### `jabatan`
+
+Contoh:
+
+- `ketua_rw`
+- `wakil_rw`
+- `sekretaris_rw`
+- `bendahara_rw`
+- `ketua_rt`
+- `bendahara_rt`
+- `ketua_dkm`
+- `wakil_ketua_dkm`
+- `admin_dkm`
+- `bendahara_dkm`
+- `ketua_posyandu`
+- `wakil_ketua_posyandu`
+- `bendahara_posyandu`
+- `kader_posyandu`
+- `panitia_agustus`
+- `koordinator_ronda`
+
+#### `scope`
+
+Scope menentukan batas wilayah dan unit:
+
+- RT
+- RW
+- DKM
+- Posyandu
+- unit custom
+- yuridiksi wilayah resmi
+
+### Mapping legacy
+
+Istilah lama tetap dipahami selama masa transisi:
+
+- `admin_rt` -> `operator + rt`
+- `admin_rw` -> `operator + rw`
+- `admin_rw_pro` -> `operator + rw_pro`
+
+Namun desain baru tidak lagi memakai istilah itu sebagai sumber akses utama.
+
+## 5. Unit Resmi dan Organisasi
+
+Unit resmi yang didukung:
+
+- `RW`
+- `RT`
+- `DKM`
+- `Posyandu`
+
+Satu workspace bisa punya banyak unit sejenis.
+
+Struktur pengurus harus menyimpan:
+
+- unit
+- jabatan
+- user
+- masa bakti mulai
+- masa bakti selesai
+- status aktif atau nonaktif
+- primary membership
+
+## 6. Aturan Hak Akses
+
+Urutan evaluasi akses:
+
+1. user login valid
+2. punya `workspace_member` aktif
+3. `system_role` valid
+4. `plan_code` memenuhi gate fitur
+5. `jabatan_master` memenuhi capability flag
+6. `scope` unit dan yuridiksi cocok
+
+### Capability flag penting di `jabatan_master`
+
+- `can_manage_workspace`
+- `can_manage_unit`
+- `can_manage_membership`
+- `can_submit_finance`
+- `can_approve_finance`
+- `can_publish_finance`
+- `can_manage_schedule`
+- `can_broadcast_unit`
+- `can_manage_iuran`
+- `can_verify_iuran_payment`
+
+### Rule sederhana
+
+- `jabatan` tidak perlu subscription
+- `subscription` tetap melekat ke akun operator
+- `plan` membuka fitur SaaS
+- `jabatan` membuka aksi operasional sensitif
+- `scope` membatasi yuridiksi
+
+Contoh:
+
+- badge dan histori pengurus boleh ada walau user masih `free`
+- masuk area admin butuh `operator + plan`
+- approval kas butuh `jabatan + plan + scope`
+
+## 7. Paket Subscription
+
+### `free`
+
+- profil
+- chat dasar
+- lihat pengumuman sesuai yuridiksi
+
+### `rt`
+
+- operasional RT
+- broadcast RT
+- agenda dasar
+- finance basic sesuai jabatan
+
+### `rw`
+
+- akses RW penuh sesuai yuridiksi
+- dashboard RW
+- custom group basic
+- finance publish
+
+### `rw_pro`
+
+- semua fitur `rw`
+- polling
+- voice note
+- custom group advanced
+- export advanced
+
+## 8. Modul Utama
+
+## 8.1 Data Warga dan Kartu Keluarga
+
+- CRUD data warga
+- CRUD kartu keluarga
+- anggota KK
+- scope wilayah resmi
+- validasi akses warga, kepala keluarga, dan operator
+
+## 8.2 Dokumen
+
+- upload dokumen
+- preview dokumen
+- status verifikasi
+- kategori dokumen
+
+## 8.3 Surat
+
+Prinsip produk:
+
+- aplikasi menerbitkan surat pengantar atau rekomendasi lingkungan
+- dokumen legal final tetap bisa diterbitkan instansi luar
+
+Scope surat:
+
+- pengajuan oleh warga
+- approval RT
+- forward atau approval RW
+- tracking status
+- log dan notifikasi
+
+## 8.4 Iuran
+
+Prinsip iuran:
+
+- unit tagihan adalah `per KK`
+- mendukung multi-jenis iuran
+- admin membuat periode lalu sistem generate tagihan
+- warga upload bukti transfer
+- admin verifikasi atau tolak pembayaran
+- pembayaran cash bisa dicatat langsung
+
+Status penting:
+
+- periode: `draft`, `published`, `closed`
+- tagihan: `unpaid`, `submitted_verification`, `paid`, `rejected_payment`
+- payment: `submitted`, `verified`, `rejected`
+
+UI yang sudah ada:
+
+- list tagihan
+- verifikasi pembayaran
+- daftar periode
+- daftar jenis iuran
+- form buat periode
+- form buat jenis iuran
+
+Perubahan terbaru:
+
+- detail tagihan sekarang menampilkan `Nama kepala keluarga`
+- field `Nominal Default` di form periode sekarang memakai formatter Rupiah
+  Indonesia, contoh `Rp 20.000`
+
+## 8.5 Chat dan Pengumuman
+
+Scope chat yang dipakai:
+
+- inbox layanan warga
+- grup RT
+- forum RW
+- pengumuman scoped
+- scoped conversation untuk unit resmi
+
+Message type:
+
+- `text`
+- `file`
+- `voice`
+- `poll`
+- `system`
+
+Pengumuman:
+
+- operator RT hanya boleh membuat pengumuman untuk RT pada yuridiksi akun
+  sendiri
+- operator RW membuat pengumuman sesuai RW yuridiksinya
+- sysadmin bisa audit atau broadcast sistem sesuai tool admin
+
+Status implementasi chat:
+
+- chat text dan file: aktif
+- pengumuman: aktif
+- polling: backend aktif, UI composer belum final
+- voice note: backend aktif, UI composer belum final
+
+## 8.6 Organisasi
+
+Layar organisasi yang sudah ada:
+
+- overview workspace
+- kelola unit
+- kelola membership pengurus
+
+Data yang ditampilkan:
+
+- workspace aktif
+- owner
+- seat operator
+- unit resmi dan custom
+- pengurus, jabatan, masa bakti, status
+
+## 8.7 Finance Maker-Checker
+
+Flow final:
+
+1. maker membuat draft transaksi
+2. maker submit draft
+3. jika transaksi butuh checker, status menjadi `submitted`
+4. checker approve atau reject
+5. setelah `approved`, publish pengumuman kas dilakukan manual
+6. setelah publish, `publish_status = published`
+
+Aturan verification:
+
+- semua `out` wajib 2-way verification
+- `in` dengan `transfer` wajib 2-way verification
+- `cash in` boleh auto-approved saat submit
+
+Layar yang sudah ada:
+
+- `FinanceListScreen`
+- `FinanceFormScreen`
+- `FinanceDetailScreen`
+
+## 8.8 Subscription dan Midtrans
+
+Prinsip subscription:
+
+- warga daftar sebagai `free`
+- upgrade operator dilakukan lewat flow subscription
+- sysadmin tidak ikut flow pembelian biasa
+- transaksi payment belum boleh langsung mengubah akses sampai status payment sah
+
+Midtrans dipakai untuk checkout dan callback payment subscription.
+
+## 9. Collection Utama PocketBase
+
+### Data inti
+
+- `users`
+- `warga`
+- `kartu_keluarga`
+- `anggota_kk`
+- `dokumen`
+- `surat`
+- `surat_attachments`
+- `surat_logs`
+
+### Iuran
+
+- `iuran_types`
+- `iuran_periods`
+- `iuran_bills`
+- `iuran_payments`
+
+### Chat dan announcement
+
+- `conversations`
+- `conversation_members`
+- `messages`
+- `message_reads`
+- `announcements`
+- `chat_polls`
+- `chat_poll_options`
+- `chat_poll_votes`
+
+### SaaS dan organisasi
+
+- `workspaces`
+- `workspace_members`
+- `org_units`
+- `jabatan_master`
+- `org_memberships`
+
+### Finance
+
+- `finance_accounts`
+- `finance_transactions`
+- `finance_approvals`
+
+### Subscription
+
+- `subscription_plans`
+- `subscription_transactions`
+- `role_requests`
+
+## 10. Permission Contract Ringkas
+
+### Backend / service
+
+- service tidak boleh lagi mengandalkan `users.role` sebagai sumber utama
+- akses final harus berbasis `workspace_member` aktif
+- action sensitif harus cek `plan + jabatan + scope`
+
+### UI
+
+- tombol hanya muncul jika backend memang akan mengizinkan
+- screen organisasi dan finance harus gate per capability, bukan per role legacy
+- fitur premium chat tetap gate by `plan_code`
+
+## 11. Status Implementasi Runtime Saat Ini
+
+### Sudah aktif
+
+- model akses `system_role + plan_code + jabatan + scope`
+- migration foundation workspace, org, finance, chat scope
+- organization screens
+- finance screens
+- announcement scoped
+- iuran operasional dasar
+- fallback legacy role lama
+
+### Belum final
+
+- composer polling di chat room
+- composer voice note di chat room
+- integrasi otomatis `iuran -> finance_transactions`
+- cleanup total ketergantungan ke `users.role`
+
+## 12. Testing
+
+Checklist detail ada di:
+
+- `MARKDOWN/testing_matrix.md`
+- `MARKDOWN/manual_smoke_runbook.md`
+
+Status testing saat ini:
+
+- auth, settings, subscription, dashboard, announcement, organization, finance,
+  dan iuran: siap diuji via UI
+- polling dan voice note: backend siap, UI belum final
+- iuran ke ledger finance: belum selesai
+
+## 13. Checklist Batch Hari Ini
+
+Perubahan yang harus dites satu per satu dari batch hari ini:
+
+1. `operator + rt` membuat pengumuman hanya pada RT sesuai yuridiksi
+2. kartu tagihan iuran menampilkan nama kepala keluarga
+3. field `Nominal Default` periode iuran tampil dalam format `Rp 20.000`
+4. menu `Keuangan` membuka list finance
+5. `FinanceFormScreen` bisa simpan draft dan submit
+6. `FinanceDetailScreen` bisa approve, reject, dan publish sesuai hak
+
+## 14. Next Step Setelah Batch Ini Lolos Test
+
+Urutan paling aman setelah testing batch hari ini:
+
+1. sambungkan iuran ke ledger finance
+2. tambah publish flow pengumuman kas dari iuran yang sudah terverifikasi
+3. lengkapi composer polling di chat
+4. lengkapi composer voice note di chat
+5. cleanup ketergantungan legacy `users.role`
+
+## 15. Catatan Penutup
+
+README ini sekarang menjadi sumber baca utama untuk produk, SaaS model,
+permission, blueprint implementasi, dan status testing. `RULES.md` sengaja
+tetap terpisah karena fungsinya bukan dokumentasi aplikasi, tetapi aturan kerja
+agent AI.

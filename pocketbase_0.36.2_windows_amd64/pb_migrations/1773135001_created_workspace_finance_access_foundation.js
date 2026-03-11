@@ -779,6 +779,7 @@ function ensureFinanceTransactionsCollection(app) {
   );
   addFieldIfMissing(collection, new TextField({ name: "category", required: true }));
   addFieldIfMissing(collection, new TextField({ name: "title", required: true }));
+  addFieldIfMissing(collection, new TextField({ name: "source_reference" }));
   addFieldIfMissing(collection, new TextField({ name: "description" }));
   addFieldIfMissing(
     collection,

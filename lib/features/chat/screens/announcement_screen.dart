@@ -7,10 +7,12 @@ import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/chat_service.dart';
 import '../../../core/services/pocketbase_service.dart';
+import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
+import '../../auth/providers/auth_provider.dart';
 
 final announcementListProvider =
     FutureProvider.autoDispose<ChatAnnouncementsData>((ref) async {
@@ -144,6 +146,9 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
     final contentCtrl = TextEditingController();
     String targetType = 'rw';
     final rtCtrl = TextEditingController();
+    final auth = ref.read(authProvider);
+    final isRtScopedOperator =
+        auth.isOperator && !auth.isSysadmin && !auth.hasRwWideAccess;
 
     showDialog(
       context: context,
@@ -166,18 +171,41 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
                     decoration: const InputDecoration(labelText: 'Isi'),
                   ),
                   const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: targetType,
-                    decoration: const InputDecoration(labelText: 'Target'),
-                    items: const [
-                      DropdownMenuItem(value: 'rw', child: Text('Seluruh RW')),
-                      DropdownMenuItem(value: 'rt', child: Text('RT Tertentu')),
-                    ],
-                    onChanged: (value) {
-                      setDialogState(() => targetType = value ?? 'rw');
-                    },
-                  ),
-                  if (targetType == 'rt') ...[
+                  if (isRtScopedOperator)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Akun operator RT hanya bisa membuat pengumuman untuk RT pada yuridiksi akunnya sendiri.',
+                        style: AppTheme.bodySmall,
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<String>(
+                      initialValue: targetType,
+                      decoration: const InputDecoration(labelText: 'Target'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'rw',
+                          child: Text('Seluruh RW'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'rt',
+                          child: Text('RT Tertentu'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setDialogState(() => targetType = value ?? 'rw');
+                      },
+                    ),
+                  if (!isRtScopedOperator && targetType == 'rt') ...[
                     const SizedBox(height: 10),
                     TextField(
                       controller: rtCtrl,
@@ -200,11 +228,14 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
                 onPressed: () async {
                   try {
                     final service = ref.read(chatServiceProvider);
+                    final area = await resolveAreaAccessContext(auth);
                     await service.createAnnouncement(
                       title: titleCtrl.text.trim(),
                       content: contentCtrl.text.trim(),
-                      targetType: targetType,
-                      targetRt: int.tryParse(rtCtrl.text.trim()),
+                      targetType: isRtScopedOperator ? 'rt' : targetType,
+                      targetRt: isRtScopedOperator
+                          ? area.rt
+                          : int.tryParse(rtCtrl.text.trim()),
                     );
                     if (dialogContext.mounted) {
                       Navigator.pop(dialogContext);

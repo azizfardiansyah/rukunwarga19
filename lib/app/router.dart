@@ -32,6 +32,9 @@ import '../features/settings/screens/user_role_management_screen.dart';
 import '../features/organization/screens/organization_workspace_screen.dart';
 import '../features/organization/screens/organization_unit_screen.dart';
 import '../features/organization/screens/organization_membership_screen.dart';
+import '../features/finance/screens/finance_list_screen.dart';
+import '../features/finance/screens/finance_form_screen.dart';
+import '../features/finance/screens/finance_detail_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
 
 // Route paths
@@ -64,6 +67,9 @@ class Routes {
   static const String organization = '/organisasi';
   static const String organizationUnits = '/organisasi/unit';
   static const String organizationMemberships = '/organisasi/membership';
+  static const String finance = '/keuangan';
+  static const String financeForm = '/keuangan/form';
+  static const String financeDetail = '/keuangan/:id';
 }
 
 /// A [ChangeNotifier] bridge so that [GoRouter.refreshListenable] re-evaluates
@@ -269,6 +275,24 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.organizationMemberships,
         builder: (context, state) => const OrganizationMembershipScreen(),
+      ),
+      GoRoute(
+        path: Routes.finance,
+        builder: (context, state) => const FinanceListScreen(),
+      ),
+      GoRoute(
+        path: Routes.financeForm,
+        builder: (context, state) {
+          final transactionId = state.uri.queryParameters['id'];
+          return FinanceFormScreen(transactionId: transactionId);
+        },
+      ),
+      GoRoute(
+        path: Routes.financeDetail,
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return FinanceDetailScreen(transactionId: id);
+        },
       ),
     ],
   );

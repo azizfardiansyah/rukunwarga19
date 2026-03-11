@@ -53,11 +53,13 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
 
   Future<void> _bindRealtime() async {
     await _disposeRealtime();
-    _unsubscribeMessages = await pb.collection(AppConstants.colMessages).subscribe(
-      '*',
-      (_) => _scheduleRefresh(),
-      filter: 'conversation = "${widget.conversationId}"',
-    );
+    _unsubscribeMessages = await pb
+        .collection(AppConstants.colMessages)
+        .subscribe(
+          '*',
+          (_) => _scheduleRefresh(),
+          filter: 'conversation = "${widget.conversationId}"',
+        );
     _unsubscribeConversation = await pb
         .collection(AppConstants.colConversations)
         .subscribe(widget.conversationId, (_) => _scheduleRefresh());
@@ -95,7 +97,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         _data = result;
         _isLoading = false;
         if (_replyingTo != null) {
-          final match = result.messages.where((item) => item.id == _replyingTo!.id);
+          final match = result.messages.where(
+            (item) => item.id == _replyingTo!.id,
+          );
           _replyingTo = match.isEmpty ? null : match.first;
         }
       });
@@ -132,6 +136,329 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     }
   }
 
+  void _appendMessage(MessageModel message) {
+    if (!mounted) {
+      return;
+    }
+    final current = _data;
+    if (current == null) {
+      return;
+    }
+    setState(() {
+      _data = ChatMessagesData(
+        conversation: current.conversation,
+        messages: [...current.messages, message],
+      );
+    });
+    _scrollToBottom();
+  }
+
+  Future<void> _showComposerActions() async {
+    final auth = ref.read(authProvider);
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Wrap(
+            runSpacing: 6,
+            children: [
+              _MessageActionTile(
+                icon: Icons.attach_file_rounded,
+                label: 'Lampiran',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickAttachment();
+                },
+              ),
+              if (AppConstants.planIncludesFeature(
+                planCode: auth.planCode,
+                featureFlag: AppConstants.featurePolling,
+              ))
+                _MessageActionTile(
+                  icon: Icons.poll_rounded,
+                  label: 'Polling',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showPollComposer();
+                  },
+                ),
+              if (AppConstants.planIncludesFeature(
+                planCode: auth.planCode,
+                featureFlag: AppConstants.featureVoiceNote,
+              ))
+                _MessageActionTile(
+                  icon: Icons.mic_rounded,
+                  label: 'Voice Note',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickVoiceNote();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickVoiceNote() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        withData: true,
+        type: FileType.custom,
+        allowedExtensions: const ['aac', 'm4a', 'mp3', 'wav', 'ogg', 'webm'],
+      );
+      if (!mounted || result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final durationController = TextEditingController(text: '30');
+      final durationSeconds = await showDialog<int>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Kirim Voice Note'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                result.files.single.name,
+                style: AppTheme.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: durationController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Durasi (detik)',
+                  hintText: 'Contoh: 30',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(int.tryParse(durationController.text.trim()) ?? 0),
+              child: const Text('Kirim'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted || durationSeconds == null) {
+        return;
+      }
+
+      setState(() => _isSending = true);
+      final message = await ref
+          .read(chatServiceProvider)
+          .sendVoiceMessage(
+            conversationId: widget.conversationId,
+            audioFile: result.files.single,
+            durationSeconds: durationSeconds,
+            replyToId: _replyingTo?.id,
+          );
+      _appendMessage(message);
+      if (mounted) {
+        setState(() => _replyingTo = null);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      await _loadMessages(silent: true);
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  Future<void> _showPollComposer() async {
+    final titleController = TextEditingController();
+    final optionControllers = <TextEditingController>[
+      TextEditingController(),
+      TextEditingController(),
+    ];
+    var allowMultipleChoice = false;
+    var allowAnonymousVote = false;
+    var isSubmitting = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          Future<void> submit() async {
+            final options = optionControllers
+                .map((controller) => controller.text.trim())
+                .where((item) => item.isNotEmpty)
+                .toList(growable: false);
+            if (titleController.text.trim().isEmpty || options.length < 2) {
+              ErrorClassifier.showErrorSnackBar(
+                context,
+                const FormatException(
+                  'Judul polling dan minimal 2 opsi wajib diisi.',
+                ),
+              );
+              return;
+            }
+
+            setSheetState(() => isSubmitting = true);
+            try {
+              final message = await ref
+                  .read(chatServiceProvider)
+                  .createPoll(
+                    conversationId: widget.conversationId,
+                    title: titleController.text.trim(),
+                    options: options,
+                    allowMultipleChoice: allowMultipleChoice,
+                    allowAnonymousVote: allowAnonymousVote,
+                  );
+              if (!mounted || !sheetContext.mounted) {
+                return;
+              }
+              Navigator.of(sheetContext).pop();
+              _appendMessage(message);
+              await Future<void>.delayed(const Duration(milliseconds: 140));
+              await _loadMessages(silent: true);
+            } catch (error) {
+              if (mounted) {
+                ErrorClassifier.showErrorSnackBar(context, error);
+              }
+            } finally {
+              if (sheetContext.mounted) {
+                setSheetState(() => isSubmitting = false);
+              }
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Buat Polling', style: AppTheme.heading3),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(
+                      labelText: 'Pertanyaan / Judul',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  for (
+                    var index = 0;
+                    index < optionControllers.length;
+                    index++
+                  ) ...[
+                    TextField(
+                      controller: optionControllers[index],
+                      decoration: InputDecoration(
+                        labelText: 'Opsi ${index + 1}',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: optionControllers.length >= 6
+                            ? null
+                            : () => setSheetState(
+                                () => optionControllers.add(
+                                  TextEditingController(),
+                                ),
+                              ),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Tambah Opsi'),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${optionControllers.length}/6 opsi',
+                        style: AppTheme.caption,
+                      ),
+                    ],
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: allowMultipleChoice,
+                    onChanged: (value) =>
+                        setSheetState(() => allowMultipleChoice = value),
+                    title: const Text('Izinkan multi-pilihan'),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: allowAnonymousVote,
+                    onChanged: (value) =>
+                        setSheetState(() => allowAnonymousVote = value),
+                    title: const Text('Sembunyikan identitas voter'),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: isSubmitting ? null : submit,
+                      child: isSubmitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Kirim Polling'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    titleController.dispose();
+    for (final controller in optionControllers) {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _votePoll(MessageModel message, List<String> optionIds) async {
+    final pollId = message.poll?.id ?? message.pollId;
+    if ((pollId ?? '').isEmpty) {
+      return;
+    }
+    try {
+      await ref
+          .read(chatServiceProvider)
+          .votePoll(pollId: pollId!, optionIds: optionIds);
+      await _loadMessages(silent: true);
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageCtrl.text.trim();
     if ((text.isEmpty && _selectedAttachment == null) || _isSending) {
@@ -150,14 +477,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       _messageCtrl.clear();
       if (mounted && _data != null) {
         setState(() {
-          _data = ChatMessagesData(
-            conversation: _data!.conversation,
-            messages: [..._data!.messages, sentMessage],
-          );
           _selectedAttachment = null;
           _replyingTo = null;
         });
-        _scrollToBottom();
+        _appendMessage(sentMessage);
       } else if (mounted) {
         setState(() {
           _selectedAttachment = null;
@@ -199,9 +522,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
 
   Future<void> _forwardMessage(MessageModel message) async {
     final bootstrap = await ref.read(chatBootstrapProvider.future);
-    final options = [...bootstrap.inbox, ...bootstrap.groups]
-        .where((item) => item.id != widget.conversationId)
-        .toList(growable: false);
+    final options = [
+      ...bootstrap.inbox,
+      ...bootstrap.groups,
+    ].where((item) => item.id != widget.conversationId).toList(growable: false);
     if (!mounted) {
       return;
     }
@@ -243,8 +567,8 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                           item.isPrivate
                               ? Icons.support_agent_rounded
                               : item.isGroupRt
-                                  ? Icons.groups_rounded
-                                  : Icons.hub_rounded,
+                              ? Icons.groups_rounded
+                              : Icons.hub_rounded,
                           color: item.isPrivate
                               ? const Color(0xFF00796B)
                               : AppTheme.primaryColor,
@@ -274,7 +598,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     }
 
     try {
-      await ref.read(chatServiceProvider).forwardMessage(
+      await ref
+          .read(chatServiceProvider)
+          .forwardMessage(
             messageId: message.id,
             targetConversationId: target.id,
           );
@@ -346,7 +672,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   await _runMessageAction(() async {
-                    await ref.read(chatServiceProvider).toggleMessageStar(message.id);
+                    await ref
+                        .read(chatServiceProvider)
+                        .toggleMessageStar(message.id);
                   });
                 },
               ),
@@ -358,7 +686,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 onTap: () async {
                   Navigator.pop(context);
                   await _runMessageAction(() async {
-                    await ref.read(chatServiceProvider).toggleMessagePin(message.id);
+                    await ref
+                        .read(chatServiceProvider)
+                        .toggleMessagePin(message.id);
                   });
                 },
               ),
@@ -370,7 +700,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                   onTap: () async {
                     Navigator.pop(context);
                     await _runMessageAction(() async {
-                      await ref.read(chatServiceProvider).deleteMessage(message.id);
+                      await ref
+                          .read(chatServiceProvider)
+                          .deleteMessage(message.id);
                     });
                   },
                 ),
@@ -460,7 +792,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(16),
@@ -469,7 +804,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.primaryColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(999),
@@ -478,8 +816,8 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                         conversation.isPrivate
                             ? 'Inbox'
                             : conversation.isGroupRt
-                                ? 'Grup RT'
-                                : 'Forum RW',
+                            ? 'Grup RT'
+                            : 'Forum RW',
                         style: AppTheme.caption.copyWith(
                           color: AppTheme.primaryColor,
                           fontWeight: FontWeight.w700,
@@ -504,48 +842,51 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
               child: _isLoading && _data == null
                   ? const Center(child: CircularProgressIndicator())
                   : _data == null || _data!.messages.isEmpty
-                      ? Center(
-                          child: AppTheme.glassContainer(
-                            opacity: 0.72,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.chat_bubble_outline_rounded,
-                                  size: 40,
-                                  color: AppTheme.textSecondary,
-                                ),
-                                const SizedBox(height: 10),
-                                Text('Belum ada pesan', style: AppTheme.heading3),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Mulai percakapan untuk mengaktifkan ruang chat ini.',
-                                  style: AppTheme.bodyMedium,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
+                  ? Center(
+                      child: AppTheme.glassContainer(
+                        opacity: 0.72,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 40,
+                              color: AppTheme.textSecondary,
                             ),
-                          ),
-                        )
-                      : RefreshIndicator(
-                          onRefresh: _loadMessages,
-                          child: ListView.builder(
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                            itemCount: _data!.messages.length,
-                            itemBuilder: (context, index) {
-                              final message = _data!.messages[index];
-                              return _MessageBubble(
-                                message: message,
-                                onOpenAttachment: message.hasAttachment
-                                    ? () => _openAttachment(message)
-                                    : null,
-                                onShowActions: () => _showMessageActions(message),
-                              );
-                            },
-                          ),
+                            const SizedBox(height: 10),
+                            Text('Belum ada pesan', style: AppTheme.heading3),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Mulai percakapan untuk mengaktifkan ruang chat ini.',
+                              style: AppTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadMessages,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                        itemCount: _data!.messages.length,
+                        itemBuilder: (context, index) {
+                          final message = _data!.messages[index];
+                          return _MessageBubble(
+                            message: message,
+                            onOpenAttachment: message.hasAttachment
+                                ? () => _openAttachment(message)
+                                : null,
+                            onShowActions: () => _showMessageActions(message),
+                            onVotePoll: message.isPoll
+                                ? (optionIds) => _votePoll(message, optionIds)
+                                : null,
+                          );
+                        },
+                      ),
+                    ),
             ),
             SafeArea(
               top: false,
@@ -582,13 +923,14 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                     if (_selectedAttachment != null)
                       _AttachmentDraftPreview(
                         attachment: _selectedAttachment!,
-                        onClose: () => setState(() => _selectedAttachment = null),
+                        onClose: () =>
+                            setState(() => _selectedAttachment = null),
                       ),
                     Row(
                       children: [
                         IconButton.filledTonal(
-                          onPressed: _isSending ? null : _pickAttachment,
-                          icon: const Icon(Icons.attach_file_rounded),
+                          onPressed: _isSending ? null : _showComposerActions,
+                          icon: const Icon(Icons.add_rounded),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -602,8 +944,8 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                               hintText: _replyingTo != null
                                   ? 'Tulis balasan...'
                                   : _selectedAttachment != null
-                                      ? 'Tambahkan caption...'
-                                      : 'Tulis pesan...',
+                                  ? 'Tambahkan caption...'
+                                  : 'Tulis pesan...',
                               filled: true,
                               fillColor: const Color(0xFFF7FAF9),
                               border: OutlineInputBorder(
@@ -688,7 +1030,9 @@ class _ComposerHint extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 Text(
                   subtitle,
@@ -699,10 +1043,7 @@ class _ComposerHint extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded),
-          ),
+          IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded)),
         ],
       ),
     );
@@ -762,14 +1103,18 @@ class _AttachmentDraftPreview extends StatelessWidget {
               children: [
                 Text(
                   isImage ? 'Preview lampiran gambar' : 'Lampiran siap dikirim',
-                  style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   attachment.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 if (attachment.size > 0)
                   Text(
@@ -779,10 +1124,7 @@ class _AttachmentDraftPreview extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded),
-          ),
+          IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded)),
         ],
       ),
     );
@@ -832,11 +1174,12 @@ class _MessageAttachmentPreview extends StatelessWidget {
                   child: Image.network(
                     message.attachmentUrl!,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _FileFallbackTile(
-                      attachmentName: attachmentName,
-                      textColor: textColor,
-                      isMine: isMine,
-                    ),
+                    errorBuilder: (context, error, stackTrace) =>
+                        _FileFallbackTile(
+                          attachmentName: attachmentName,
+                          textColor: textColor,
+                          isMine: isMine,
+                        ),
                     loadingBuilder: (context, child, progress) {
                       if (progress == null) return child;
                       return Container(
@@ -858,7 +1201,9 @@ class _MessageAttachmentPreview extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  isImage ? Icons.image_outlined : _fileIconForName(attachmentName),
+                  isImage
+                      ? Icons.image_outlined
+                      : _fileIconForName(attachmentName),
                   size: 16,
                   color: textColor,
                 ),
@@ -928,10 +1273,7 @@ class _FileFallbackTile extends StatelessWidget {
                   : AppTheme.primaryColor.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              _fileIconForName(attachmentName),
-              color: textColor,
-            ),
+            child: Icon(_fileIconForName(attachmentName), color: textColor),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -952,10 +1294,7 @@ class _FileFallbackTile extends StatelessWidget {
 }
 
 class _LinkifiedText extends StatelessWidget {
-  const _LinkifiedText({
-    required this.text,
-    required this.style,
-  });
+  const _LinkifiedText({required this.text, required this.style});
 
   final String text;
   final TextStyle style;
@@ -971,7 +1310,9 @@ class _LinkifiedText extends StatelessWidget {
     var start = 0;
     for (final match in matches) {
       if (match.start > start) {
-        spans.add(TextSpan(text: text.substring(start, match.start), style: style));
+        spans.add(
+          TextSpan(text: text.substring(start, match.start), style: style),
+        );
       }
       final url = text.substring(match.start, match.end);
       spans.add(
@@ -1000,16 +1341,337 @@ class _LinkifiedText extends StatelessWidget {
   }
 }
 
+class _VoiceMessageCard extends StatelessWidget {
+  const _VoiceMessageCard({
+    required this.message,
+    required this.isMine,
+    required this.textColor,
+    this.onOpenAttachment,
+  });
+
+  final MessageModel message;
+  final bool isMine;
+  final Color textColor;
+  final VoidCallback? onOpenAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onOpenAttachment,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMine
+              ? Colors.white.withValues(alpha: 0.14)
+              : const Color(0xFFF4F7F5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: isMine
+                    ? Colors.white.withValues(alpha: 0.16)
+                    : AppTheme.primaryColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.mic_rounded, color: textColor),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Voice note',
+                    style: AppTheme.bodySmall.copyWith(
+                      color: textColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _formatDuration(message.voiceDurationSeconds ?? 0),
+                    style: AppTheme.caption.copyWith(
+                      color: textColor.withValues(alpha: 0.86),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              'Buka',
+              style: AppTheme.caption.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PollMessageCard extends StatelessWidget {
+  const _PollMessageCard({
+    required this.message,
+    required this.isMine,
+    required this.textColor,
+    this.onVote,
+  });
+
+  final MessageModel message;
+  final bool isMine;
+  final Color textColor;
+  final Future<void> Function(List<String> optionIds)? onVote;
+
+  @override
+  Widget build(BuildContext context) {
+    final poll = message.poll;
+    if (poll == null) {
+      return const SizedBox.shrink();
+    }
+    final totalVotes = poll.options.fold<int>(
+      0,
+      (sum, option) => sum + option.voteCount,
+    );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isMine
+            ? Colors.white.withValues(alpha: 0.14)
+            : const Color(0xFFF4F7F5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.poll_rounded, color: textColor, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  poll.title,
+                  style: AppTheme.bodyMedium.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            poll.isOpen
+                ? poll.allowMultipleChoice
+                      ? 'Polling aktif • multi-pilihan'
+                      : 'Polling aktif • satu pilihan'
+                : 'Polling ditutup',
+            style: AppTheme.caption.copyWith(
+              color: textColor.withValues(alpha: 0.84),
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final option in poll.options) ...[
+            _PollOptionTile(
+              option: option,
+              isMine: isMine,
+              textColor: textColor,
+              totalVotes: totalVotes,
+              onTap: !poll.isOpen || onVote == null
+                  ? null
+                  : () => _handleVote(context, poll, option.id),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Text(
+            '$totalVotes suara',
+            style: AppTheme.caption.copyWith(
+              color: textColor.withValues(alpha: 0.84),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleVote(
+    BuildContext context,
+    ChatPollModel poll,
+    String optionId,
+  ) async {
+    if (onVote == null) {
+      return;
+    }
+    if (!poll.allowMultipleChoice) {
+      await onVote!([optionId]);
+      return;
+    }
+
+    final selected = {
+      ...poll.options.where((item) => item.isSelected).map((e) => e.id),
+    };
+    final result = await showModalBottomSheet<List<String>>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Pilih Opsi', style: AppTheme.heading3),
+                const SizedBox(height: 12),
+                for (final option in poll.options)
+                  CheckboxListTile(
+                    value: selected.contains(option.id),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(option.label),
+                    onChanged: (value) {
+                      setSheetState(() {
+                        if (value == true) {
+                          selected.add(option.id);
+                        } else {
+                          selected.remove(option.id);
+                        }
+                      });
+                    },
+                  ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(
+                      sheetContext,
+                    ).pop(selected.toList(growable: false)),
+                    child: const Text('Kirim Pilihan'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (result == null || result.isEmpty) {
+      return;
+    }
+    await onVote!(result);
+  }
+}
+
+class _PollOptionTile extends StatelessWidget {
+  const _PollOptionTile({
+    required this.option,
+    required this.isMine,
+    required this.textColor,
+    required this.totalVotes,
+    this.onTap,
+  });
+
+  final ChatPollOptionModel option;
+  final bool isMine;
+  final Color textColor;
+  final int totalVotes;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = totalVotes == 0 ? 0.0 : option.voteCount / totalVotes;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: option.isSelected
+              ? (isMine
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : AppTheme.primaryColor.withValues(alpha: 0.08))
+              : (isMine
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.white.withValues(alpha: 0.78)),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: option.isSelected
+                ? (isMine ? Colors.white : AppTheme.primaryColor)
+                : Colors.transparent,
+          ),
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(
+                  option.isSelected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 18,
+                  color: textColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    option.label,
+                    style: AppTheme.bodySmall.copyWith(
+                      color: textColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${option.voteCount}',
+                  style: AppTheme.caption.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: isMine
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : const Color(0xFFE3ECE8),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  isMine ? Colors.white : AppTheme.primaryColor,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     required this.onShowActions,
     this.onOpenAttachment,
+    this.onVotePoll,
   });
 
   final MessageModel message;
   final VoidCallback onShowActions;
   final VoidCallback? onOpenAttachment;
+  final Future<void> Function(List<String> optionIds)? onVotePoll;
 
   @override
   Widget build(BuildContext context) {
@@ -1040,7 +1702,9 @@ class _MessageBubble extends StatelessWidget {
             ),
             border: isMine
                 ? null
-                : Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.9)),
+                : Border.all(
+                    color: AppTheme.dividerColor.withValues(alpha: 0.9),
+                  ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1063,7 +1727,11 @@ class _MessageBubble extends StatelessWidget {
                     Icon(Icons.star_rounded, size: 14, color: bubbleTextColor),
                   if (message.isPinned) ...[
                     const SizedBox(width: 4),
-                    Icon(Icons.push_pin_rounded, size: 14, color: bubbleTextColor),
+                    Icon(
+                      Icons.push_pin_rounded,
+                      size: 14,
+                      color: bubbleTextColor,
+                    ),
                   ],
                 ],
               ),
@@ -1084,7 +1752,10 @@ class _MessageBubble extends StatelessWidget {
                 Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: isMine
                         ? Colors.white.withValues(alpha: 0.14)
@@ -1124,7 +1795,21 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 )
               else ...[
-                if (message.hasAttachment)
+                if (message.isPoll && message.poll != null)
+                  _PollMessageCard(
+                    message: message,
+                    isMine: isMine,
+                    textColor: bubbleTextColor,
+                    onVote: onVotePoll,
+                  )
+                else if (message.isVoice)
+                  _VoiceMessageCard(
+                    message: message,
+                    isMine: isMine,
+                    textColor: bubbleTextColor,
+                    onOpenAttachment: onOpenAttachment,
+                  )
+                else if (message.hasAttachment)
                   _MessageAttachmentPreview(
                     message: message,
                     isMine: isMine,
@@ -1132,7 +1817,7 @@ class _MessageBubble extends StatelessWidget {
                     textColor: bubbleTextColor,
                     bottomSpacing: message.text.isEmpty ? 0 : 8,
                   ),
-                if (message.text.isNotEmpty)
+                if (message.text.isNotEmpty && !message.isPoll)
                   _LinkifiedText(
                     text: message.text,
                     style: AppTheme.bodyMedium.copyWith(
@@ -1227,21 +1912,32 @@ IconData _fileIconForName(String value) {
   if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
     return Icons.description_outlined;
   }
-  if (lower.endsWith('.xls') || lower.endsWith('.xlsx') || lower.endsWith('.csv')) {
+  if (lower.endsWith('.xls') ||
+      lower.endsWith('.xlsx') ||
+      lower.endsWith('.csv')) {
     return Icons.table_chart_outlined;
   }
   if (lower.endsWith('.zip') || lower.endsWith('.rar')) {
     return Icons.folder_zip_outlined;
   }
-  if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.avi')) {
+  if (lower.endsWith('.mp4') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.avi')) {
     return Icons.video_file_outlined;
   }
   return Icons.attach_file_rounded;
 }
 
+String _formatDuration(int totalSeconds) {
+  final safeSeconds = totalSeconds < 0 ? 0 : totalSeconds;
+  final minutes = safeSeconds ~/ 60;
+  final seconds = safeSeconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
 Future<void> _launchDetectedUrl(String rawUrl) async {
-  final normalized = rawUrl.startsWith('http://') ||
-          rawUrl.startsWith('https://')
+  final normalized =
+      rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
       ? rawUrl
       : 'https://$rawUrl';
   final uri = Uri.tryParse(normalized);

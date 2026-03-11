@@ -76,6 +76,14 @@ String _normalizeAreaValue(String? value) {
   return (value ?? '').trim().toLowerCase();
 }
 
+bool _isWarga(AuthState auth) {
+  return !auth.isOperator && !auth.isSysadmin;
+}
+
+bool _hasRwWideAccess(AuthState auth) {
+  return auth.isSysadmin || auth.hasRwWideAccess;
+}
+
 bool _matchesScopedCode(String? expected, String? actual) {
   final normalizedExpected = (expected ?? '').trim();
   final normalizedActual = (actual ?? '').trim();
@@ -207,13 +215,11 @@ String buildWargaScopeFilter(
     return 'id = ""';
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return '';
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     return 'user_id = "${auth.user!.id}"';
   }
 
@@ -222,7 +228,7 @@ String buildWargaScopeFilter(
   }
 
   final baseConditions = <String>[];
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     baseConditions.add('rw = ${context.rw}');
   } else {
     baseConditions.add('rt = ${context.rt}');
@@ -241,13 +247,11 @@ String buildKkScopeFilter(
     return 'id = ""';
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return '';
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     if ((context.kkId ?? '').isNotEmpty) {
       return 'id = "${context.kkId}"';
     }
@@ -259,7 +263,7 @@ String buildKkScopeFilter(
   }
 
   final baseConditions = <String>[];
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     baseConditions.add('rw = ${context.rw}');
   } else {
     baseConditions.add('rt = ${context.rt}');
@@ -278,13 +282,11 @@ String buildSuratScopeFilter(
     return 'id = ""';
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return '';
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     return 'submitted_by = "${auth.user!.id}"';
   }
 
@@ -293,7 +295,7 @@ String buildSuratScopeFilter(
   }
 
   final baseConditions = <String>[];
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     baseConditions.add('rw = ${context.rw}');
   } else {
     baseConditions.add('rt = ${context.rt}');
@@ -312,9 +314,7 @@ String buildIuranPeriodScopeFilter(
     return 'id = ""';
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return '';
   }
 
@@ -323,7 +323,7 @@ String buildIuranPeriodScopeFilter(
   }
 
   final baseConditions = <String>[];
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     baseConditions.add('rw = ${context.rw}');
   } else {
     baseConditions.add('rt = ${context.rt}');
@@ -342,13 +342,11 @@ String buildIuranBillScopeFilter(
     return 'id = ""';
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return '';
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     if ((context.kkId ?? '').isNotEmpty) {
       return 'kk = "${context.kkId}"';
     }
@@ -360,7 +358,7 @@ String buildIuranBillScopeFilter(
   }
 
   final baseConditions = <String>[];
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     baseConditions.add('rw = ${context.rw}');
   } else {
     baseConditions.add('rt = ${context.rt}');
@@ -381,13 +379,11 @@ bool canAccessWargaRecord(
     return false;
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return true;
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     return warga.userId == auth.user!.id;
   }
 
@@ -413,7 +409,7 @@ bool canAccessWargaRecord(
     return false;
   }
 
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     return warga.rw == '${context.rw}';
   }
 
@@ -430,13 +426,11 @@ bool canAccessKkRecord(
     return false;
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return true;
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     if ((context.kkId ?? '').isNotEmpty) {
       return context.kkId == kk.id;
     }
@@ -461,7 +455,7 @@ bool canAccessKkRecord(
     return false;
   }
 
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     return kk.rw == '${context.rw}';
   }
 
@@ -477,13 +471,11 @@ bool canAccessSuratRecord(
     return false;
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return true;
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     return surat.submittedBy == auth.user!.id ||
         surat.wargaId == context.wargaId;
   }
@@ -506,7 +498,7 @@ bool canAccessSuratRecord(
     return false;
   }
 
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     return surat.rw == context.rw;
   }
 
@@ -522,13 +514,11 @@ bool canAccessIuranBillRecord(
     return false;
   }
 
-  final normalizedRole = AppConstants.normalizeRole(auth.role);
-
-  if (AppConstants.isSysadminRole(normalizedRole)) {
+  if (auth.isSysadmin) {
     return true;
   }
 
-  if (normalizedRole == AppConstants.roleWarga) {
+  if (_isWarga(auth)) {
     return (context.kkId ?? '').isNotEmpty && context.kkId == bill.kkId;
   }
 
@@ -550,7 +540,7 @@ bool canAccessIuranBillRecord(
     return false;
   }
 
-  if (AppConstants.hasRwWideAccess(normalizedRole)) {
+  if (_hasRwWideAccess(auth)) {
     return bill.rw == context.rw;
   }
 

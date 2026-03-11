@@ -86,6 +86,7 @@ class FinanceTransactionModel {
     required this.makerMemberId,
     required this.approvalStatus,
     required this.publishStatus,
+    this.sourceReference,
     this.description,
     this.proofFile,
     this.makerJabatanSnapshot,
@@ -110,6 +111,7 @@ class FinanceTransactionModel {
   final String makerMemberId;
   final String approvalStatus;
   final String publishStatus;
+  final String? sourceReference;
   final String? description;
   final String? proofFile;
   final String? makerJabatanSnapshot;
@@ -135,6 +137,7 @@ class FinanceTransactionModel {
       makerMemberId: record.getStringValue('maker_member'),
       approvalStatus: record.getStringValue('approval_status'),
       publishStatus: record.getStringValue('publish_status'),
+      sourceReference: _textOrNull(record, 'source_reference'),
       description: _textOrNull(record, 'description'),
       proofFile: _textOrNull(record, 'proof_file'),
       makerJabatanSnapshot: _textOrNull(record, 'maker_jabatan_snapshot'),

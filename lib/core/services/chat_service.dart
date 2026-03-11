@@ -28,7 +28,6 @@ class ChatService {
       );
     }
 
-    final role = AppConstants.normalizeRole(auth.role);
     final area = await resolveAreaAccessContext(auth);
     final ensured = <RecordModel>[];
 
@@ -40,7 +39,7 @@ class ChatService {
       );
     } else if (area.hasArea) {
       final selfScope = await _buildScopeForAuthUser(auth, area);
-      if (role == AppConstants.roleWarga) {
+      if (_isWarga(auth)) {
         final privateRoom = await _ensurePrivateSupportConversation(
           scope: selfScope,
           createdBy: authUser.id,
@@ -57,7 +56,7 @@ class ChatService {
         }
       } else {
         final scopedWarga = await _fetchScopedWargaScopes(auth, area);
-        if (role == AppConstants.roleAdminRt) {
+        if (_isRtScopedOperator(auth)) {
           final rtGroup = await _ensureRtConversation(
             scope: selfScope,
             createdBy: authUser.id,
@@ -73,7 +72,7 @@ class ChatService {
             ensured.add(rwGroup);
           }
         }
-        if (AppConstants.hasRwWideAccess(role)) {
+        if (_hasRwWideAccess(auth)) {
           final rwGroup = await _ensureRwConversation(
             scope: selfScope,
             createdBy: authUser.id,
@@ -92,7 +91,7 @@ class ChatService {
             ensured.add(privateRoom);
           }
 
-          if (AppConstants.hasRwWideAccess(role)) {
+          if (_hasRwWideAccess(auth)) {
             final rtGroup = await _ensureRtConversation(
               scope: scope,
               createdBy: authUser.id,
@@ -145,10 +144,10 @@ class ChatService {
           ..sort(_compareConversationModels);
 
     return ChatBootstrapData(
-      role: role,
+      role: auth.role,
       systemRole: auth.systemRole,
       planCode: auth.planCode,
-      canCreateAnnouncement: _canCreateAnnouncement(role),
+      canCreateAnnouncement: _canCreateAnnouncement(auth),
       area: ChatAreaModel(
         rt: area.rt ?? 0,
         rw: area.rw ?? 0,
@@ -215,6 +214,10 @@ class ChatService {
       ...relatedRecords.values.map((record) => _recordText(record, 'sender')),
     };
     final senderNames = await _loadSenderNames(senderIds);
+    final pollsById = await _loadPollsForMessages(
+      records,
+      currentUserId: authUser.id,
+    );
 
     final updatedMembership = await _markConversationReadByMember(
       membership.id,
@@ -234,6 +237,7 @@ class ChatService {
               currentUserId: authUser.id,
               senderNames: senderNames,
               relatedRecords: relatedRecords,
+              pollsById: pollsById,
             ),
           )
           .toList(growable: false),
@@ -343,6 +347,7 @@ class ChatService {
       currentUserId: authUser.id,
       senderNames: senderNames,
       relatedRecords: relatedRecords,
+      pollsById: const {},
     );
   }
 
@@ -426,6 +431,7 @@ class ChatService {
       currentUserId: authUser.id,
       senderNames: senderNames,
       relatedRecords: const {},
+      pollsById: const {},
     );
   }
 
@@ -642,6 +648,12 @@ class ChatService {
       currentUserId: authUser.id,
       senderNames: senderNames,
       relatedRecords: const {},
+      pollsById: {
+        pollRecord.id: await _loadPoll(
+          pollRecord.id,
+          currentUserId: authUser.id,
+        ),
+      },
     );
   }
 
@@ -899,7 +911,6 @@ class ChatService {
       );
     }
 
-    final role = AppConstants.normalizeRole(auth.role);
     final area = await resolveAreaAccessContext(auth);
     final records = await pb
         .collection(AppConstants.colAnnouncements)
@@ -936,7 +947,7 @@ class ChatService {
         .toList(growable: false);
 
     return ChatAnnouncementsData(
-      canCreate: _canCreateAnnouncement(role),
+      canCreate: _canCreateAnnouncement(auth),
       items: items,
     );
   }
@@ -958,13 +969,18 @@ class ChatService {
       );
     }
 
-    final role = AppConstants.normalizeRole(auth.role);
-    if (!_canCreateAnnouncement(role)) {
+    if (!_canCreateAnnouncement(auth)) {
       throw ClientException(
         statusCode: 403,
         response: const {
           'message': 'Hanya admin yang dapat membuat pengumuman.',
         },
+      );
+    }
+    if (title.trim().isEmpty || content.trim().isEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Judul dan isi pengumuman wajib diisi.'},
       );
     }
 
@@ -979,13 +995,35 @@ class ChatService {
       );
     }
 
-    final normalizedTarget = role == AppConstants.roleAdminRt
+    final normalizedTarget = _isRtScopedOperator(auth)
         ? 'rt'
         : targetType.trim().toLowerCase() == 'rt'
         ? 'rt'
         : 'rw';
-    final rt = normalizedTarget == 'rt' ? (targetRt ?? area.rt ?? 0) : 0;
-    final rw = targetRw ?? area.rw ?? 0;
+    final requestedRt = targetRt ?? area.rt ?? 0;
+    final rt = normalizedTarget == 'rt'
+        ? _isRtScopedOperator(auth)
+              ? (area.rt ?? 0)
+              : requestedRt
+        : 0;
+    final rw = area.rw ?? targetRw ?? 0;
+    if (!auth.isSysadmin && normalizedTarget == 'rt' && rt <= 0) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Nomor RT target tidak valid untuk pengumuman ini.',
+        },
+      );
+    }
+    if (!auth.isSysadmin && _isRtScopedOperator(auth) && rt != (area.rt ?? 0)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message':
+              'Operator RT hanya boleh broadcast ke RT yuridiksinya sendiri.',
+        },
+      );
+    }
     if ((orgUnitId ?? '').isNotEmpty &&
         profile != null &&
         !profile.member.isSysadmin &&
@@ -1350,7 +1388,6 @@ class ChatService {
       return false;
     }
 
-    final role = AppConstants.normalizeRole(auth.role);
     final type = _recordText(conversation, 'type');
     final target = _ConversationScope.fromRecord(conversation);
     final scopeType = _recordText(conversation, 'scope_type');
@@ -1379,21 +1416,21 @@ class ChatService {
       if (_recordText(conversation, 'owner') == auth.user!.id) {
         return true;
       }
-      if (role == AppConstants.roleWarga) {
+      if (_isWarga(auth)) {
         return false;
       }
-      return _matchesScope(context, target, role);
+      return _matchesScope(context, target, auth);
     }
 
     if (type == AppConstants.convGroupRt) {
-      return _matchesScope(context, target, role);
+      return _matchesScope(context, target, auth);
     }
 
     if (type == AppConstants.convGroupRw) {
-      if (role == AppConstants.roleWarga) {
+      if (_isWarga(auth)) {
         return false;
       }
-      return _matchesRwScope(context, target, role);
+      return _matchesRwScope(context, target, auth);
     }
 
     return false;
@@ -1427,10 +1464,7 @@ class ChatService {
       return true;
     }
 
-    final role = AppConstants.normalizeRole(auth.role);
-    return target.rt == (context.rt ?? 0) ||
-        role == AppConstants.roleAdminRw ||
-        role == AppConstants.roleAdminRwPro;
+    return target.rt == (context.rt ?? 0) || _hasRwWideAccess(auth);
   }
 
   Future<bool> _canAccessScopedConversation({
@@ -1447,11 +1481,11 @@ class ChatService {
     switch (scopeType) {
       case AppConstants.convScopeDeveloperSupport:
       case AppConstants.convScopePrivateSupport:
-        return _matchesScope(context, target, auth.role);
+        return _matchesScope(context, target, auth);
       case AppConstants.convScopeRt:
-        return _matchesScope(context, target, auth.role);
+        return _matchesScope(context, target, auth);
       case AppConstants.convScopeRw:
-        return _matchesRwScope(context, target, auth.role);
+        return _matchesRwScope(context, target, auth);
       case AppConstants.convScopeDkm:
       case AppConstants.convScopePosyandu:
       case AppConstants.convScopeCustom:
@@ -1503,6 +1537,26 @@ class ChatService {
       } catch (_) {}
     }
     return result;
+  }
+
+  Future<Map<String, ChatPollModel>> _loadPollsForMessages(
+    List<RecordModel> messages, {
+    required String currentUserId,
+  }) async {
+    final pollsById = <String, ChatPollModel>{};
+    final pollIds = messages
+        .map((record) => _recordText(record, 'poll'))
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    for (final pollId in pollIds) {
+      try {
+        pollsById[pollId] = await _loadPoll(
+          pollId,
+          currentUserId: currentUserId,
+        );
+      } catch (_) {}
+    }
+    return pollsById;
   }
 
   Future<bool> _hasActiveOrgMembership(String orgUnitId) async {
@@ -1627,6 +1681,7 @@ class ChatService {
     required String currentUserId,
     required Map<String, String> senderNames,
     required Map<String, RecordModel> relatedRecords,
+    required Map<String, ChatPollModel> pollsById,
   }) {
     final replyId = _recordText(record, 'reply_to');
     final replyRecord = relatedRecords[replyId];
@@ -1675,7 +1730,7 @@ class ChatService {
       senderBadgeLabel: _recordText(record, 'sender_badge_label').isEmpty
           ? null
           : _recordText(record, 'sender_badge_label'),
-      poll: null,
+      poll: pollsById[_recordText(record, 'poll')],
     );
   }
 
@@ -1753,7 +1808,7 @@ class ChatService {
   bool _matchesScope(
     AreaAccessContext context,
     _ConversationScope target,
-    String role,
+    AuthState auth,
   ) {
     if (!_matchesRegion(context, target)) {
       return false;
@@ -1761,7 +1816,7 @@ class ChatService {
     if (target.rw <= 0 || target.rw != (context.rw ?? 0)) {
       return false;
     }
-    if (AppConstants.hasRwWideAccess(role)) {
+    if (_hasRwWideAccess(auth)) {
       return true;
     }
     return target.rt > 0 && target.rt == (context.rt ?? 0);
@@ -1770,9 +1825,9 @@ class ChatService {
   bool _matchesRwScope(
     AreaAccessContext context,
     _ConversationScope target,
-    String role,
+    AuthState auth,
   ) {
-    if (role == AppConstants.roleWarga) {
+    if (_isWarga(auth)) {
       return false;
     }
     if (!_matchesRegion(context, target)) {
@@ -1808,13 +1863,17 @@ class ChatService {
             _normalizeAreaValue(context.provinsi);
   }
 
-  bool _canCreateAnnouncement(String role) {
-    final normalized = AppConstants.normalizeRole(role);
-    return normalized == AppConstants.roleAdminRt ||
-        normalized == AppConstants.roleAdminRw ||
-        normalized == AppConstants.roleAdminRwPro ||
-        normalized == AppConstants.roleSysadmin;
+  bool _canCreateAnnouncement(AuthState auth) {
+    return auth.isSysadmin || auth.isOperator;
   }
+
+  bool _isWarga(AuthState auth) => !auth.isOperator && !auth.isSysadmin;
+
+  bool _hasRwWideAccess(AuthState auth) =>
+      auth.isSysadmin || auth.hasRwWideAccess;
+
+  bool _isRtScopedOperator(AuthState auth) =>
+      auth.isOperator && !auth.isSysadmin && !auth.hasRwWideAccess;
 
   Future<http.MultipartFile> _multipartFromPlatformFile(
     String field,

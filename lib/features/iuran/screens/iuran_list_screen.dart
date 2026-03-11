@@ -11,6 +11,7 @@ import '../../../core/services/iuran_service.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/models/finance_model.dart';
 import '../../../shared/models/iuran_model.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
@@ -36,8 +37,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final normalizedRole = AppConstants.normalizeRole(auth.role);
-    final isAdminView = normalizedRole != AppConstants.roleWarga;
+    final isAdminView = auth.isOperator || auth.isSysadmin;
     final listAsync = ref.watch(iuranListDataProvider);
 
     return Scaffold(
@@ -74,7 +74,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         child: listAsync.when(
           data: (data) => Column(
             children: [
-              _buildHero(normalizedRole, data),
+              _buildHero(auth, data),
               const SizedBox(height: 12),
               AppSearchBar(
                 hintText: 'Cari tagihan, jenis iuran, KK, atau catatan',
@@ -120,15 +120,16 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     );
   }
 
-  Widget _buildHero(String role, IuranListData data) {
-    final subtitle = role == AppConstants.roleWarga
+  Widget _buildHero(AuthState auth, IuranListData data) {
+    final isWargaView = !auth.isOperator && !auth.isSysadmin;
+    final subtitle = isWargaView
         ? 'Pantau tagihan per KK, unggah bukti transfer, dan lihat status verifikasi pembayaran.'
         : 'Kelola jenis iuran, periode, tagihan per KK, dan verifikasi pembayaran sesuai wilayah akses Anda.';
 
     return AppHeroPanel(
-      eyebrow: AppConstants.roleLabel(role),
+      eyebrow: AppConstants.roleLabel(auth.role),
       icon: Icons.payments_outlined,
-      title: role == AppConstants.roleWarga
+      title: isWargaView
           ? 'Tagihan iuran keluarga Anda'
           : 'Operasional iuran warga per KK',
       subtitle: subtitle,
@@ -250,17 +251,28 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         final latestPayment = data.paymentsByBill[bill.id]?.isNotEmpty == true
             ? data.paymentsByBill[bill.id]!.first
             : null;
+        final financeTransaction = data.financeTransactionForBill(bill.id);
         return _buildBillCard(
           bill,
           data.periodsById[bill.periodId],
           latestPayment,
+          financeTransaction: financeTransaction,
           isAdmin: true,
           onPrimaryAction: bill.isSubmittedVerification
               ? () => setState(() => _adminTab = _AdminIuranTab.verifikasi)
               : () => _recordCash(bill),
+          onFinanceAction:
+              financeTransaction != null &&
+                  bill.isPaid &&
+                  !financeTransaction.isPublished
+              ? () => _publishFinance(bill)
+              : null,
           primaryActionLabel: bill.isSubmittedVerification
               ? 'Lihat Verifikasi'
               : 'Catat Cash',
+          financeActionLabel: financeTransaction?.isPublished == true
+              ? 'Sudah Dipublish'
+              : 'Publish Kas',
         );
       },
     );
@@ -387,10 +399,12 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           bill,
           data.periodsById[bill.periodId],
           latestPayment,
+          financeTransaction: data.financeTransactionForBill(bill.id),
           isAdmin: false,
           onPrimaryAction: isPaid || hasPendingTransfer
               ? null
               : () => _uploadTransfer(auth, bill),
+          onFinanceAction: null,
           primaryActionLabel: isPaid
               ? 'Lunas'
               : hasPendingTransfer || bill.isSubmittedVerification
@@ -398,6 +412,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
               : hasRejectedPayment || bill.isRejectedPayment
               ? 'Upload Ulang Bukti Transfer'
               : 'Upload Bukti Transfer',
+          financeActionLabel: '',
         );
       },
     );
@@ -488,11 +503,19 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     IuranBillModel bill,
     IuranPeriodModel? period,
     IuranPaymentModel? latestPayment, {
+    FinanceTransactionModel? financeTransaction,
     required bool isAdmin,
     required VoidCallback? onPrimaryAction,
+    required VoidCallback? onFinanceAction,
     required String primaryActionLabel,
+    required String financeActionLabel,
   }) {
     final statusColor = AppTheme.statusColor(bill.status);
+    final financePublishLabel = financeTransaction == null
+        ? null
+        : financeTransaction.isPublished
+        ? 'Ledger dipublish'
+        : 'Ledger pending publish';
     final paymentInfo = latestPayment == null
         ? null
         : '${AppConstants.iuranMethodLabel(latestPayment.method)} • ${AppConstants.iuranPaymentStatusLabel(latestPayment.status)}';
@@ -569,6 +592,16 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                   const Color(0xFFF1F3F2),
                   AppTheme.textSecondary,
                 ),
+              if ((financePublishLabel ?? '').isNotEmpty)
+                _metaChip(
+                  financePublishLabel!,
+                  financeTransaction?.isPublished == true
+                      ? AppTheme.successColor.withValues(alpha: 0.12)
+                      : AppTheme.accentColor.withValues(alpha: 0.12),
+                  financeTransaction?.isPublished == true
+                      ? AppTheme.successColor
+                      : AppTheme.accentColor,
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -580,6 +613,12 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                 : Formatters.tanggalPendek(bill.dueDate!),
           ),
           _infoRow('No. KK', bill.kkNumber),
+          _infoRow(
+            'Kepala KK',
+            bill.kkHolderName?.trim().isNotEmpty == true
+                ? bill.kkHolderName!
+                : '-',
+          ),
           if ((period?.title ?? '').isNotEmpty)
             _infoRow('Periode', period!.title),
           if ((bill.rejectionNote ?? '').isNotEmpty)
@@ -638,6 +677,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                   child: Text(primaryActionLabel),
                 ),
               ),
+              if (isAdmin && financeTransaction != null) ...[
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: financeTransaction.isPublished
+                      ? null
+                      : onFinanceAction,
+                  child: Text(financeActionLabel),
+                ),
+              ],
               if (isAdmin && latestPayment != null) ...[
                 const SizedBox(width: 10),
                 OutlinedButton(
@@ -1155,6 +1203,74 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           approve
               ? 'Pembayaran berhasil diverifikasi.'
               : 'Pembayaran berhasil ditolak.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
+  Future<void> _publishFinance(IuranBillModel bill) async {
+    final titleController = TextEditingController(
+      text: 'Transparansi kas ${bill.typeLabel}',
+    );
+    final contentController = TextEditingController(
+      text:
+          'Pembayaran iuran ${bill.title} dari ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber} sudah diverifikasi dan masuk ke kas sesuai yuridiksi.',
+    );
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Publish Pengumuman Kas'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Judul Pengumuman'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contentController,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Isi Pengumuman'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Publish'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true) {
+      return;
+    }
+
+    try {
+      await ref
+          .read(iuranServiceProvider)
+          .publishFinanceForBill(
+            ref.read(authProvider),
+            bill.id,
+            announcementTitle: titleController.text.trim(),
+            announcementContent: contentController.text.trim(),
+          );
+      ref.read(iuranRefreshTickProvider.notifier).bump();
+      if (mounted) {
+        ErrorClassifier.showSuccessSnackBar(
+          context,
+          'Pengumuman kas dari iuran berhasil dipublish.',
         );
       }
     } catch (error) {

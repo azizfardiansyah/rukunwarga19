@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -60,8 +61,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final normalizedRole = AppConstants.normalizeRole(auth.role);
-    if (!AppConstants.isAdminRole(normalizedRole)) {
+    if (!auth.isOperator && !auth.isSysadmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('Kelola Iuran')),
         body: const AppPageBackground(
@@ -133,7 +133,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
       _periodFrequency = firstType.defaultFrequency;
       if (_periodAmountCtrl.text.trim().isEmpty &&
           firstType.defaultAmount > 0) {
-        _periodAmountCtrl.text = firstType.defaultAmount.toString();
+        _setCurrencyText(_periodAmountCtrl, firstType.defaultAmount);
       }
     }
 
@@ -197,10 +197,14 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
                         _selectedTypeId = value;
                         if (selected != null) {
                           _periodFrequency = selected.defaultFrequency;
-                          if (_periodAmountCtrl.text.trim().isEmpty ||
-                              _periodAmountCtrl.text.trim() == '0') {
-                            _periodAmountCtrl.text = selected.defaultAmount
-                                .toString();
+                          final currentAmount = _parseCurrencyText(
+                            _periodAmountCtrl.text,
+                          );
+                          if (currentAmount == null || currentAmount == 0) {
+                            _setCurrencyText(
+                              _periodAmountCtrl,
+                              selected.defaultAmount,
+                            );
                           }
                         }
                       });
@@ -240,11 +244,12 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
                           controller: _periodAmountCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Nominal Default',
-                            prefixText: 'Rp ',
+                            hintText: 'Rp 20.000',
                           ),
                           keyboardType: TextInputType.number,
+                          inputFormatters: const [_RupiahInputFormatter()],
                           validator: (value) {
-                            final amount = int.tryParse(value ?? '');
+                            final amount = _parseCurrencyText(value);
                             if (amount == null || amount <= 0) {
                               return 'Nominal wajib diisi';
                             }
@@ -402,9 +407,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
                   TextField(
                     controller: overrideCtrl,
                     keyboardType: TextInputType.number,
+                    inputFormatters: const [_RupiahInputFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Override nominal',
-                      prefixText: 'Rp ',
+                      hintText: 'Rp 20.000',
                       helperText:
                           'Kosongkan jika mengikuti nominal default periode.',
                     ),
@@ -485,9 +491,10 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
                           controller: _typeAmountCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Nominal Default',
-                            prefixText: 'Rp ',
+                            hintText: 'Rp 20.000',
                           ),
                           keyboardType: TextInputType.number,
+                          inputFormatters: const [_RupiahInputFormatter()],
                         ),
                       ),
                     ],
@@ -575,8 +582,8 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
     }
 
     final targets = _selectedTargetIds.map((kkId) {
-      final overrideAmount = int.tryParse(
-        _overrideControllers[kkId]?.text.trim() ?? '',
+      final overrideAmount = _parseCurrencyText(
+        _overrideControllers[kkId]?.text.trim(),
       );
       return IuranPeriodTarget(kkId: kkId, overrideAmount: overrideAmount);
     }).toList();
@@ -591,7 +598,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
               typeId: _selectedTypeId!,
               title: _periodTitleCtrl.text.trim(),
               frequency: _periodFrequency,
-              defaultAmount: int.parse(_periodAmountCtrl.text.trim()),
+              defaultAmount: _parseCurrencyText(_periodAmountCtrl.text) ?? 0,
               dueDate: _dueDate!,
               targetAllScope: _targetAllScope,
               description: _periodDescriptionCtrl.text.trim(),
@@ -629,7 +636,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
             IuranTypeSubmitPayload(
               label: _typeLabelCtrl.text.trim(),
               description: _typeDescriptionCtrl.text.trim(),
-              defaultAmount: int.tryParse(_typeAmountCtrl.text.trim()) ?? 0,
+              defaultAmount: _parseCurrencyText(_typeAmountCtrl.text) ?? 0,
               defaultFrequency: _typeFrequency,
               isActive: _typeActive,
             ),
@@ -653,5 +660,41 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
         setState(() => _submittingType = false);
       }
     }
+  }
+
+  int? _parseCurrencyText(String? raw) {
+    final parsed = Formatters.parseRupiah(raw);
+    return parsed?.toInt();
+  }
+
+  void _setCurrencyText(TextEditingController controller, int amount) {
+    controller.value = TextEditingValue(
+      text: Formatters.rupiah(amount),
+      selection: TextSelection.collapsed(
+        offset: Formatters.rupiah(amount).length,
+      ),
+    );
+  }
+}
+
+class _RupiahInputFormatter extends TextInputFormatter {
+  const _RupiahInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(text: '');
+    }
+
+    final amount = int.tryParse(digits) ?? 0;
+    final formatted = Formatters.rupiah(amount);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
   }
 }

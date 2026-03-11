@@ -88,7 +88,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void _navigateToKkFormIfNeeded(bool hasKartuKeluarga) {
     if (_hasNavigatedToKkForm || !mounted || hasKartuKeluarga) return;
     final auth = ref.read(authProvider);
-    if (!auth.isAdmin) return;
+    if (!auth.isOperator && !auth.isSysadmin) return;
     _hasNavigatedToKkForm = true;
     debugPrint('[DEBUG] No KK data - navigating to KK form');
     context.go(Routes.kkForm);
@@ -105,8 +105,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ? authState.user!.getStringValue('nama')
               : 'User');
     final roleLabel = AppConstants.roleLabel(authState.role);
-    final isWarga =
-        AppConstants.normalizeRole(authState.role) == AppConstants.roleWarga;
+    final isWarga = !authState.isOperator && !authState.isSysadmin;
+    final canOpenOrganization =
+        authState.isSysadmin || authState.hasRwWideAccess;
+    final canOpenFinance = authState.isOperator || authState.isSysadmin;
     final suratSummaryAsync = ref.watch(suratDashboardSummaryProvider);
 
     // Listen for hasKartuKeluarga changes and navigate if needed
@@ -257,7 +259,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           orElse: () => '...',
                         ),
                         color: AppTheme.primaryColor,
-                        onTap: () => context.push('${Routes.laporan}?focus=warga_total'),
+                        onTap: () =>
+                            context.push('${Routes.laporan}?focus=warga_total'),
                       ),
                       const SizedBox(width: 10),
                       _StatCard(
@@ -268,7 +271,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           orElse: () => '...',
                         ),
                         color: AppTheme.secondaryColor,
-                        onTap: () => context.push('${Routes.laporan}?focus=kk_total'),
+                        onTap: () =>
+                            context.push('${Routes.laporan}?focus=kk_total'),
                       ),
                       const SizedBox(width: 10),
                       _StatCard(
@@ -279,7 +283,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           orElse: () => '...',
                         ),
                         color: AppTheme.accentColor,
-                        onTap: () => context.push('${Routes.laporan}?focus=surat_total'),
+                        onTap: () =>
+                            context.push('${Routes.laporan}?focus=surat_total'),
                       ),
                     ],
                   ),
@@ -354,6 +359,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       tone: AppTheme.primaryDark,
                       onTap: () => context.push(Routes.iuran),
                     ),
+                    if (canOpenFinance)
+                      _MenuCard(
+                        icon: Icons.account_balance_wallet_rounded,
+                        label: 'Keuangan',
+                        tone: const Color(0xFF284B63),
+                        onTap: () => context.push(Routes.finance),
+                      ),
+                    if (canOpenOrganization)
+                      _MenuCard(
+                        icon: Icons.account_tree_rounded,
+                        label: 'Organisasi',
+                        tone: const Color(0xFF355C7D),
+                        onTap: () => context.push(Routes.organization),
+                      ),
                     _MenuCard(
                       icon: Icons.campaign_rounded,
                       label: 'Pengumuman',
@@ -464,10 +483,7 @@ class _StatCard extends StatelessWidget {
 }
 
 class _SuratSummaryCard extends StatelessWidget {
-  const _SuratSummaryCard({
-    required this.summary,
-    required this.onOpenFocus,
-  });
+  const _SuratSummaryCard({required this.summary, required this.onOpenFocus});
 
   final SuratDashboardSummary summary;
   final ValueChanged<String> onOpenFocus;
