@@ -20,6 +20,10 @@ class SubscriptionPlan {
     required this.amount,
     required this.durationDays,
     required this.targetRole,
+    required this.planCode,
+    required this.targetSystemRole,
+    required this.scopeLevel,
+    required this.featureFlags,
   });
 
   final String code;
@@ -28,15 +32,37 @@ class SubscriptionPlan {
   final int amount;
   final int durationDays;
   final String targetRole;
+  final String planCode;
+  final String targetSystemRole;
+  final String scopeLevel;
+  final List<String> featureFlags;
 
   factory SubscriptionPlan.fromJson(Map<String, dynamic> json) {
+    final planCode = AppConstants.normalizePlanCode(
+      json['planCode'] as String? ?? '',
+      fallbackRole: json['targetRole'] as String?,
+      subscriptionPlan: json['code'] as String?,
+    );
+    final targetSystemRole = AppConstants.effectiveSystemRole(
+      role: json['targetRole'] as String?,
+      systemRole: json['targetSystemRole'] as String?,
+    );
     return SubscriptionPlan(
       code: json['code'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       amount: (json['amount'] as num?)?.toInt() ?? 0,
       durationDays: (json['durationDays'] as num?)?.toInt() ?? 0,
-      targetRole: json['targetRole'] as String? ?? '',
+      targetRole: AppConstants.effectiveLegacyRole(
+        role: json['targetRole'] as String?,
+        systemRole: targetSystemRole,
+        planCode: planCode,
+        subscriptionPlan: json['code'] as String?,
+      ),
+      planCode: planCode,
+      targetSystemRole: targetSystemRole,
+      scopeLevel: json['scopeLevel'] as String? ?? '',
+      featureFlags: _stringList(json['featureFlags']),
     );
   }
 }
@@ -47,6 +73,7 @@ class SubscriptionCheckout {
     required this.orderId,
     required this.planCode,
     required this.targetRole,
+    required this.targetSystemRole,
     required this.planName,
     required this.grossAmount,
     required this.currency,
@@ -55,8 +82,11 @@ class SubscriptionCheckout {
     required this.paymentState,
     required this.transactionStatus,
     required this.subscriptionApplied,
+    required this.scopeLevel,
+    required this.featureFlags,
     this.transactionId,
     this.paymentType,
+    this.seatTarget,
     this.subscriptionStarted,
     this.subscriptionExpired,
     this.statusCode,
@@ -69,6 +99,7 @@ class SubscriptionCheckout {
   final String orderId;
   final String planCode;
   final String targetRole;
+  final String targetSystemRole;
   final String planName;
   final int grossAmount;
   final String currency;
@@ -77,8 +108,11 @@ class SubscriptionCheckout {
   final String paymentState;
   final String transactionStatus;
   final bool subscriptionApplied;
+  final String scopeLevel;
+  final List<String> featureFlags;
   final String? transactionId;
   final String? paymentType;
+  final String? seatTarget;
   final String? subscriptionStarted;
   final String? subscriptionExpired;
   final String? statusCode;
@@ -91,11 +125,24 @@ class SubscriptionCheckout {
       paymentState == 'pending' || paymentState == 'token_ready';
 
   factory SubscriptionCheckout.fromJson(Map<String, dynamic> json) {
+    final planCode = AppConstants.normalizePlanCode(
+      json['planCode'] as String? ?? '',
+      fallbackRole: json['targetRole'] as String?,
+    );
+    final targetSystemRole = AppConstants.effectiveSystemRole(
+      role: json['targetRole'] as String?,
+      systemRole: json['targetSystemRole'] as String?,
+    );
     return SubscriptionCheckout(
       id: json['id'] as String? ?? '',
       orderId: json['orderId'] as String? ?? '',
-      planCode: json['planCode'] as String? ?? '',
-      targetRole: json['targetRole'] as String? ?? '',
+      planCode: planCode,
+      targetRole: AppConstants.effectiveLegacyRole(
+        role: json['targetRole'] as String?,
+        systemRole: targetSystemRole,
+        planCode: planCode,
+      ),
+      targetSystemRole: targetSystemRole,
       planName: json['planName'] as String? ?? '',
       grossAmount: (json['grossAmount'] as num?)?.toInt() ?? 0,
       currency: json['currency'] as String? ?? 'IDR',
@@ -104,8 +151,11 @@ class SubscriptionCheckout {
       paymentState: json['paymentState'] as String? ?? '',
       transactionStatus: json['transactionStatus'] as String? ?? '',
       subscriptionApplied: json['subscriptionApplied'] as bool? ?? false,
+      scopeLevel: json['scopeLevel'] as String? ?? '',
+      featureFlags: _stringList(json['featureFlags']),
       transactionId: json['transactionId'] as String?,
       paymentType: json['paymentType'] as String?,
+      seatTarget: json['seatTarget'] as String?,
       subscriptionStarted: json['subscriptionStarted'] as String?,
       subscriptionExpired: json['subscriptionExpired'] as String?,
       statusCode: json['statusCode'] as String?,
@@ -181,8 +231,13 @@ class SubscriptionPaymentService {
   }
 
   Future<List<SubscriptionPlan>> _loadPlansFromCollection() async {
-    final currentRole = AppConstants.normalizeRole(
-      _pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+    final currentRole = AppConstants.effectiveLegacyRole(
+      role: _pb.authStore.record?.getStringValue('role'),
+      systemRole: _pb.authStore.record?.getStringValue('system_role'),
+      planCode: _pb.authStore.record?.getStringValue('plan_code'),
+      subscriptionPlan: _pb.authStore.record?.getStringValue(
+        'subscription_plan',
+      ),
     );
 
     final records = await _pb
@@ -202,13 +257,52 @@ class SubscriptionPaymentService {
   }
 
   SubscriptionPlan _planFromRecord(RecordModel record) {
+    final planCode = AppConstants.normalizePlanCode(
+      record.getStringValue('plan_code'),
+      fallbackRole: record.getStringValue('target_role'),
+      subscriptionPlan: record.getStringValue('code'),
+    );
+    final targetSystemRole = AppConstants.effectiveSystemRole(
+      role: record.getStringValue('target_role'),
+      systemRole: record.getStringValue('target_system_role'),
+    );
     return SubscriptionPlan(
       code: record.getStringValue('code'),
       name: record.getStringValue('name'),
       description: record.getStringValue('description'),
       amount: record.getIntValue('amount'),
       durationDays: record.getIntValue('duration_days'),
-      targetRole: record.getStringValue('target_role'),
+      targetRole: AppConstants.effectiveLegacyRole(
+        role: record.getStringValue('target_role'),
+        systemRole: targetSystemRole,
+        planCode: planCode,
+        subscriptionPlan: record.getStringValue('code'),
+      ),
+      planCode: planCode,
+      targetSystemRole: targetSystemRole,
+      scopeLevel: record.getStringValue('scope_level'),
+      featureFlags: _recordStringList(record, 'feature_flags'),
     );
   }
+}
+
+List<String> _recordStringList(RecordModel record, String field) {
+  final raw = record.data[field];
+  if (raw is List) {
+    return raw
+        .map((item) => item.toString())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+  return const [];
+}
+
+List<String> _stringList(dynamic raw) {
+  if (raw is! List) {
+    return const [];
+  }
+  return raw
+      .map((item) => item.toString())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
 }

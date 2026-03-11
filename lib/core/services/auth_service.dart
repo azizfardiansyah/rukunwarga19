@@ -34,7 +34,7 @@ class AuthService {
             'password': password,
             'passwordConfirm': passwordConfirm,
             'name': name,
-            'role': effectiveRole,
+            ..._accessFieldsForRole(effectiveRole),
           },
         );
     return record;
@@ -52,8 +52,24 @@ class AuthService {
   RecordModel? get currentUser => pb.authStore.record;
 
   /// Mendapatkan role user saat ini
-  String get currentRole => AppConstants.normalizeRole(
-    pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+  String get currentRole => AppConstants.effectiveLegacyRole(
+    role: pb.authStore.record?.getStringValue('role'),
+    systemRole: pb.authStore.record?.getStringValue('system_role'),
+    planCode: pb.authStore.record?.getStringValue('plan_code'),
+    subscriptionPlan: pb.authStore.record?.getStringValue('subscription_plan'),
+  );
+
+  /// Mendapatkan system role user saat ini
+  String get currentSystemRole => AppConstants.effectiveSystemRole(
+    role: pb.authStore.record?.getStringValue('role'),
+    systemRole: pb.authStore.record?.getStringValue('system_role'),
+  );
+
+  /// Mendapatkan plan code user saat ini
+  String get currentPlanCode => AppConstants.effectivePlanCode(
+    role: pb.authStore.record?.getStringValue('role'),
+    planCode: pb.authStore.record?.getStringValue('plan_code'),
+    subscriptionPlan: pb.authStore.record?.getStringValue('subscription_plan'),
   );
 
   /// Cek apakah user adalah admin
@@ -112,7 +128,7 @@ class AuthService {
 
     final record = await pb
         .collection('users')
-        .update(userId, body: {'role': normalizedRole});
+        .update(userId, body: _accessFieldsForRole(normalizedRole));
     return record;
   }
 
@@ -131,5 +147,24 @@ class AuthService {
           sort: 'nama',
         );
     return result.items;
+  }
+
+  Map<String, dynamic> _accessFieldsForRole(String role) {
+    final normalizedRole = AppConstants.normalizeRole(role);
+    final systemRole = AppConstants.systemRoleFromRole(normalizedRole);
+    final planCode = AppConstants.planCodeFromRole(normalizedRole);
+    final subscriptionPlan = AppConstants.subscriptionPlanForRole(
+      normalizedRole,
+    );
+
+    return {
+      'role': normalizedRole,
+      'system_role': systemRole,
+      'plan_code': planCode,
+      'subscription_plan': subscriptionPlan ?? '',
+      'subscription_status': AppConstants.subscriptionStatusInactive,
+      'subscription_started': null,
+      'subscription_expired': null,
+    };
   }
 }

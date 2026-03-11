@@ -29,6 +29,9 @@ import '../features/settings/screens/settings_screen.dart';
 import '../features/settings/screens/role_request_screen.dart';
 import '../features/settings/screens/subscription_screen.dart';
 import '../features/settings/screens/user_role_management_screen.dart';
+import '../features/organization/screens/organization_workspace_screen.dart';
+import '../features/organization/screens/organization_unit_screen.dart';
+import '../features/organization/screens/organization_membership_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
 
 // Route paths
@@ -58,6 +61,9 @@ class Routes {
   static const String subscription = '/subscription';
   static const String roleRequests = '/settings/role-requests';
   static const String userManagement = '/settings/user-management';
+  static const String organization = '/organisasi';
+  static const String organizationUnits = '/organisasi/unit';
+  static const String organizationMemberships = '/organisasi/membership';
 }
 
 /// A [ChangeNotifier] bridge so that [GoRouter.refreshListenable] re-evaluates
@@ -251,6 +257,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.userManagement,
         builder: (context, state) => const UserRoleManagementScreen(),
+      ),
+      GoRoute(
+        path: Routes.organization,
+        builder: (context, state) => const OrganizationWorkspaceScreen(),
+      ),
+      GoRoute(
+        path: Routes.organizationUnits,
+        builder: (context, state) => const OrganizationUnitScreen(),
+      ),
+      GoRoute(
+        path: Routes.organizationMemberships,
+        builder: (context, state) => const OrganizationMembershipScreen(),
       ),
     ],
   );

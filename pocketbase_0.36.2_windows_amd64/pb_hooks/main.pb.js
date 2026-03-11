@@ -40,6 +40,107 @@ const DEFAULT_SUBSCRIPTION_PLANS = {
   },
 };
 
+function inferPlanCode(planCodeOrSku, targetRole) {
+  const normalizedPlan = asString(planCodeOrSku).trim().toLowerCase();
+  if (normalizedPlan === "rt" || normalizedPlan === "admin_rt_monthly") {
+    return "rt";
+  }
+  if (normalizedPlan === "rw" || normalizedPlan === "admin_rw_monthly") {
+    return "rw";
+  }
+  if (normalizedPlan === "rw_pro" || normalizedPlan === "admin_rw_pro_monthly") {
+    return "rw_pro";
+  }
+
+  const normalizedRole = normalizeUserRole(targetRole);
+  if (normalizedRole === "admin_rt") {
+    return "rt";
+  }
+  if (normalizedRole === "admin_rw") {
+    return "rw";
+  }
+  if (normalizedRole === "admin_rw_pro") {
+    return "rw_pro";
+  }
+  return "free";
+}
+
+function inferTargetSystemRole(targetRole) {
+  const normalizedRole = normalizeUserRole(targetRole);
+  if (normalizedRole === "sysadmin") {
+    return "sysadmin";
+  }
+  if (
+    normalizedRole === "admin_rt" ||
+    normalizedRole === "admin_rw" ||
+    normalizedRole === "admin_rw_pro"
+  ) {
+    return "operator";
+  }
+  return "warga";
+}
+
+function inferScopeLevel(planCodeOrSku, targetRole) {
+  const planCode = inferPlanCode(planCodeOrSku, targetRole);
+  if (planCode === "rt") {
+    return "rt";
+  }
+  if (planCode === "rw" || planCode === "rw_pro") {
+    return "rw";
+  }
+  return "self";
+}
+
+function featureFlagsForPlan(planCodeOrSku, targetRole) {
+  const planCode = inferPlanCode(planCodeOrSku, targetRole);
+  if (planCode === "rt") {
+    return ["chat_basic", "broadcast_rt", "agenda_basic", "finance_basic"];
+  }
+  if (planCode === "rw") {
+    return [
+      "chat_basic",
+      "broadcast_rw",
+      "custom_group_basic",
+      "agenda_basic",
+      "finance_basic",
+      "finance_publish",
+    ];
+  }
+  if (planCode === "rw_pro") {
+    return [
+      "chat_basic",
+      "broadcast_rw",
+      "custom_group_basic",
+      "custom_group_advanced",
+      "agenda_basic",
+      "agenda_advanced",
+      "finance_basic",
+      "finance_publish",
+      "voice_note",
+      "polling",
+      "export_advanced",
+    ];
+  }
+  return ["chat_basic"];
+}
+
+function applyUserAccessSubscription(
+  userRecord,
+  targetRole,
+  subscriptionPlanCode,
+  startedAt,
+  expiredAt,
+) {
+  const normalizedRole = normalizeUserRole(targetRole);
+  userRecord.set("role", normalizedRole || "warga");
+  userRecord.set("system_role", inferTargetSystemRole(normalizedRole));
+  userRecord.set("plan_code", inferPlanCode(subscriptionPlanCode, normalizedRole));
+  userRecord.set("subscription_plan", asString(subscriptionPlanCode));
+  userRecord.set("subscription_status", "active");
+  userRecord.set("subscription_started", startedAt);
+  userRecord.set("subscription_expired", expiredAt);
+}
+
 function requireUserAuth(e) {
   const info = e.requestInfo();
 
@@ -160,14 +261,26 @@ function getDefaultPlanList(role) {
 }
 
 function serializePlanRecord(record) {
+  const targetRole = normalizeUserRole(record.getString("target_role"));
+  const planCode =
+    asString(record.getString("plan_code")) ||
+    inferPlanCode(record.getString("code"), targetRole);
   return {
     code: record.getString("code"),
     name: record.getString("name"),
     description: record.getString("description"),
+    planCode: planCode,
     amount: record.getInt("amount"),
     durationDays: record.getInt("duration_days"),
     currency: asString(record.getString("currency")) || "IDR",
-    targetRole: normalizeUserRole(record.getString("target_role")),
+    targetRole: targetRole,
+    targetSystemRole:
+      asString(record.getString("target_system_role")) ||
+      inferTargetSystemRole(targetRole),
+    scopeLevel:
+      asString(record.getString("scope_level")) ||
+      inferScopeLevel(planCode, targetRole),
+    featureFlags: featureFlagsForPlan(planCode, targetRole),
     isActive: record.getBool("is_active"),
     sortOrder: record.getInt("sort_order"),
   };
@@ -722,10 +835,20 @@ globalThis.__rwSubscription = {
           code: record.getString("code"),
           name: record.getString("name"),
           description: record.getString("description"),
+          planCode:
+            asString(record.getString("plan_code")) ||
+            inferPlanCode(record.getString("code"), targetRole),
           amount: record.getInt("amount"),
           durationDays: record.getInt("duration_days"),
           currency: String(record.getString("currency") || "IDR"),
           targetRole: targetRole,
+          targetSystemRole:
+            asString(record.getString("target_system_role")) ||
+            inferTargetSystemRole(targetRole),
+          scopeLevel:
+            asString(record.getString("scope_level")) ||
+            inferScopeLevel(record.getString("code"), targetRole),
+          featureFlags: featureFlagsForPlan(record.getString("code"), targetRole),
           isActive: record.getBool("is_active"),
           sortOrder: record.getInt("sort_order"),
         });
@@ -925,42 +1048,36 @@ routerAdd(
   "GET",
   "/api/rukunwarga/payments/subscription/plans",
   (e) => {
-    const info = e.requestInfo();
-    if (!info.auth) {
-      throw e.unauthorizedError("Autentikasi dibutuhkan.", null);
-    }
+    const normalizeRole = function (role) {
+      const normalized = String(role || "").trim().toLowerCase();
+      if (normalized === "admin") {
+        return "admin_rw";
+      }
+      if (normalized === "superuser") {
+        return "sysadmin";
+      }
+      if (normalized === "user" || normalized === "warga") {
+        return "warga";
+      }
+      if (
+        normalized === "admin_rt" ||
+        normalized === "admin_rw" ||
+        normalized === "admin_rw_pro" ||
+        normalized === "sysadmin"
+      ) {
+        return normalized;
+      }
+      return "warga";
+    };
 
-    const authRecord = info.auth;
-    const rawRole = String(authRecord.getString("role") || "")
-      .trim()
-      .toLowerCase();
-    const userRole =
-      rawRole === "admin" ? "admin_rw"
-      : rawRole === "superuser" ? "sysadmin"
-      : rawRole === "user" || rawRole === "warga" ? "warga"
-      : rawRole === "admin_rt" ||
-          rawRole === "admin_rw" ||
-          rawRole === "admin_rw_pro" ||
-          rawRole === "sysadmin"
-      ? rawRole
-      : "warga";
-
-    if (
-      !(
-        userRole === "warga" ||
-        userRole === "admin_rt" ||
-        userRole === "admin_rw" ||
-        userRole === "admin_rw_pro"
-      )
-    ) {
-      return e.json(200, { environment: "sandbox", plans: [] });
-    }
-
-    const envValue = String($os.getenv("RW_MIDTRANS_IS_PRODUCTION") || "")
-      .trim()
-      .toLowerCase();
-    const isProduction =
-      envValue === "1" || envValue === "true" || envValue === "yes";
+    const canSelfSubscribe = function (role) {
+      return (
+        role === "warga" ||
+        role === "admin_rt" ||
+        role === "admin_rw" ||
+        role === "admin_rw_pro"
+      );
+    };
 
     const roleRank = function (role) {
       switch (role) {
@@ -986,17 +1103,118 @@ routerAdd(
       ) {
         return false;
       }
-
       if (currentRole === "sysadmin") {
         return false;
       }
-
       if (currentRole === "warga") {
         return true;
       }
-
       return roleRank(targetRole) >= roleRank(currentRole);
     };
+
+    const inferPlanCodeLocal = function (planCodeOrSku, targetRole) {
+      const normalizedPlan = String(planCodeOrSku || "").trim().toLowerCase();
+      if (normalizedPlan === "rt" || normalizedPlan === "admin_rt_monthly") {
+        return "rt";
+      }
+      if (normalizedPlan === "rw" || normalizedPlan === "admin_rw_monthly") {
+        return "rw";
+      }
+      if (
+        normalizedPlan === "rw_pro" ||
+        normalizedPlan === "admin_rw_pro_monthly"
+      ) {
+        return "rw_pro";
+      }
+      const normalizedRole = normalizeRole(targetRole);
+      if (normalizedRole === "admin_rt") {
+        return "rt";
+      }
+      if (normalizedRole === "admin_rw") {
+        return "rw";
+      }
+      if (normalizedRole === "admin_rw_pro") {
+        return "rw_pro";
+      }
+      return "free";
+    };
+
+    const inferTargetSystemRoleLocal = function (targetRole) {
+      const normalizedRole = normalizeRole(targetRole);
+      if (normalizedRole === "sysadmin") {
+        return "sysadmin";
+      }
+      if (
+        normalizedRole === "admin_rt" ||
+        normalizedRole === "admin_rw" ||
+        normalizedRole === "admin_rw_pro"
+      ) {
+        return "operator";
+      }
+      return "warga";
+    };
+
+    const inferScopeLevelLocal = function (planCodeOrSku, targetRole) {
+      const planCode = inferPlanCodeLocal(planCodeOrSku, targetRole);
+      if (planCode === "rt") {
+        return "rt";
+      }
+      if (planCode === "rw" || planCode === "rw_pro") {
+        return "rw";
+      }
+      return "self";
+    };
+
+    const featureFlagsForPlanLocal = function (planCodeOrSku, targetRole) {
+      const planCode = inferPlanCodeLocal(planCodeOrSku, targetRole);
+      if (planCode === "rt") {
+        return ["chat_basic", "broadcast_rt", "agenda_basic", "finance_basic"];
+      }
+      if (planCode === "rw") {
+        return [
+          "chat_basic",
+          "broadcast_rw",
+          "custom_group_basic",
+          "agenda_basic",
+          "finance_basic",
+          "finance_publish",
+        ];
+      }
+      if (planCode === "rw_pro") {
+        return [
+          "chat_basic",
+          "broadcast_rw",
+          "custom_group_basic",
+          "custom_group_advanced",
+          "agenda_basic",
+          "agenda_advanced",
+          "finance_basic",
+          "finance_publish",
+          "voice_note",
+          "polling",
+          "export_advanced",
+        ];
+      }
+      return ["chat_basic"];
+    };
+
+    const info = e.requestInfo();
+    if (!info.auth) {
+      throw e.unauthorizedError("Autentikasi dibutuhkan.", null);
+    }
+
+    const authRecord = info.auth;
+    const userRole = normalizeRole(authRecord.getString("role"));
+
+    if (!canSelfSubscribe(userRole)) {
+      return e.json(200, { environment: "sandbox", plans: [] });
+    }
+
+    const envValue = String($os.getenv("RW_MIDTRANS_IS_PRODUCTION") || "")
+      .trim()
+      .toLowerCase();
+    const isProduction =
+      envValue === "1" || envValue === "true" || envValue === "yes";
 
     let plans = [];
     try {
@@ -1013,9 +1231,7 @@ routerAdd(
           continue;
         }
 
-        const targetRole = String(record.getString("target_role") || "")
-          .trim()
-          .toLowerCase();
+        const targetRole = normalizeRole(record.getString("target_role"));
         if (!canPurchasePlan(userRole, targetRole)) {
           continue;
         }
@@ -1024,61 +1240,26 @@ routerAdd(
           code: record.getString("code"),
           name: record.getString("name"),
           description: record.getString("description"),
+          planCode:
+            String(record.getString("plan_code") || "").trim().toLowerCase() ||
+            inferPlanCodeLocal(record.getString("code"), targetRole),
           amount: record.getInt("amount"),
           durationDays: record.getInt("duration_days"),
           currency: String(record.getString("currency") || "IDR"),
           targetRole: targetRole,
+          targetSystemRole:
+            String(record.getString("target_system_role") || "").trim().toLowerCase() ||
+            inferTargetSystemRoleLocal(targetRole),
+          scopeLevel:
+            String(record.getString("scope_level") || "").trim().toLowerCase() ||
+            inferScopeLevelLocal(record.getString("code"), targetRole),
+          featureFlags: featureFlagsForPlanLocal(record.getString("code"), targetRole),
           isActive: record.getBool("is_active"),
           sortOrder: record.getInt("sort_order"),
         });
       }
     } catch (_) {
       plans = [];
-    }
-
-    if (plans.length === 0) {
-      const defaults = [
-        {
-          code: "admin_rt_monthly",
-          name: "Admin RT Bulanan",
-          description:
-            "Langganan dashboard dan operasional Admin RT selama 30 hari.",
-          amount: 30000,
-          durationDays: 30,
-          currency: "IDR",
-          targetRole: "admin_rt",
-          isActive: true,
-          sortOrder: 10,
-        },
-        {
-          code: "admin_rw_monthly",
-          name: "Admin RW Bulanan",
-          description:
-            "Langganan dashboard RW dan akses lintas wilayah selama 30 hari.",
-          amount: 100000,
-          durationDays: 30,
-          currency: "IDR",
-          targetRole: "admin_rw",
-          isActive: true,
-          sortOrder: 20,
-        },
-        {
-          code: "admin_rw_pro_monthly",
-          name: "Admin RW Pro Bulanan",
-          description:
-            "Langganan Admin RW Pro dengan OCR dan integrasi pembayaran selama 30 hari.",
-          amount: 250000,
-          durationDays: 30,
-          currency: "IDR",
-          targetRole: "admin_rw_pro",
-          isActive: true,
-          sortOrder: 30,
-        },
-      ];
-
-      plans = defaults.filter(function (plan) {
-        return canPurchasePlan(userRole, plan.targetRole);
-      });
     }
 
     return e.json(200, {
@@ -1345,6 +1526,10 @@ routerAdd(
       subscriber_email: authRecord.getString("email"),
       plan_code: plan.code,
       target_role: plan.targetRole,
+      target_system_role: inferTargetSystemRole(plan.targetRole),
+      workspace: asString(authRecord.getString("active_workspace")),
+      workspace_member: asString(authRecord.getString("active_workspace_member")),
+      seat_target: authRecord.id,
       plan_name: plan.name,
       period_days: plan.durationDays,
       gross_amount: plan.amount,
@@ -1436,8 +1621,14 @@ routerAdd(
     return e.json(200, {
       id: transactionRecord.id,
       orderId: transactionRecord.getString("order_id"),
-      planCode: transactionRecord.getString("plan_code"),
+      planCode: inferPlanCode(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
       targetRole: transactionRecord.getString("target_role"),
+      targetSystemRole:
+        asString(transactionRecord.getString("target_system_role")) ||
+        inferTargetSystemRole(transactionRecord.getString("target_role")),
       planName: transactionRecord.getString("plan_name"),
       grossAmount: transactionRecord.getInt("gross_amount"),
       currency: transactionRecord.getString("currency"),
@@ -1448,6 +1639,15 @@ routerAdd(
       transactionId: transactionRecord.getString("transaction_id"),
       paymentType: transactionRecord.getString("payment_type"),
       subscriptionApplied: transactionRecord.getBool("subscription_applied"),
+      seatTarget: transactionRecord.getString("seat_target"),
+      scopeLevel: inferScopeLevel(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
+      featureFlags: featureFlagsForPlan(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
       subscriptionStarted: transactionRecord.getString("subscription_started"),
       subscriptionExpired: transactionRecord.getString("subscription_expired"),
       statusCode: transactionRecord.getString("status_code"),
@@ -1677,16 +1877,13 @@ routerAdd(
       const startedAt = now.toISOString();
       const expiredAt = nextExpiry.toISOString();
 
-      if (targetRole) {
-        subscriberRecord.set("role", targetRole);
-      }
-      subscriberRecord.set(
-        "subscription_plan",
+      applyUserAccessSubscription(
+        subscriberRecord,
+        targetRole,
         transactionRecord.getString("plan_code"),
+        startedAt,
+        expiredAt,
       );
-      subscriberRecord.set("subscription_status", "active");
-      subscriberRecord.set("subscription_started", startedAt);
-      subscriberRecord.set("subscription_expired", expiredAt);
       $app.save(subscriberRecord);
 
       transactionRecord.set("subscription_applied", true);
@@ -1698,8 +1895,14 @@ routerAdd(
     return e.json(200, {
       id: transactionRecord.id,
       orderId: transactionRecord.getString("order_id"),
-      planCode: transactionRecord.getString("plan_code"),
+      planCode: inferPlanCode(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
       targetRole: transactionRecord.getString("target_role"),
+      targetSystemRole:
+        asString(transactionRecord.getString("target_system_role")) ||
+        inferTargetSystemRole(transactionRecord.getString("target_role")),
       planName: transactionRecord.getString("plan_name"),
       grossAmount: transactionRecord.getInt("gross_amount"),
       currency: transactionRecord.getString("currency"),
@@ -1710,6 +1913,15 @@ routerAdd(
       transactionId: transactionRecord.getString("transaction_id"),
       paymentType: transactionRecord.getString("payment_type"),
       subscriptionApplied: transactionRecord.getBool("subscription_applied"),
+      seatTarget: transactionRecord.getString("seat_target"),
+      scopeLevel: inferScopeLevel(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
+      featureFlags: featureFlagsForPlan(
+        transactionRecord.getString("plan_code"),
+        transactionRecord.getString("target_role"),
+      ),
       subscriptionStarted: transactionRecord.getString("subscription_started"),
       subscriptionExpired: transactionRecord.getString("subscription_expired"),
       statusCode: transactionRecord.getString("status_code"),
@@ -1764,6 +1976,8 @@ routerAdd(
 
     const userRecord = $app.findRecordById("_pb_users_auth_", authRecord.id);
     userRecord.set("role", "warga");
+    userRecord.set("system_role", "warga");
+    userRecord.set("plan_code", "free");
     userRecord.set("subscription_plan", "");
     userRecord.set("subscription_status", "inactive");
     userRecord.set("subscription_started", "");
@@ -1773,6 +1987,8 @@ routerAdd(
     return e.json(200, {
       success: true,
       role: "warga",
+      systemRole: "warga",
+      planCode: "free",
       subscriptionStatus: "inactive",
     });
   },
@@ -2154,13 +2370,13 @@ function applySubscriptionIfNeeded(transactionRecord) {
   const startedAt = now.toISOString();
   const expiredAt = nextExpiry.toISOString();
 
-  if (targetRole) {
-    subscriberRecord.set("role", targetRole);
-  }
-  subscriberRecord.set("subscription_plan", transactionRecord.getString("plan_code"));
-  subscriberRecord.set("subscription_status", "active");
-  subscriberRecord.set("subscription_started", startedAt);
-  subscriberRecord.set("subscription_expired", expiredAt);
+  applyUserAccessSubscription(
+    subscriberRecord,
+    targetRole,
+    transactionRecord.getString("plan_code"),
+    startedAt,
+    expiredAt,
+  );
   $app.save(subscriberRecord);
 
   transactionRecord.set("subscription_applied", true);
@@ -2219,11 +2435,19 @@ function findTransactionByOrderId(orderId) {
 }
 
 function serializeTransaction(transactionRecord) {
+  const targetRole = transactionRecord.getString("target_role");
+  const planCode = inferPlanCode(
+    transactionRecord.getString("plan_code"),
+    targetRole,
+  );
   return {
     id: transactionRecord.id,
     orderId: transactionRecord.getString("order_id"),
-    planCode: transactionRecord.getString("plan_code"),
-    targetRole: transactionRecord.getString("target_role"),
+    planCode: planCode,
+    targetRole: targetRole,
+    targetSystemRole:
+      asString(transactionRecord.getString("target_system_role")) ||
+      inferTargetSystemRole(targetRole),
     planName: transactionRecord.getString("plan_name"),
     grossAmount: transactionRecord.getInt("gross_amount"),
     currency: transactionRecord.getString("currency"),
@@ -2234,6 +2458,9 @@ function serializeTransaction(transactionRecord) {
     transactionId: transactionRecord.getString("transaction_id"),
     paymentType: transactionRecord.getString("payment_type"),
     subscriptionApplied: transactionRecord.getBool("subscription_applied"),
+    seatTarget: transactionRecord.getString("seat_target"),
+    scopeLevel: inferScopeLevel(planCode, targetRole),
+    featureFlags: featureFlagsForPlan(planCode, targetRole),
     subscriptionStarted: transactionRecord.getString("subscription_started"),
     subscriptionExpired: transactionRecord.getString("subscription_expired"),
     statusCode: transactionRecord.getString("status_code"),

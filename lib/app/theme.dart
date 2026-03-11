@@ -450,6 +450,14 @@ class AppTheme {
 
   // === HELPER: Role Badge Color ===
   static Color roleColor(String role) {
+    if (AppConstants.normalizeSystemRole(role) ==
+        AppConstants.systemRoleOperator) {
+      return primaryColor;
+    }
+    if (AppConstants.normalizeSystemRole(role) ==
+        AppConstants.systemRoleSysadmin) {
+      return primaryDark;
+    }
     switch (AppConstants.normalizeRole(role)) {
       case AppConstants.roleSysadmin:
         return primaryDark;

@@ -1,5 +1,7 @@
 import 'package:pocketbase/pocketbase.dart';
 
+import '../../core/constants/app_constants.dart';
+
 class ChatAreaModel {
   const ChatAreaModel({
     required this.rt,
@@ -59,6 +61,10 @@ class ConversationModel {
     required this.isArchived,
     this.lastMessage,
     this.lastMessageAt,
+    this.workspaceId,
+    this.orgUnitId,
+    this.scopeType,
+    this.requiredPlanCode,
   });
 
   final String id;
@@ -75,6 +81,10 @@ class ConversationModel {
   final bool isArchived;
   final String? lastMessage;
   final DateTime? lastMessageAt;
+  final String? workspaceId;
+  final String? orgUnitId;
+  final String? scopeType;
+  final String? requiredPlanCode;
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
     return ConversationModel(
@@ -92,6 +102,10 @@ class ConversationModel {
       isArchived: json['isArchived'] == true,
       lastMessage: json['lastMessage']?.toString(),
       lastMessageAt: DateTime.tryParse(json['lastMessageAt']?.toString() ?? ''),
+      workspaceId: json['workspaceId']?.toString(),
+      orgUnitId: json['orgUnitId']?.toString(),
+      scopeType: json['scopeType']?.toString(),
+      requiredPlanCode: json['requiredPlanCode']?.toString(),
     );
   }
 
@@ -110,13 +124,20 @@ class ConversationModel {
       isMuted: false,
       isArchived: false,
       lastMessage: record.getStringValue('last_message'),
-      lastMessageAt: DateTime.tryParse(record.getStringValue('last_message_at')),
+      lastMessageAt: DateTime.tryParse(
+        record.getStringValue('last_message_at'),
+      ),
+      workspaceId: _recordText(record, 'workspace'),
+      orgUnitId: _recordText(record, 'org_unit'),
+      scopeType: _recordText(record, 'scope_type'),
+      requiredPlanCode: _recordText(record, 'required_plan_code'),
     );
   }
 
   bool get isPrivate => type == 'private';
   bool get isGroupRt => type == 'group_rt';
   bool get isGroupRw => type == 'group_rw';
+  bool get isScopedConversation => (scopeType ?? '').trim().isNotEmpty;
 }
 
 class MessageModel {
@@ -139,6 +160,10 @@ class MessageModel {
     this.forwardedFromId,
     this.forwardedFromName,
     this.createdAt,
+    this.voiceDurationSeconds,
+    this.pollId,
+    this.senderBadgeLabel,
+    this.poll,
   });
 
   final String id;
@@ -159,6 +184,10 @@ class MessageModel {
   final String? forwardedFromId;
   final String? forwardedFromName;
   final DateTime? createdAt;
+  final int? voiceDurationSeconds;
+  final String? pollId;
+  final String? senderBadgeLabel;
+  final ChatPollModel? poll;
 
   bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
   bool get hasReply => (replyToId ?? '').trim().isNotEmpty;
@@ -184,6 +213,14 @@ class MessageModel {
       forwardedFromId: json['forwardedFromId']?.toString(),
       forwardedFromName: json['forwardedFromName']?.toString(),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+      voiceDurationSeconds: _jsonNullableInt(json['voiceDurationSeconds']),
+      pollId: json['pollId']?.toString(),
+      senderBadgeLabel: json['senderBadgeLabel']?.toString(),
+      poll: json['poll'] is Map
+          ? ChatPollModel.fromJson(
+              Map<String, dynamic>.from(json['poll'] as Map),
+            )
+          : null,
     );
   }
 
@@ -203,8 +240,80 @@ class MessageModel {
       replyToId: record.getStringValue('reply_to'),
       forwardedFromId: record.getStringValue('forwarded_from'),
       createdAt: DateTime.tryParse(record.getStringValue('created')),
+      voiceDurationSeconds: _jsonNullableInt(
+        record.data['voice_duration_seconds'],
+      ),
+      pollId: _recordText(record, 'poll'),
+      senderBadgeLabel: _recordText(record, 'sender_badge_label'),
+      poll: null,
     );
   }
+
+  bool get isVoice => messageType == AppConstants.msgTypeVoice;
+
+  bool get isPoll => messageType == AppConstants.msgTypePoll;
+}
+
+class ChatPollOptionModel {
+  const ChatPollOptionModel({
+    required this.id,
+    required this.label,
+    required this.sortOrder,
+    this.voteCount = 0,
+    this.isSelected = false,
+  });
+
+  final String id;
+  final String label;
+  final int sortOrder;
+  final int voteCount;
+  final bool isSelected;
+
+  factory ChatPollOptionModel.fromJson(Map<String, dynamic> json) {
+    return ChatPollOptionModel(
+      id: json['id']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      sortOrder: _jsonInt(json['sortOrder']),
+      voteCount: _jsonInt(json['voteCount']),
+      isSelected: json['isSelected'] == true,
+    );
+  }
+}
+
+class ChatPollModel {
+  const ChatPollModel({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.allowMultipleChoice,
+    required this.allowAnonymousVote,
+    required this.options,
+    this.closedAt,
+  });
+
+  final String id;
+  final String title;
+  final String status;
+  final bool allowMultipleChoice;
+  final bool allowAnonymousVote;
+  final List<ChatPollOptionModel> options;
+  final DateTime? closedAt;
+
+  factory ChatPollModel.fromJson(Map<String, dynamic> json) {
+    return ChatPollModel(
+      id: json['id']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'open',
+      allowMultipleChoice: json['allowMultipleChoice'] == true,
+      allowAnonymousVote: json['allowAnonymousVote'] == true,
+      options: _jsonList(
+        json['options'],
+      ).map(ChatPollOptionModel.fromJson).toList(growable: false),
+      closedAt: DateTime.tryParse(json['closedAt']?.toString() ?? ''),
+    );
+  }
+
+  bool get isOpen => status == 'open';
 }
 
 class AnnouncementModel {
@@ -217,6 +326,11 @@ class AnnouncementModel {
     required this.rw,
     required this.authorName,
     this.createdAt,
+    this.workspaceId,
+    this.orgUnitId,
+    this.sourceModule,
+    this.publishState,
+    this.publishedByMemberId,
   });
 
   final String id;
@@ -227,6 +341,11 @@ class AnnouncementModel {
   final int rw;
   final String authorName;
   final DateTime? createdAt;
+  final String? workspaceId;
+  final String? orgUnitId;
+  final String? sourceModule;
+  final String? publishState;
+  final String? publishedByMemberId;
 
   factory AnnouncementModel.fromJson(Map<String, dynamic> json) {
     return AnnouncementModel(
@@ -238,6 +357,11 @@ class AnnouncementModel {
       rw: _jsonInt(json['rw']),
       authorName: json['authorName']?.toString() ?? 'Pengurus',
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+      workspaceId: json['workspaceId']?.toString(),
+      orgUnitId: json['orgUnitId']?.toString(),
+      sourceModule: json['sourceModule']?.toString(),
+      publishState: json['publishState']?.toString(),
+      publishedByMemberId: json['publishedByMemberId']?.toString(),
     );
   }
 
@@ -249,6 +373,8 @@ class AnnouncementModel {
 class ChatBootstrapData {
   const ChatBootstrapData({
     required this.role,
+    required this.systemRole,
+    required this.planCode,
     required this.canCreateAnnouncement,
     required this.area,
     required this.inbox,
@@ -256,15 +382,16 @@ class ChatBootstrapData {
   });
 
   final String role;
+  final String systemRole;
+  final String planCode;
   final bool canCreateAnnouncement;
   final ChatAreaModel area;
   final List<ConversationModel> inbox;
   final List<ConversationModel> groups;
 
-  int get totalUnreadCount =>
-      [...inbox, ...groups]
-          .where((item) => !item.isArchived && !item.isMuted)
-          .fold<int>(0, (sum, item) => sum + item.unreadCount);
+  int get totalUnreadCount => [...inbox, ...groups]
+      .where((item) => !item.isArchived && !item.isMuted)
+      .fold<int>(0, (sum, item) => sum + item.unreadCount);
 
   int get inboxUnreadCount => inbox
       .where((item) => !item.isArchived && !item.isMuted)
@@ -277,6 +404,9 @@ class ChatBootstrapData {
   factory ChatBootstrapData.fromJson(Map<String, dynamic> json) {
     return ChatBootstrapData(
       role: json['role']?.toString() ?? '',
+      systemRole:
+          json['systemRole']?.toString() ?? AppConstants.systemRoleWarga,
+      planCode: json['planCode']?.toString() ?? AppConstants.planFree,
       canCreateAnnouncement: json['canCreateAnnouncement'] == true,
       area: ChatAreaModel.fromJson(
         Map<String, dynamic>.from(json['area'] as Map? ?? const {}),
@@ -340,4 +470,19 @@ int _jsonInt(dynamic raw) {
     return raw;
   }
   return int.tryParse(raw?.toString() ?? '') ?? 0;
+}
+
+int? _jsonNullableInt(dynamic raw) {
+  if (raw is int) {
+    return raw;
+  }
+  return int.tryParse(raw?.toString() ?? '');
+}
+
+String _recordText(RecordModel record, String field) {
+  final fromGetter = record.getStringValue(field).trim();
+  if (fromGetter.isNotEmpty) {
+    return fromGetter;
+  }
+  return record.data[field]?.toString().trim() ?? '';
 }

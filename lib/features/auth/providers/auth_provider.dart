@@ -22,12 +22,16 @@ class AuthState {
   final RecordModel? user;
   final String? error;
   final String role;
+  final String systemRole;
+  final String planCode;
 
   const AuthState({
     this.status = AuthStatus.initial,
     this.user,
     this.error,
     this.role = AppConstants.roleWarga,
+    this.systemRole = AppConstants.systemRoleWarga,
+    this.planCode = AppConstants.planFree,
   });
 
   AuthState copyWith({
@@ -35,19 +39,25 @@ class AuthState {
     RecordModel? user,
     String? error,
     String? role,
+    String? systemRole,
+    String? planCode,
   }) {
     return AuthState(
       status: status ?? this.status,
       user: user ?? this.user,
       error: error,
       role: role ?? this.role,
+      systemRole: systemRole ?? this.systemRole,
+      planCode: planCode ?? this.planCode,
     );
   }
 
   bool get isAuthenticated => status == AuthStatus.authenticated;
   bool get isAdmin => AppConstants.isAdminRole(role);
   bool get isSysadmin => AppConstants.isSysadminRole(role);
+  bool get isOperator => AppConstants.isOperatorSystemRole(systemRole);
   bool get requiresSubscription => AppConstants.requiresSubscription(role);
+  bool get hasRwWideAccess => AppConstants.hasRwWidePlanAccess(planCode);
   String get subscriptionPlan =>
       user?.getStringValue('subscription_plan') ?? '';
   String get subscriptionStatus => AppConstants.normalizeSubscriptionStatus(
@@ -89,6 +99,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         status: AuthStatus.authenticated,
         user: user,
         role: _authService.currentRole,
+        systemRole: _authService.currentSystemRole,
+        planCode: _authService.currentPlanCode,
       );
     } else {
       state = const AuthState(status: AuthStatus.unauthenticated);
@@ -102,8 +114,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = AuthState(
         status: AuthStatus.authenticated,
         user: authData.record,
-        role: AppConstants.normalizeRole(
-          authData.record.getStringValue('role'),
+        role: AppConstants.effectiveLegacyRole(
+          role: authData.record.getStringValue('role'),
+          systemRole: authData.record.getStringValue('system_role'),
+          planCode: authData.record.getStringValue('plan_code'),
+          subscriptionPlan: authData.record.getStringValue('subscription_plan'),
+        ),
+        systemRole: AppConstants.effectiveSystemRole(
+          role: authData.record.getStringValue('role'),
+          systemRole: authData.record.getStringValue('system_role'),
+        ),
+        planCode: AppConstants.effectivePlanCode(
+          role: authData.record.getStringValue('role'),
+          planCode: authData.record.getStringValue('plan_code'),
+          subscriptionPlan: authData.record.getStringValue('subscription_plan'),
         ),
       );
     } catch (e) {
@@ -175,6 +199,14 @@ final isAuthenticatedProvider = Provider<bool>((ref) {
 
 final currentUserRoleProvider = Provider<String>((ref) {
   return ref.watch(authProvider).role;
+});
+
+final currentSystemRoleProvider = Provider<String>((ref) {
+  return ref.watch(authProvider).systemRole;
+});
+
+final currentPlanCodeProvider = Provider<String>((ref) {
+  return ref.watch(authProvider).planCode;
 });
 
 final isAdminProvider = Provider<bool>((ref) {

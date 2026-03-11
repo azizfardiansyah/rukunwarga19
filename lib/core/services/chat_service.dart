@@ -5,9 +5,11 @@ import 'package:pocketbase/pocketbase.dart';
 
 import '../../features/auth/providers/auth_provider.dart';
 import '../../shared/models/chat_model.dart';
+import '../../shared/models/workspace_access_model.dart';
 import '../constants/app_constants.dart';
 import '../utils/area_access.dart';
 import 'pocketbase_service.dart';
+import 'workspace_access_service.dart';
 
 class ChatService {
   ChatService(this._ref);
@@ -32,9 +34,9 @@ class ChatService {
 
     if (auth.isSysadmin) {
       ensured.addAll(
-        await pb.collection(AppConstants.colConversations).getFullList(
-              sort: '-updated',
-            ),
+        await pb
+            .collection(AppConstants.colConversations)
+            .getFullList(sort: '-updated'),
       );
     } else if (area.hasArea) {
       final selfScope = await _buildScopeForAuthUser(auth, area);
@@ -108,13 +110,16 @@ class ChatService {
       unique[record.id] = record;
     }
 
-    final accessible = unique.values.where((record) {
-      return _canAccessConversation(
+    final accessible = <RecordModel>[];
+    for (final record in unique.values) {
+      if (await _canAccessConversation(
         auth: auth,
         context: area,
         conversation: record,
-      );
-    }).toList(growable: false);
+      )) {
+        accessible.add(record);
+      }
+    }
 
     final memberships = await _ensureAndLoadMemberships(
       conversations: accessible,
@@ -126,20 +131,23 @@ class ChatService {
       memberships: memberships,
     );
 
-    final models = accessible
-        .map(
-          (record) => _conversationFromRecord(
-            record,
-            currentUserId: authUser.id,
-            membership: memberships[record.id],
-            unreadCount: unreadCounts[record.id] ?? 0,
-          ),
-        )
-        .toList()
-      ..sort(_compareConversationModels);
+    final models =
+        accessible
+            .map(
+              (record) => _conversationFromRecord(
+                record,
+                currentUserId: authUser.id,
+                membership: memberships[record.id],
+                unreadCount: unreadCounts[record.id] ?? 0,
+              ),
+            )
+            .toList()
+          ..sort(_compareConversationModels);
 
     return ChatBootstrapData(
       role: role,
+      systemRole: auth.systemRole,
+      planCode: auth.planCode,
       canCreateAnnouncement: _canCreateAnnouncement(role),
       area: ChatAreaModel(
         rt: area.rt ?? 0,
@@ -169,7 +177,7 @@ class ChatService {
         .collection(AppConstants.colConversations)
         .getOne(conversationId);
 
-    if (!_canAccessConversation(
+    if (!await _canAccessConversation(
       auth: auth,
       context: area,
       conversation: conversation,
@@ -184,7 +192,9 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    final records = await pb.collection(AppConstants.colMessages).getFullList(
+    final records = await pb
+        .collection(AppConstants.colMessages)
+        .getFullList(
           sort: 'created',
           filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
         );
@@ -196,14 +206,19 @@ class ChatService {
         .map((record) => _recordText(record, 'forwarded_from'))
         .where((id) => id.isNotEmpty)
         .toSet();
-    final relatedRecords = await _loadMessagesByIds({...replyIds, ...forwardedIds});
+    final relatedRecords = await _loadMessagesByIds({
+      ...replyIds,
+      ...forwardedIds,
+    });
     final senderIds = <String>{
       ...records.map((record) => _recordText(record, 'sender')),
       ...relatedRecords.values.map((record) => _recordText(record, 'sender')),
     };
     final senderNames = await _loadSenderNames(senderIds);
 
-    final updatedMembership = await _markConversationReadByMember(membership.id);
+    final updatedMembership = await _markConversationReadByMember(
+      membership.id,
+    );
 
     return ChatMessagesData(
       conversation: _conversationFromRecord(
@@ -254,7 +269,7 @@ class ChatService {
         .collection(AppConstants.colConversations)
         .getOne(conversationId);
 
-    if (!_canAccessConversation(
+    if (!await _canAccessConversation(
       auth: auth,
       context: area,
       conversation: conversation,
@@ -276,9 +291,12 @@ class ChatService {
 
     final body = <String, dynamic>{
       'conversation': conversationId,
+      'workspace': _recordText(conversation, 'workspace'),
       'sender': authUser.id,
+      'sender_member': await _workspaceMemberId(),
       'text': trimmedText,
       'message_type': attachment != null ? 'file' : 'text',
+      'sender_badge_label': AppConstants.roleLabel(auth.role),
       'is_starred': false,
       'is_pinned': false,
     };
@@ -289,10 +307,9 @@ class ChatService {
       body['forwarded_from'] = forwardedFromId;
     }
 
-    final record = await pb.collection(AppConstants.colMessages).create(
-      body: body,
-      files: files,
-    );
+    final record = await pb
+        .collection(AppConstants.colMessages)
+        .create(body: body, files: files);
 
     final preview = _previewForMessage(
       text: trimmedText,
@@ -300,13 +317,15 @@ class ChatService {
       isForwarded: (forwardedFromId ?? '').isNotEmpty,
       isReply: (replyToId ?? '').isNotEmpty,
     );
-    await pb.collection(AppConstants.colConversations).update(
-      conversationId,
-      body: {
-        'last_message': preview,
-        'last_message_at': DateTime.now().toIso8601String(),
-      },
-    );
+    await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversationId,
+          body: {
+            'last_message': preview,
+            'last_message_at': DateTime.now().toIso8601String(),
+          },
+        );
 
     await _markConversationReadByMember(membership.id);
 
@@ -325,6 +344,357 @@ class ChatService {
       senderNames: senderNames,
       relatedRecords: relatedRecords,
     );
+  }
+
+  Future<MessageModel> sendVoiceMessage({
+    required String conversationId,
+    required PlatformFile audioFile,
+    required int durationSeconds,
+    String? replyToId,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+    if (!AppConstants.planIncludesFeature(
+      planCode: auth.planCode,
+      featureFlag: AppConstants.featureVoiceNote,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Plan Anda belum mendukung voice note.'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+
+    if (!await _canAccessConversation(
+      auth: auth,
+      context: area,
+      conversation: conversation,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses percakapan ditolak.'},
+      );
+    }
+
+    final membership = await _ensureMembership(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    final record = await pb
+        .collection(AppConstants.colMessages)
+        .create(
+          body: {
+            'conversation': conversationId,
+            'workspace': _recordText(conversation, 'workspace'),
+            'sender': authUser.id,
+            'sender_member': await _workspaceMemberId(),
+            'text': '',
+            'message_type': AppConstants.msgTypeVoice,
+            'voice_duration_seconds': durationSeconds,
+            'sender_badge_label': AppConstants.roleLabel(auth.role),
+            'is_starred': false,
+            'is_pinned': false,
+            if ((replyToId ?? '').isNotEmpty) 'reply_to': replyToId,
+          },
+          files: [await _multipartFromPlatformFile('attachment', audioFile)],
+        );
+
+    await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversationId,
+          body: {
+            'last_message': 'Voice note',
+            'last_message_at': DateTime.now().toIso8601String(),
+          },
+        );
+
+    await _markConversationReadByMember(membership.id);
+    final senderNames = await _loadSenderNames({authUser.id});
+    return _buildMessageModel(
+      record,
+      currentUserId: authUser.id,
+      senderNames: senderNames,
+      relatedRecords: const {},
+    );
+  }
+
+  Future<ConversationModel> createScopedConversation({
+    required String name,
+    required String scopeType,
+    String? orgUnitId,
+    String? requiredPlanCode,
+    bool isReadonly = false,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final profile = await _requireWorkspaceProfile();
+    final normalizedScopeType = scopeType.trim().toLowerCase();
+    final normalizedPlanCode = AppConstants.normalizePlanCode(
+      requiredPlanCode ?? auth.planCode,
+    );
+    if (normalizedScopeType == AppConstants.convScopeCustom &&
+        !profile.canCreateCustomGroup) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Plan Anda belum dapat membuat grup custom.',
+        },
+      );
+    }
+
+    RecordModel? orgUnit;
+    if ((orgUnitId ?? '').isNotEmpty) {
+      orgUnit = await pb
+          .collection(AppConstants.colOrgUnits)
+          .getOne(orgUnitId!);
+      final targetOrgUnitId = orgUnit.id;
+      if (!profile.member.isSysadmin &&
+          !profile.canBroadcastUnit(targetOrgUnitId) &&
+          !profile.canManageScheduleForUnit(targetOrgUnitId) &&
+          !profile.hasUnitMembership(targetOrgUnitId)) {
+        throw ClientException(
+          statusCode: 403,
+          response: const {'message': 'Akses unit chat ditolak.'},
+        );
+      }
+    }
+
+    final conversationRecord = await _ensureConversation(
+      key:
+          'scope:$normalizedScopeType:${orgUnit?.id ?? profile.workspace.id}:${_slugify(name)}',
+      type: normalizedScopeType == AppConstants.convScopeRt
+          ? AppConstants.convGroupRt
+          : AppConstants.convGroupRw,
+      name: name.trim(),
+      owner: '',
+      createdBy: authUser.id,
+      scope: _ChatScope(
+        userId: authUser.id,
+        displayName: _userDisplayName(authUser),
+        rt: orgUnit == null ? 0 : _recordInt(orgUnit, 'scope_rt'),
+        rw: orgUnit == null
+            ? profile.workspace.rw
+            : _recordInt(orgUnit, 'scope_rw') > 0
+            ? _recordInt(orgUnit, 'scope_rw')
+            : profile.workspace.rw,
+        desaCode: profile.workspace.desaCode ?? '',
+        kecamatanCode: profile.workspace.kecamatanCode ?? '',
+        kabupatenCode: profile.workspace.kabupatenCode ?? '',
+        provinsiCode: profile.workspace.provinsiCode ?? '',
+        desaKelurahan: profile.workspace.desaKelurahan ?? '',
+        kecamatan: profile.workspace.kecamatan ?? '',
+        kabupatenKota: profile.workspace.kabupatenKota ?? '',
+        provinsi: profile.workspace.provinsi ?? '',
+      ),
+    );
+
+    final updatedRecord = await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversationRecord.id,
+          body: {
+            'workspace': profile.workspace.id,
+            'scope_type': normalizedScopeType,
+            'org_unit': orgUnit?.id ?? '',
+            'required_plan_code': normalizedPlanCode,
+            'is_readonly': isReadonly,
+          },
+        );
+    final membership = await _ensureMembership(
+      conversationId: updatedRecord.id,
+      userId: authUser.id,
+    );
+    return _conversationFromRecord(
+      updatedRecord,
+      currentUserId: authUser.id,
+      membership: membership,
+      unreadCount: 0,
+    );
+  }
+
+  Future<MessageModel> createPoll({
+    required String conversationId,
+    required String title,
+    required List<String> options,
+    bool allowMultipleChoice = false,
+    bool allowAnonymousVote = false,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+    if (!AppConstants.planIncludesFeature(
+      planCode: auth.planCode,
+      featureFlag: AppConstants.featurePolling,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Plan Anda belum mendukung polling.'},
+      );
+    }
+    if (options.where((item) => item.trim().isNotEmpty).length < 2) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Polling minimal memiliki 2 opsi.'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+    if (!await _canAccessConversation(
+      auth: auth,
+      context: area,
+      conversation: conversation,
+    )) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses percakapan ditolak.'},
+      );
+    }
+
+    final messageRecord = await pb
+        .collection(AppConstants.colMessages)
+        .create(
+          body: {
+            'conversation': conversationId,
+            'workspace': _recordText(conversation, 'workspace'),
+            'sender': authUser.id,
+            'sender_member': await _workspaceMemberId(),
+            'text': title.trim(),
+            'message_type': AppConstants.msgTypePoll,
+            'sender_badge_label': AppConstants.roleLabel(auth.role),
+            'is_starred': false,
+            'is_pinned': false,
+          },
+        );
+    final pollRecord = await pb
+        .collection(AppConstants.colChatPolls)
+        .create(
+          body: {
+            'workspace': _recordText(conversation, 'workspace'),
+            'conversation': conversationId,
+            'message': messageRecord.id,
+            'title': title.trim(),
+            'allow_multiple_choice': allowMultipleChoice,
+            'allow_anonymous_vote': allowAnonymousVote,
+            'status': 'open',
+          },
+        );
+    await pb
+        .collection(AppConstants.colMessages)
+        .update(messageRecord.id, body: {'poll': pollRecord.id});
+    for (var index = 0; index < options.length; index++) {
+      final label = options[index].trim();
+      if (label.isEmpty) {
+        continue;
+      }
+      await pb
+          .collection(AppConstants.colChatPollOptions)
+          .create(
+            body: {
+              'poll': pollRecord.id,
+              'label': label,
+              'sort_order': index + 1,
+            },
+          );
+    }
+
+    await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversationId,
+          body: {
+            'last_message': 'Polling: ${title.trim()}',
+            'last_message_at': DateTime.now().toIso8601String(),
+          },
+        );
+
+    final senderNames = await _loadSenderNames({authUser.id});
+    final enriched = await pb
+        .collection(AppConstants.colMessages)
+        .getOne(messageRecord.id);
+    return _buildMessageModel(
+      enriched,
+      currentUserId: authUser.id,
+      senderNames: senderNames,
+      relatedRecords: const {},
+    );
+  }
+
+  Future<ChatPollModel> votePoll({
+    required String pollId,
+    required List<String> optionIds,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final poll = await _loadPoll(pollId, currentUserId: authUser.id);
+    if (!poll.isOpen) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Polling sudah ditutup.'},
+      );
+    }
+    if (!poll.allowMultipleChoice && optionIds.length > 1) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Polling ini hanya mendukung 1 pilihan.'},
+      );
+    }
+
+    final existingVotes = await pb
+        .collection(AppConstants.colChatPollVotes)
+        .getFullList(
+          filter:
+              'poll = "${_escapeFilterValue(pollId)}" && user = "${_escapeFilterValue(authUser.id)}"',
+        );
+    for (final vote in existingVotes) {
+      await pb.collection(AppConstants.colChatPollVotes).delete(vote.id);
+    }
+
+    for (final optionId in optionIds.where((item) => item.trim().isNotEmpty)) {
+      await pb
+          .collection(AppConstants.colChatPollVotes)
+          .create(
+            body: {
+              'poll': pollId,
+              'option': optionId,
+              'user': authUser.id,
+              'workspace_member': await _workspaceMemberId(),
+            },
+          );
+    }
+
+    return _loadPoll(pollId, currentUserId: authUser.id);
   }
 
   Future<void> markConversationRead(String conversationId) async {
@@ -350,10 +720,9 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    await pb.collection(AppConstants.colConversationMembers).update(
-      membership.id,
-      body: {'last_read_at': null},
-    );
+    await pb
+        .collection(AppConstants.colConversationMembers)
+        .update(membership.id, body: {'last_read_at': null});
   }
 
   Future<void> setConversationPreference({
@@ -388,26 +757,29 @@ class ChatService {
       return;
     }
 
-    await pb.collection(AppConstants.colConversationMembers).update(
-          membership.id,
-          body: body,
-        );
+    await pb
+        .collection(AppConstants.colConversationMembers)
+        .update(membership.id, body: body);
   }
 
   Future<void> toggleMessageStar(String messageId) async {
     final message = await _loadAccessibleMessage(messageId);
-    await pb.collection(AppConstants.colMessages).update(
-      message.id,
-      body: {'is_starred': !(message.data['is_starred'] == true)},
-    );
+    await pb
+        .collection(AppConstants.colMessages)
+        .update(
+          message.id,
+          body: {'is_starred': !(message.data['is_starred'] == true)},
+        );
   }
 
   Future<void> toggleMessagePin(String messageId) async {
     final message = await _loadAccessibleMessage(messageId);
-    await pb.collection(AppConstants.colMessages).update(
-      message.id,
-      body: {'is_pinned': !(message.data['is_pinned'] == true)},
-    );
+    await pb
+        .collection(AppConstants.colMessages)
+        .update(
+          message.id,
+          body: {'is_pinned': !(message.data['is_pinned'] == true)},
+        );
   }
 
   Future<void> deleteMessage(String messageId) async {
@@ -423,18 +795,22 @@ class ChatService {
     if (_recordText(message, 'sender') != authUser.id && !_auth.isSysadmin) {
       throw ClientException(
         statusCode: 403,
-        response: const {'message': 'Hanya pengirim yang dapat menghapus pesan.'},
+        response: const {
+          'message': 'Hanya pengirim yang dapat menghapus pesan.',
+        },
       );
     }
 
-    await pb.collection(AppConstants.colMessages).update(
-      message.id,
-      body: {
-        'text': '',
-        'deleted_at': DateTime.now().toIso8601String(),
-        'deleted_by': authUser.id,
-      },
-    );
+    await pb
+        .collection(AppConstants.colMessages)
+        .update(
+          message.id,
+          body: {
+            'text': '',
+            'deleted_at': DateTime.now().toIso8601String(),
+            'deleted_by': authUser.id,
+          },
+        );
     await _syncConversationPreview(_recordText(message, 'conversation'));
   }
 
@@ -468,7 +844,7 @@ class ChatService {
         .collection(AppConstants.colConversations)
         .getOne(targetConversationId);
     final area = await resolveAreaAccessContext(_auth);
-    if (!_canAccessConversation(
+    if (!await _canAccessConversation(
       auth: _auth,
       context: area,
       conversation: targetConversation,
@@ -479,31 +855,38 @@ class ChatService {
       );
     }
 
-    final created = await pb.collection(AppConstants.colMessages).create(
-      body: {
-        'conversation': targetConversationId,
-        'sender': authUser.id,
-        'text': text,
-        'message_type': files.isNotEmpty ? 'file' : 'text',
-        'forwarded_from': messageId,
-        'is_starred': false,
-        'is_pinned': false,
-      },
-      files: files,
-    );
+    final created = await pb
+        .collection(AppConstants.colMessages)
+        .create(
+          body: {
+            'conversation': targetConversationId,
+            'workspace': _recordText(targetConversation, 'workspace'),
+            'sender': authUser.id,
+            'sender_member': await _workspaceMemberId(),
+            'text': text,
+            'message_type': files.isNotEmpty ? 'file' : 'text',
+            'forwarded_from': messageId,
+            'sender_badge_label': AppConstants.roleLabel(_auth.role),
+            'is_starred': false,
+            'is_pinned': false,
+          },
+          files: files,
+        );
 
-    await pb.collection(AppConstants.colConversations).update(
-      targetConversationId,
-      body: {
-        'last_message': _previewForMessage(
-          text: text,
-          attachmentName: _recordText(created, 'attachment'),
-          isForwarded: true,
-          isReply: false,
-        ),
-        'last_message_at': DateTime.now().toIso8601String(),
-      },
-    );
+    await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          targetConversationId,
+          body: {
+            'last_message': _previewForMessage(
+              text: text,
+              attachmentName: _recordText(created, 'attachment'),
+              isForwarded: true,
+              isReply: false,
+            ),
+            'last_message_at': DateTime.now().toIso8601String(),
+          },
+        );
   }
 
   Future<ChatAnnouncementsData> getAnnouncements() async {
@@ -518,20 +901,17 @@ class ChatService {
 
     final role = AppConstants.normalizeRole(auth.role);
     final area = await resolveAreaAccessContext(auth);
-    final records = await pb.collection(AppConstants.colAnnouncements).getFullList(
-          sort: '-created',
-        );
+    final records = await pb
+        .collection(AppConstants.colAnnouncements)
+        .getFullList(sort: '-created');
     final authorNames = await _loadSenderNames(
       records.map((record) => _recordText(record, 'author')).toSet(),
     );
 
     final items = records
         .where(
-          (record) => _canAccessAnnouncement(
-            auth: auth,
-            context: area,
-            record: record,
-          ),
+          (record) =>
+              _canAccessAnnouncement(auth: auth, context: area, record: record),
         )
         .map(
           (record) => AnnouncementModel(
@@ -546,6 +926,11 @@ class ChatService {
             authorName:
                 authorNames[_recordText(record, 'author')] ?? 'Pengurus',
             createdAt: DateTime.tryParse(_recordText(record, 'created')),
+            workspaceId: _recordText(record, 'workspace'),
+            orgUnitId: _recordText(record, 'org_unit'),
+            sourceModule: _recordText(record, 'source_module'),
+            publishState: _recordText(record, 'publish_state'),
+            publishedByMemberId: _recordText(record, 'published_by_member'),
           ),
         )
         .toList(growable: false);
@@ -562,6 +947,7 @@ class ChatService {
     required String targetType,
     int? targetRt,
     int? targetRw,
+    String? orgUnitId,
   }) async {
     final auth = _auth;
     final authUser = auth.user;
@@ -576,11 +962,16 @@ class ChatService {
     if (!_canCreateAnnouncement(role)) {
       throw ClientException(
         statusCode: 403,
-        response: const {'message': 'Hanya admin yang dapat membuat pengumuman.'},
+        response: const {
+          'message': 'Hanya admin yang dapat membuat pengumuman.',
+        },
       );
     }
 
     final area = await resolveAreaAccessContext(auth);
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
     if (!area.hasArea && !auth.isSysadmin) {
       throw ClientException(
         statusCode: 400,
@@ -591,30 +982,48 @@ class ChatService {
     final normalizedTarget = role == AppConstants.roleAdminRt
         ? 'rt'
         : targetType.trim().toLowerCase() == 'rt'
-            ? 'rt'
-            : 'rw';
+        ? 'rt'
+        : 'rw';
     final rt = normalizedTarget == 'rt' ? (targetRt ?? area.rt ?? 0) : 0;
     final rw = targetRw ?? area.rw ?? 0;
+    if ((orgUnitId ?? '').isNotEmpty &&
+        profile != null &&
+        !profile.member.isSysadmin &&
+        !profile.canBroadcastUnit(orgUnitId!)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Anda tidak memiliki hak broadcast unit ini.',
+        },
+      );
+    }
 
-    final record = await pb.collection(AppConstants.colAnnouncements).create(
-      body: {
-        'author': authUser.id,
-        'title': title.trim(),
-        'content': content.trim(),
-        'target_type': normalizedTarget,
-        'rt': rt,
-        'rw': rw,
-        'desa_code': area.desaCode ?? '',
-        'kecamatan_code': area.kecamatanCode ?? '',
-        'kabupaten_code': area.kabupatenCode ?? '',
-        'provinsi_code': area.provinsiCode ?? '',
-        'desa_kelurahan': area.desaKelurahan ?? '',
-        'kecamatan': area.kecamatan ?? '',
-        'kabupaten_kota': area.kabupatenKota ?? '',
-        'provinsi': area.provinsi ?? '',
-        'is_published': true,
-      },
-    );
+    final record = await pb
+        .collection(AppConstants.colAnnouncements)
+        .create(
+          body: {
+            'workspace': profile?.workspace.id ?? '',
+            'org_unit': orgUnitId ?? '',
+            'author': authUser.id,
+            'title': title.trim(),
+            'content': content.trim(),
+            'target_type': normalizedTarget,
+            'rt': rt,
+            'rw': rw,
+            'source_module': 'manual',
+            'publish_state': 'published',
+            'published_by_member': profile?.member.id ?? '',
+            'desa_code': area.desaCode ?? '',
+            'kecamatan_code': area.kecamatanCode ?? '',
+            'kabupaten_code': area.kabupatenCode ?? '',
+            'provinsi_code': area.provinsiCode ?? '',
+            'desa_kelurahan': area.desaKelurahan ?? '',
+            'kecamatan': area.kecamatan ?? '',
+            'kabupaten_kota': area.kabupatenKota ?? '',
+            'provinsi': area.provinsi ?? '',
+            'is_published': true,
+          },
+        );
 
     return AnnouncementModel(
       id: record.id,
@@ -625,8 +1034,14 @@ class ChatService {
           : _recordText(record, 'target_type'),
       rt: _recordInt(record, 'rt'),
       rw: _recordInt(record, 'rw'),
-      authorName: await _resolveSenderName(authUser.id) ?? _userDisplayName(authUser),
+      authorName:
+          await _resolveSenderName(authUser.id) ?? _userDisplayName(authUser),
       createdAt: DateTime.tryParse(_recordText(record, 'created')),
+      workspaceId: _recordText(record, 'workspace'),
+      orgUnitId: _recordText(record, 'org_unit'),
+      sourceModule: _recordText(record, 'source_module'),
+      publishState: _recordText(record, 'publish_state'),
+      publishedByMemberId: _recordText(record, 'published_by_member'),
     );
   }
 
@@ -638,9 +1053,9 @@ class ChatService {
     String displayName = _userDisplayName(user);
     if ((area.wargaId ?? '').isNotEmpty) {
       try {
-        final warga = await pb.collection(AppConstants.colWarga).getOne(
-              area.wargaId!,
-            );
+        final warga = await pb
+            .collection(AppConstants.colWarga)
+            .getOne(area.wargaId!);
         final wargaName = _recordText(warga, 'nama_lengkap');
         if (wargaName.isNotEmpty) {
           displayName = wargaName;
@@ -668,7 +1083,9 @@ class ChatService {
     AuthState auth,
     AreaAccessContext area,
   ) async {
-    final records = await pb.collection(AppConstants.colWarga).getFullList(
+    final records = await pb
+        .collection(AppConstants.colWarga)
+        .getFullList(
           sort: 'nama_lengkap',
           filter: buildWargaScopeFilter(auth, context: area),
         );
@@ -683,18 +1100,15 @@ class ChatService {
         continue;
       }
 
-      kkCache.putIfAbsent(
-        kkId,
-        () async {
-          try {
-            return await pb.collection(AppConstants.colKartuKeluarga).getOne(
-                  kkId,
-                );
-          } catch (_) {
-            return null;
-          }
-        },
-      );
+      kkCache.putIfAbsent(kkId, () async {
+        try {
+          return await pb
+              .collection(AppConstants.colKartuKeluarga)
+              .getOne(kkId);
+        } catch (_) {
+          return null;
+        }
+      });
 
       final kkRecord = await kkCache[kkId];
       if (kkRecord == null) {
@@ -735,7 +1149,8 @@ class ChatService {
     return _ensureConversation(
       key: key,
       type: AppConstants.convPrivate,
-      name: 'Layanan - ${scope.displayName.isEmpty ? 'Warga' : scope.displayName}',
+      name:
+          'Layanan - ${scope.displayName.isEmpty ? 'Warga' : scope.displayName}',
       owner: scope.userId,
       createdBy: createdBy,
       scope: scope,
@@ -792,20 +1207,24 @@ class ChatService {
     required _ChatScope scope,
   }) async {
     try {
-      return await pb.collection(AppConstants.colConversations).getFirstListItem(
-            'key = "${_escapeFilterValue(key)}"',
-          );
+      return await pb
+          .collection(AppConstants.colConversations)
+          .getFirstListItem('key = "${_escapeFilterValue(key)}"');
     } on ClientException catch (error) {
       if (error.statusCode != 404) {
         rethrow;
       }
     }
 
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
     final body = <String, dynamic>{
       'key': key,
       'type': type,
       'name': name,
       'created_by': createdBy,
+      'workspace': profile?.workspace.id ?? '',
       'rt': scope.rt,
       'rw': scope.rw,
       'desa_code': scope.desaCode,
@@ -818,6 +1237,14 @@ class ChatService {
       'provinsi': scope.provinsi,
       'is_readonly': false,
       'last_message': '',
+      'scope_type': type == AppConstants.convPrivate
+          ? AppConstants.convScopePrivateSupport
+          : type == AppConstants.convGroupRt
+          ? AppConstants.convScopeRt
+          : AppConstants.convScopeRw,
+      'required_plan_code': type == AppConstants.convGroupRw
+          ? AppConstants.planRt
+          : AppConstants.planFree,
     };
     if (owner.isNotEmpty) {
       body['owner'] = owner;
@@ -857,17 +1284,19 @@ class ChatService {
       }
     }
 
-    return pb.collection(AppConstants.colConversationMembers).create(
-      body: {
-        'conversation': conversationId,
-        'user': userId,
-        'member_role': 'participant',
-        'last_read_at': null,
-        'is_muted': false,
-        'is_pinned': false,
-        'is_archived': false,
-      },
-    );
+    return pb
+        .collection(AppConstants.colConversationMembers)
+        .create(
+          body: {
+            'conversation': conversationId,
+            'user': userId,
+            'member_role': 'participant',
+            'last_read_at': null,
+            'is_muted': false,
+            'is_pinned': false,
+            'is_archived': false,
+          },
+        );
   }
 
   Future<Map<String, int>> _loadUnreadCounts({
@@ -878,8 +1307,9 @@ class ChatService {
     final result = <String, int>{};
     for (final conversation in conversations) {
       final membership = memberships[conversation.id];
-      final readAt =
-          membership == null ? '' : _recordText(membership, 'last_read_at');
+      final readAt = membership == null
+          ? ''
+          : _recordText(membership, 'last_read_at');
       final conditions = <String>[
         'conversation = "${_escapeFilterValue(conversation.id)}"',
         'sender != "${_escapeFilterValue(userId)}"',
@@ -888,28 +1318,28 @@ class ChatService {
         conditions.add('created > "${_escapeFilterValue(readAt)}"');
       }
 
-      final page = await pb.collection(AppConstants.colMessages).getList(
-            page: 1,
-            perPage: 1,
-            filter: conditions.join(' && '),
-          );
+      final page = await pb
+          .collection(AppConstants.colMessages)
+          .getList(page: 1, perPage: 1, filter: conditions.join(' && '));
       result[conversation.id] = page.totalItems;
     }
     return result;
   }
 
   Future<RecordModel> _markConversationReadByMember(String memberId) {
-    return pb.collection(AppConstants.colConversationMembers).update(
-      memberId,
-      body: {'last_read_at': DateTime.now().toIso8601String()},
-    );
+    return pb
+        .collection(AppConstants.colConversationMembers)
+        .update(
+          memberId,
+          body: {'last_read_at': DateTime.now().toIso8601String()},
+        );
   }
 
-  bool _canAccessConversation({
+  Future<bool> _canAccessConversation({
     required AuthState auth,
     required AreaAccessContext context,
     required RecordModel conversation,
-  }) {
+  }) async {
     if (auth.user == null) {
       return false;
     }
@@ -923,6 +1353,27 @@ class ChatService {
     final role = AppConstants.normalizeRole(auth.role);
     final type = _recordText(conversation, 'type');
     final target = _ConversationScope.fromRecord(conversation);
+    final scopeType = _recordText(conversation, 'scope_type');
+    final requiredPlanCode = _recordText(conversation, 'required_plan_code');
+    final orgUnitId = _recordText(conversation, 'org_unit');
+
+    if (scopeType.isNotEmpty) {
+      if (requiredPlanCode.isNotEmpty &&
+          !auth.isSysadmin &&
+          !AppConstants.satisfiesPlanRequirement(
+            currentPlanCode: auth.planCode,
+            requiredPlanCode: requiredPlanCode,
+          )) {
+        return false;
+      }
+      return _canAccessScopedConversation(
+        auth: auth,
+        context: context,
+        scopeType: scopeType,
+        orgUnitId: orgUnitId,
+        target: target,
+      );
+    }
 
     if (type == AppConstants.convPrivate) {
       if (_recordText(conversation, 'owner') == auth.user!.id) {
@@ -982,6 +1433,34 @@ class ChatService {
         role == AppConstants.roleAdminRwPro;
   }
 
+  Future<bool> _canAccessScopedConversation({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required String scopeType,
+    required String orgUnitId,
+    required _ConversationScope target,
+  }) async {
+    if (auth.isSysadmin) {
+      return true;
+    }
+
+    switch (scopeType) {
+      case AppConstants.convScopeDeveloperSupport:
+      case AppConstants.convScopePrivateSupport:
+        return _matchesScope(context, target, auth.role);
+      case AppConstants.convScopeRt:
+        return _matchesScope(context, target, auth.role);
+      case AppConstants.convScopeRw:
+        return _matchesRwScope(context, target, auth.role);
+      case AppConstants.convScopeDkm:
+      case AppConstants.convScopePosyandu:
+      case AppConstants.convScopeCustom:
+        return _hasActiveOrgMembership(orgUnitId);
+      default:
+        return false;
+    }
+  }
+
   Future<Map<String, String>> _loadSenderNames(Set<String> userIds) async {
     final result = <String, String>{};
     for (final userId in userIds.where((item) => item.isNotEmpty)) {
@@ -995,9 +1474,9 @@ class ChatService {
 
   Future<String?> _resolveSenderName(String userId) async {
     try {
-      final warga = await pb.collection(AppConstants.colWarga).getFirstListItem(
-            'user_id = "${_escapeFilterValue(userId)}"',
-          );
+      final warga = await pb
+          .collection(AppConstants.colWarga)
+          .getFirstListItem('user_id = "${_escapeFilterValue(userId)}"');
       final wargaName = _recordText(warga, 'nama_lengkap');
       if (wargaName.isNotEmpty) {
         return wargaName;
@@ -1026,6 +1505,92 @@ class ChatService {
     return result;
   }
 
+  Future<bool> _hasActiveOrgMembership(String orgUnitId) async {
+    if (orgUnitId.isEmpty) {
+      return false;
+    }
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      return false;
+    }
+    if (profile.member.isSysadmin) {
+      return true;
+    }
+    return profile.hasUnitMembership(orgUnitId);
+  }
+
+  Future<String> _workspaceMemberId() async {
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    return profile?.member.id ?? '';
+  }
+
+  Future<ChatPollModel> _loadPoll(
+    String pollId, {
+    required String currentUserId,
+  }) async {
+    final pollRecord = await pb
+        .collection(AppConstants.colChatPolls)
+        .getOne(pollId);
+    final optionRecords = await pb
+        .collection(AppConstants.colChatPollOptions)
+        .getFullList(
+          filter: 'poll = "${_escapeFilterValue(pollId)}"',
+          sort: 'sort_order,created',
+        );
+    final voteRecords = await pb
+        .collection(AppConstants.colChatPollVotes)
+        .getFullList(filter: 'poll = "${_escapeFilterValue(pollId)}"');
+
+    final selectedOptionIds = voteRecords
+        .where((vote) => _recordText(vote, 'user') == currentUserId)
+        .map((vote) => _recordText(vote, 'option'))
+        .toSet();
+    final voteCountByOption = <String, int>{};
+    for (final vote in voteRecords) {
+      final optionId = _recordText(vote, 'option');
+      voteCountByOption[optionId] = (voteCountByOption[optionId] ?? 0) + 1;
+    }
+
+    return ChatPollModel(
+      id: pollRecord.id,
+      title: _recordText(pollRecord, 'title'),
+      status: _recordText(pollRecord, 'status').isEmpty
+          ? 'open'
+          : _recordText(pollRecord, 'status'),
+      allowMultipleChoice: pollRecord.data['allow_multiple_choice'] == true,
+      allowAnonymousVote: pollRecord.data['allow_anonymous_vote'] == true,
+      options: optionRecords
+          .map(
+            (option) => ChatPollOptionModel(
+              id: option.id,
+              label: _recordText(option, 'label'),
+              sortOrder: _recordInt(option, 'sort_order'),
+              voteCount: voteCountByOption[option.id] ?? 0,
+              isSelected: selectedOptionIds.contains(option.id),
+            ),
+          )
+          .toList(growable: false),
+      closedAt: DateTime.tryParse(_recordText(pollRecord, 'closed_at')),
+    );
+  }
+
+  Future<WorkspaceAccessProfile> _requireWorkspaceProfile() async {
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Workspace aktif belum tersedia.'},
+      );
+    }
+    return profile;
+  }
+
   Future<RecordModel> _loadAccessibleMessage(String messageId) async {
     final auth = _auth;
     final authUser = auth.user;
@@ -1036,13 +1601,15 @@ class ChatService {
       );
     }
 
-    final message = await pb.collection(AppConstants.colMessages).getOne(messageId);
+    final message = await pb
+        .collection(AppConstants.colMessages)
+        .getOne(messageId);
     final conversationId = _recordText(message, 'conversation');
     final conversation = await pb
         .collection(AppConstants.colConversations)
         .getOne(conversationId);
     final area = await resolveAreaAccessContext(auth);
-    if (!_canAccessConversation(
+    if (!await _canAccessConversation(
       auth: auth,
       context: area,
       conversation: conversation,
@@ -1066,6 +1633,7 @@ class ChatService {
     final forwardedId = _recordText(record, 'forwarded_from');
     final forwardedRecord = relatedRecords[forwardedId];
     final isDeleted = _recordText(record, 'deleted_at').isNotEmpty;
+    final voiceDuration = _recordInt(record, 'voice_duration_seconds');
 
     return MessageModel(
       id: record.id,
@@ -1091,15 +1659,23 @@ class ChatService {
       replySnippet: replyRecord == null
           ? null
           : _recordText(replyRecord, 'text').isNotEmpty
-              ? _recordText(replyRecord, 'text')
-              : _recordText(replyRecord, 'attachment').isNotEmpty
-                  ? 'Lampiran: ${_recordText(replyRecord, 'attachment')}'
-                  : 'Pesan',
+          ? _recordText(replyRecord, 'text')
+          : _recordText(replyRecord, 'attachment').isNotEmpty
+          ? 'Lampiran: ${_recordText(replyRecord, 'attachment')}'
+          : 'Pesan',
       forwardedFromId: forwardedId.isEmpty ? null : forwardedId,
       forwardedFromName: forwardedRecord == null
           ? null
           : senderNames[_recordText(forwardedRecord, 'sender')] ?? 'Pengguna',
       createdAt: DateTime.tryParse(_recordText(record, 'created')),
+      voiceDurationSeconds: voiceDuration > 0 ? voiceDuration : null,
+      pollId: _recordText(record, 'poll').isEmpty
+          ? null
+          : _recordText(record, 'poll'),
+      senderBadgeLabel: _recordText(record, 'sender_badge_label').isEmpty
+          ? null
+          : _recordText(record, 'sender_badge_label'),
+      poll: null,
     );
   }
 
@@ -1122,11 +1698,11 @@ class ChatService {
       name: title,
       subtitle: type == AppConstants.convPrivate
           ? (isOwner
-              ? 'Gunakan untuk tanya dokumen, surat, iuran, dan layanan.'
-              : 'Percakapan layanan warga.')
+                ? 'Gunakan untuk tanya dokumen, surat, iuran, dan layanan.'
+                : 'Percakapan layanan warga.')
           : type == AppConstants.convGroupRt
-              ? 'Forum operasional warga dan pengurus di RT ini.'
-              : 'Koordinasi lintas RT untuk pengurus RW.',
+          ? 'Forum operasional warga dan pengurus di RT ini.'
+          : 'Koordinasi lintas RT untuk pengurus RW.',
       rt: _recordInt(record, 'rt'),
       rw: _recordInt(record, 'rw'),
       isReadonly: record.data['is_readonly'] == true,
@@ -1142,10 +1718,25 @@ class ChatService {
             ? _recordText(record, 'last_message_at')
             : _recordText(record, 'updated'),
       ),
+      workspaceId: _recordText(record, 'workspace').isEmpty
+          ? null
+          : _recordText(record, 'workspace'),
+      orgUnitId: _recordText(record, 'org_unit').isEmpty
+          ? null
+          : _recordText(record, 'org_unit'),
+      scopeType: _recordText(record, 'scope_type').isEmpty
+          ? null
+          : _recordText(record, 'scope_type'),
+      requiredPlanCode: _recordText(record, 'required_plan_code').isEmpty
+          ? null
+          : _recordText(record, 'required_plan_code'),
     );
   }
 
-  int _compareConversationModels(ConversationModel left, ConversationModel right) {
+  int _compareConversationModels(
+    ConversationModel left,
+    ConversationModel right,
+  ) {
     if (left.isPinned != right.isPinned) {
       return left.isPinned ? -1 : 1;
     }
@@ -1191,7 +1782,8 @@ class ChatService {
   }
 
   bool _matchesRegion(AreaAccessContext context, _ConversationScope target) {
-    final hasCodes = (context.desaCode ?? '').isNotEmpty &&
+    final hasCodes =
+        (context.desaCode ?? '').isNotEmpty &&
         (context.kecamatanCode ?? '').isNotEmpty &&
         (context.kabupatenCode ?? '').isNotEmpty &&
         (context.provinsiCode ?? '').isNotEmpty &&
@@ -1286,20 +1878,21 @@ class ChatService {
   }
 
   Future<void> _syncConversationPreview(String conversationId) async {
-    final latest = await pb.collection(AppConstants.colMessages).getList(
+    final latest = await pb
+        .collection(AppConstants.colMessages)
+        .getList(
           page: 1,
           perPage: 1,
           sort: '-created',
           filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
         );
     if (latest.items.isEmpty) {
-      await pb.collection(AppConstants.colConversations).update(
-        conversationId,
-        body: {
-          'last_message': '',
-          'last_message_at': null,
-        },
-      );
+      await pb
+          .collection(AppConstants.colConversations)
+          .update(
+            conversationId,
+            body: {'last_message': '', 'last_message_at': null},
+          );
       return;
     }
 
@@ -1312,13 +1905,15 @@ class ChatService {
             isForwarded: _recordText(record, 'forwarded_from').isNotEmpty,
             isReply: _recordText(record, 'reply_to').isNotEmpty,
           );
-    await pb.collection(AppConstants.colConversations).update(
-      conversationId,
-      body: {
-        'last_message': preview,
-        'last_message_at': _recordText(record, 'created'),
-      },
-    );
+    await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversationId,
+          body: {
+            'last_message': preview,
+            'last_message_at': _recordText(record, 'created'),
+          },
+        );
   }
 
   String? _fileUrl(RecordModel record, String field) {
@@ -1364,9 +1959,8 @@ class _ChatScope {
   bool get hasArea => rt > 0 && rw > 0;
   String get desaCodeOrName =>
       desaCode.isNotEmpty ? desaCode : _normalizeAreaValue(desaKelurahan);
-  String get kecamatanCodeOrName => kecamatanCode.isNotEmpty
-      ? kecamatanCode
-      : _normalizeAreaValue(kecamatan);
+  String get kecamatanCodeOrName =>
+      kecamatanCode.isNotEmpty ? kecamatanCode : _normalizeAreaValue(kecamatan);
   String get kabupatenCodeOrName => kabupatenCode.isNotEmpty
       ? kabupatenCode
       : _normalizeAreaValue(kabupatenKota);
@@ -1437,6 +2031,26 @@ int _recordInt(RecordModel record, String field) {
 
 String _normalizeAreaValue(String? value) {
   return (value ?? '').trim().toLowerCase();
+}
+
+String _slugify(String value) {
+  final normalized = value.trim().toLowerCase();
+  final buffer = StringBuffer();
+  var lastDash = false;
+  for (final rune in normalized.runes) {
+    final character = String.fromCharCode(rune);
+    final isAlphaNumeric = RegExp(r'[a-z0-9]').hasMatch(character);
+    if (isAlphaNumeric) {
+      buffer.write(character);
+      lastDash = false;
+      continue;
+    }
+    if (!lastDash && buffer.isNotEmpty) {
+      buffer.write('-');
+      lastDash = true;
+    }
+  }
+  return buffer.toString().replaceAll(RegExp(r'-+$'), '');
 }
 
 String _userDisplayName(RecordModel user) {

@@ -55,6 +55,8 @@ class SettingsScreen extends ConsumerWidget {
     final email = user?.getStringValue('email') ?? '';
     final roleLabel = AppConstants.roleLabel(authState.role);
     final isSysadmin = authState.isSysadmin;
+    final canOpenOrganization =
+        authState.isSysadmin || authState.hasRwWideAccess;
     final canSelfSubscribe = AppConstants.canSelfSubscribe(authState.role);
     final canRequestUnsubscribe = AppConstants.canRequestUnsubscribe(
       authState.role,
@@ -198,6 +200,16 @@ class SettingsScreen extends ConsumerWidget {
                   badgeLabel: 'Sysadmin',
                   badgeColor: AppTheme.primaryDark,
                   onTap: () => context.push(Routes.userManagement),
+                ),
+              if (canOpenOrganization)
+                _SettingsActionTile(
+                  icon: Icons.account_tree_outlined,
+                  title: 'Organisasi & Pengurus',
+                  subtitle:
+                      'Kelola workspace, unit organisasi, dan penugasan jabatan',
+                  badgeLabel: 'RW Scope',
+                  badgeColor: AppTheme.primaryColor,
+                  onTap: () => context.push(Routes.organization),
                 ),
             ],
           ),

@@ -18,8 +18,24 @@ bool get isAuthenticated => pb.authStore.isValid;
 RecordModel? get currentUser => pb.authStore.record;
 
 /// Mendapatkan role user yang login
-String get currentUserRole => AppConstants.normalizeRole(
-  pb.authStore.record?.getStringValue('role') ?? AppConstants.roleWarga,
+String get currentUserRole => AppConstants.effectiveLegacyRole(
+  role: pb.authStore.record?.getStringValue('role'),
+  systemRole: pb.authStore.record?.getStringValue('system_role'),
+  planCode: pb.authStore.record?.getStringValue('plan_code'),
+  subscriptionPlan: pb.authStore.record?.getStringValue('subscription_plan'),
+);
+
+/// Mendapatkan system role user yang login
+String get currentUserSystemRole => AppConstants.effectiveSystemRole(
+  role: pb.authStore.record?.getStringValue('role'),
+  systemRole: pb.authStore.record?.getStringValue('system_role'),
+);
+
+/// Mendapatkan plan code user yang login
+String get currentUserPlanCode => AppConstants.effectivePlanCode(
+  role: pb.authStore.record?.getStringValue('role'),
+  planCode: pb.authStore.record?.getStringValue('plan_code'),
+  subscriptionPlan: pb.authStore.record?.getStringValue('subscription_plan'),
 );
 
 /// Mendapatkan token auth

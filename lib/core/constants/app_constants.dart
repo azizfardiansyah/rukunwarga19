@@ -51,6 +51,54 @@ class AppConstants {
   static const String roleAdminRwPro = 'admin_rw_pro';
   static const String roleSysadmin = 'sysadmin';
 
+  // === SYSTEM ROLES ===
+  static const String systemRoleWarga = 'warga';
+  static const String systemRoleOperator = 'operator';
+  static const String systemRoleSysadmin = 'sysadmin';
+
+  // === PLAN CODES ===
+  static const String planFree = 'free';
+  static const String planRt = 'rt';
+  static const String planRw = 'rw';
+  static const String planRwPro = 'rw_pro';
+
+  static const List<String> systemRoles = [
+    systemRoleWarga,
+    systemRoleOperator,
+    systemRoleSysadmin,
+  ];
+
+  static const List<String> planCodes = [planFree, planRt, planRw, planRwPro];
+
+  // === FEATURE FLAGS ===
+  static const String featureChatBasic = 'chat_basic';
+  static const String featureBroadcastRt = 'broadcast_rt';
+  static const String featureBroadcastRw = 'broadcast_rw';
+  static const String featureCustomGroupBasic = 'custom_group_basic';
+  static const String featureCustomGroupAdvanced = 'custom_group_advanced';
+  static const String featureAgendaBasic = 'agenda_basic';
+  static const String featureAgendaAdvanced = 'agenda_advanced';
+  static const String featureFinanceBasic = 'finance_basic';
+  static const String featureFinancePublish = 'finance_publish';
+  static const String featureVoiceNote = 'voice_note';
+  static const String featurePolling = 'polling';
+  static const String featureExportAdvanced = 'export_advanced';
+
+  static const List<String> subscriptionFeatureFlags = [
+    featureChatBasic,
+    featureBroadcastRt,
+    featureBroadcastRw,
+    featureCustomGroupBasic,
+    featureCustomGroupAdvanced,
+    featureAgendaBasic,
+    featureAgendaAdvanced,
+    featureFinanceBasic,
+    featureFinancePublish,
+    featureVoiceNote,
+    featurePolling,
+    featureExportAdvanced,
+  ];
+
   // Legacy roles kept for backward compatibility during migration.
   static const String legacyRoleUser = 'user';
   static const String legacyRoleAdmin = 'admin';
@@ -82,6 +130,17 @@ class AppConstants {
   static const String colSubscriptionPlans = 'subscription_plans';
   static const String colSubscriptionTransactions = 'subscription_transactions';
   static const String colRoleRequests = 'role_requests';
+  static const String colWorkspaces = 'workspaces';
+  static const String colWorkspaceMembers = 'workspace_members';
+  static const String colOrgUnits = 'org_units';
+  static const String colJabatanMaster = 'jabatan_master';
+  static const String colOrgMemberships = 'org_memberships';
+  static const String colChatPolls = 'chat_polls';
+  static const String colChatPollOptions = 'chat_poll_options';
+  static const String colChatPollVotes = 'chat_poll_votes';
+  static const String colFinanceAccounts = 'finance_accounts';
+  static const String colFinanceTransactions = 'finance_transactions';
+  static const String colFinanceApprovals = 'finance_approvals';
 
   // === STATUS DOKUMEN ===
   static const String statusPending = 'pending';
@@ -847,6 +906,59 @@ class AppConstants {
 
   static const List<String> publicRegistrationRoles = [roleWarga];
 
+  static String normalizeSystemRole(String value) {
+    final normalized = value.trim().toLowerCase();
+    switch (normalized) {
+      case roleAdminRt:
+      case roleAdminRw:
+      case roleAdminRwPro:
+      case systemRoleOperator:
+        return systemRoleOperator;
+      case legacyRoleSuperuser:
+      case roleSysadmin:
+        return systemRoleSysadmin;
+      case legacyRoleAdmin:
+        return systemRoleOperator;
+      case legacyRoleUser:
+      case roleWarga:
+      default:
+        return systemRoleWarga;
+    }
+  }
+
+  static String normalizePlanCode(
+    String value, {
+    String? fallbackRole,
+    String? subscriptionPlan,
+  }) {
+    final normalized = value.trim().toLowerCase();
+    switch (normalized) {
+      case subscriptionPlanAdminRtMonthly:
+      case planRt:
+        return planRt;
+      case subscriptionPlanAdminRwMonthly:
+      case planRw:
+        return planRw;
+      case subscriptionPlanAdminRwProMonthly:
+      case planRwPro:
+        return planRwPro;
+      case '':
+        final fallback = planCodeFromRole(
+          fallbackRole ?? '',
+          subscriptionPlan: subscriptionPlan,
+        );
+        return fallback;
+      case planFree:
+      default:
+        return normalized == planFree
+            ? planFree
+            : planCodeFromRole(
+                fallbackRole ?? '',
+                subscriptionPlan: subscriptionPlan,
+              );
+    }
+  }
+
   static String normalizeRole(String role) {
     switch (role.trim().toLowerCase()) {
       case legacyRoleAdmin:
@@ -866,6 +978,145 @@ class AppConstants {
     }
   }
 
+  static String systemRoleFromRole(String role) {
+    switch (normalizeRole(role)) {
+      case roleSysadmin:
+        return systemRoleSysadmin;
+      case roleAdminRt:
+      case roleAdminRw:
+      case roleAdminRwPro:
+        return systemRoleOperator;
+      case roleWarga:
+      default:
+        return systemRoleWarga;
+    }
+  }
+
+  static String planCodeFromRole(String role, {String? subscriptionPlan}) {
+    switch (normalizeRole(role)) {
+      case roleAdminRt:
+        return planRt;
+      case roleAdminRw:
+        return planRw;
+      case roleAdminRwPro:
+        return planRwPro;
+      case roleSysadmin:
+        return planRwPro;
+      case roleWarga:
+      default:
+        return planCodeFromSubscriptionPlan(subscriptionPlan) ?? planFree;
+    }
+  }
+
+  static String? planCodeFromSubscriptionPlan(String? planCode) {
+    switch ((planCode ?? '').trim().toLowerCase()) {
+      case subscriptionPlanAdminRtMonthly:
+        return planRt;
+      case subscriptionPlanAdminRwMonthly:
+        return planRw;
+      case subscriptionPlanAdminRwProMonthly:
+        return planRwPro;
+      default:
+        return null;
+    }
+  }
+
+  static String? subscriptionPlanForPlanCode(String planCode) {
+    switch (normalizePlanCode(planCode)) {
+      case planRt:
+        return subscriptionPlanAdminRtMonthly;
+      case planRw:
+        return subscriptionPlanAdminRwMonthly;
+      case planRwPro:
+        return subscriptionPlanAdminRwProMonthly;
+      default:
+        return null;
+    }
+  }
+
+  static String roleFromSystemRolePlan({
+    required String systemRole,
+    required String planCode,
+  }) {
+    final normalizedSystemRole = normalizeSystemRole(systemRole);
+    final normalizedPlanCode = normalizePlanCode(planCode);
+
+    if (normalizedSystemRole == systemRoleSysadmin) {
+      return roleSysadmin;
+    }
+    if (normalizedSystemRole != systemRoleOperator) {
+      return roleWarga;
+    }
+
+    switch (normalizedPlanCode) {
+      case planRwPro:
+        return roleAdminRwPro;
+      case planRw:
+        return roleAdminRw;
+      case planRt:
+        return roleAdminRt;
+      case planFree:
+      default:
+        return roleWarga;
+    }
+  }
+
+  static String effectiveSystemRole({String? role, String? systemRole}) {
+    final normalizedSystemRole = normalizeSystemRole(systemRole ?? '');
+    if ((systemRole ?? '').trim().isNotEmpty) {
+      return normalizedSystemRole;
+    }
+    return systemRoleFromRole(role ?? roleWarga);
+  }
+
+  static String effectivePlanCode({
+    String? role,
+    String? planCode,
+    String? subscriptionPlan,
+  }) {
+    final normalizedPlanCode = normalizePlanCode(
+      planCode ?? '',
+      fallbackRole: role,
+      subscriptionPlan: subscriptionPlan,
+    );
+    if ((planCode ?? '').trim().isNotEmpty) {
+      return normalizedPlanCode;
+    }
+    return planCodeFromRole(
+      role ?? roleWarga,
+      subscriptionPlan: subscriptionPlan,
+    );
+  }
+
+  static String effectiveLegacyRole({
+    String? role,
+    String? systemRole,
+    String? planCode,
+    String? subscriptionPlan,
+  }) {
+    final normalizedRole = normalizeRole(role ?? '');
+    if ((systemRole ?? '').trim().isEmpty && (planCode ?? '').trim().isEmpty) {
+      return normalizedRole;
+    }
+
+    final effectiveRole = roleFromSystemRolePlan(
+      systemRole: effectiveSystemRole(
+        role: normalizedRole,
+        systemRole: systemRole,
+      ),
+      planCode: effectivePlanCode(
+        role: normalizedRole,
+        planCode: planCode,
+        subscriptionPlan: subscriptionPlan,
+      ),
+    );
+
+    if (effectiveRole == roleWarga && normalizedRole == roleSysadmin) {
+      return roleSysadmin;
+    }
+    return effectiveRole;
+  }
+
   static bool isAdminRole(String role) {
     final normalizedRole = normalizeRole(role);
     return normalizedRole == roleAdminRt ||
@@ -874,8 +1125,16 @@ class AppConstants {
         normalizedRole == roleSysadmin;
   }
 
+  static bool isOperatorSystemRole(String systemRole) {
+    return normalizeSystemRole(systemRole) == systemRoleOperator;
+  }
+
   static bool isSysadminRole(String role) {
     return normalizeRole(role) == roleSysadmin;
+  }
+
+  static bool isSysadminSystemRole(String systemRole) {
+    return normalizeSystemRole(systemRole) == systemRoleSysadmin;
   }
 
   static bool hasRwWideAccess(String role) {
@@ -885,11 +1144,23 @@ class AppConstants {
         normalizedRole == roleSysadmin;
   }
 
+  static bool hasRwWidePlanAccess(String planCode) {
+    final normalizedPlanCode = normalizePlanCode(planCode);
+    return normalizedPlanCode == planRw || normalizedPlanCode == planRwPro;
+  }
+
   static bool requiresSubscription(String role) {
     final normalizedRole = normalizeRole(role);
     return normalizedRole == roleAdminRt ||
         normalizedRole == roleAdminRw ||
         normalizedRole == roleAdminRwPro;
+  }
+
+  static bool planCodeRequiresSubscription(String planCode) {
+    final normalizedPlanCode = normalizePlanCode(planCode);
+    return normalizedPlanCode == planRt ||
+        normalizedPlanCode == planRw ||
+        normalizedPlanCode == planRwPro;
   }
 
   static bool canSelfSubscribe(String role) {
@@ -902,6 +1173,20 @@ class AppConstants {
 
   static bool canRequestUnsubscribe(String role) {
     return requiresSubscription(role);
+  }
+
+  static int planRank(String planCode) {
+    switch (normalizePlanCode(planCode)) {
+      case planRt:
+        return 1;
+      case planRw:
+        return 2;
+      case planRwPro:
+        return 3;
+      case planFree:
+      default:
+        return 0;
+    }
   }
 
   static int roleRank(String role) {
@@ -942,6 +1227,13 @@ class AppConstants {
     return roleRank(normalizedTarget) >= roleRank(normalizedCurrent);
   }
 
+  static bool satisfiesPlanRequirement({
+    required String currentPlanCode,
+    required String requiredPlanCode,
+  }) {
+    return planRank(currentPlanCode) >= planRank(requiredPlanCode);
+  }
+
   static String? subscriptionPlanForRole(String role) {
     switch (normalizeRole(role)) {
       case roleAdminRt:
@@ -955,6 +1247,51 @@ class AppConstants {
     }
   }
 
+  static List<String> featureFlagsForPlanCode(String planCode) {
+    switch (normalizePlanCode(planCode)) {
+      case planRt:
+        return const [
+          featureChatBasic,
+          featureBroadcastRt,
+          featureAgendaBasic,
+          featureFinanceBasic,
+        ];
+      case planRw:
+        return const [
+          featureChatBasic,
+          featureBroadcastRw,
+          featureCustomGroupBasic,
+          featureAgendaBasic,
+          featureFinanceBasic,
+          featureFinancePublish,
+        ];
+      case planRwPro:
+        return const [
+          featureChatBasic,
+          featureBroadcastRw,
+          featureCustomGroupBasic,
+          featureCustomGroupAdvanced,
+          featureAgendaBasic,
+          featureAgendaAdvanced,
+          featureFinanceBasic,
+          featureFinancePublish,
+          featureVoiceNote,
+          featurePolling,
+          featureExportAdvanced,
+        ];
+      case planFree:
+      default:
+        return const [featureChatBasic];
+    }
+  }
+
+  static bool planIncludesFeature({
+    required String planCode,
+    required String featureFlag,
+  }) {
+    return featureFlagsForPlanCode(planCode).contains(featureFlag);
+  }
+
   static String subscriptionPlanLabel(String planCode) {
     switch (planCode.trim().toLowerCase()) {
       case subscriptionPlanAdminRtMonthly:
@@ -963,8 +1300,42 @@ class AppConstants {
         return 'Paket Admin RW';
       case subscriptionPlanAdminRwProMonthly:
         return 'Paket Admin RW Pro';
+      case planRt:
+        return 'Plan RT';
+      case planRw:
+        return 'Plan RW';
+      case planRwPro:
+        return 'Plan RW Pro';
+      case planFree:
+        return 'Plan Free';
       default:
         return 'Subscription';
+    }
+  }
+
+  static String planCodeLabel(String planCode) {
+    switch (normalizePlanCode(planCode)) {
+      case planRt:
+        return 'RT';
+      case planRw:
+        return 'RW';
+      case planRwPro:
+        return 'RW Pro';
+      case planFree:
+      default:
+        return 'Free';
+    }
+  }
+
+  static String systemRoleLabel(String systemRole) {
+    switch (normalizeSystemRole(systemRole)) {
+      case systemRoleOperator:
+        return 'Operator';
+      case systemRoleSysadmin:
+        return 'Sysadmin';
+      case systemRoleWarga:
+      default:
+        return 'Warga';
     }
   }
 
@@ -1036,6 +1407,13 @@ class AppConstants {
   }
 
   static String roleLabel(String role) {
+    final normalizedSystemRole = normalizeSystemRole(role);
+    if (role.trim().toLowerCase() == systemRoleOperator) {
+      return systemRoleLabel(normalizedSystemRole);
+    }
+    if (role.trim().toLowerCase() == systemRoleSysadmin) {
+      return systemRoleLabel(normalizedSystemRole);
+    }
     switch (normalizeRole(role)) {
       case roleAdminRt:
         return 'Admin RT';
@@ -1049,6 +1427,20 @@ class AppConstants {
       default:
         return 'Warga';
     }
+  }
+
+  static String accessLabel({
+    required String systemRole,
+    required String planCode,
+    String? jabatanLabel,
+  }) {
+    final base = '${systemRoleLabel(systemRole)} ${planCodeLabel(planCode)}'
+        .trim();
+    final jabatan = (jabatanLabel ?? '').trim();
+    if (jabatan.isEmpty) {
+      return base;
+    }
+    return '$base · $jabatan';
   }
 
   static String suratStatusLabel(String status) {
@@ -1165,6 +1557,25 @@ class AppConstants {
   static const String convPrivate = 'private';
   static const String convGroupRt = 'group_rt';
   static const String convGroupRw = 'group_rw';
+  static const String convScopePrivateSupport = 'private_support';
+  static const String convScopeRt = 'rt';
+  static const String convScopeRw = 'rw';
+  static const String convScopeDkm = 'dkm';
+  static const String convScopePosyandu = 'posyandu';
+  static const String convScopeCustom = 'custom';
+  static const String convScopeDeveloperSupport = 'developer_support';
+
+  static const String msgTypeText = 'text';
+  static const String msgTypeFile = 'file';
+  static const String msgTypeVoice = 'voice';
+  static const String msgTypePoll = 'poll';
+  static const String msgTypeSystem = 'system';
+
+  static const String unitTypeRw = 'rw';
+  static const String unitTypeRt = 'rt';
+  static const String unitTypeDkm = 'dkm';
+  static const String unitTypePosyandu = 'posyandu';
+  static const String unitTypeCustom = 'custom';
 
   // === UPLOAD LIMITS ===
   static const int maxFileSize = 5 * 1024 * 1024; // 5MB

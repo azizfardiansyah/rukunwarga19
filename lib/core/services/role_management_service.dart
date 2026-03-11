@@ -117,21 +117,7 @@ class RoleManagementService {
         .collection(AppConstants.colUsers)
         .getOne(request.requester);
     final requestedRole = AppConstants.normalizeRole(request.requestedRole);
-
-    final userBody = <String, dynamic>{'role': requestedRole};
-
-    if (AppConstants.requiresSubscription(requestedRole)) {
-      userBody['subscription_plan'] =
-          AppConstants.subscriptionPlanForRole(requestedRole) ?? '';
-      userBody['subscription_status'] = AppConstants.subscriptionStatusInactive;
-      userBody['subscription_started'] = null;
-      userBody['subscription_expired'] = null;
-    } else {
-      userBody['subscription_plan'] = '';
-      userBody['subscription_status'] = AppConstants.subscriptionStatusInactive;
-      userBody['subscription_started'] = null;
-      userBody['subscription_expired'] = null;
-    }
+    final userBody = _buildAccessBodyForRole(requestedRole);
 
     await _pb.collection(AppConstants.colUsers).update(user.id, body: userBody);
     await _pb
@@ -173,23 +159,11 @@ class RoleManagementService {
     required String newRole,
   }) async {
     final normalizedRole = AppConstants.normalizeRole(newRole);
-    final body = <String, dynamic>{'role': normalizedRole};
-
-    if (AppConstants.requiresSubscription(normalizedRole)) {
-      body['subscription_plan'] =
-          user.getStringValue('subscription_plan').isNotEmpty
-          ? user.getStringValue('subscription_plan')
-          : (AppConstants.subscriptionPlanForRole(normalizedRole) ?? '');
-      body['subscription_status'] =
-          user.getStringValue('subscription_status').isNotEmpty
-          ? user.getStringValue('subscription_status')
-          : AppConstants.subscriptionStatusInactive;
-    } else {
-      body['subscription_plan'] = '';
-      body['subscription_status'] = AppConstants.subscriptionStatusInactive;
-      body['subscription_started'] = null;
-      body['subscription_expired'] = null;
-    }
+    final body = _buildAccessBodyForRole(
+      normalizedRole,
+      existingSubscriptionPlan: user.getStringValue('subscription_plan'),
+      existingSubscriptionStatus: user.getStringValue('subscription_status'),
+    );
 
     await _pb.collection(AppConstants.colUsers).update(user.id, body: body);
   }
@@ -215,6 +189,9 @@ class RoleManagementService {
         .update(
           user.id,
           body: {
+            'role': normalizedRole,
+            'system_role': AppConstants.systemRoleFromRole(normalizedRole),
+            'plan_code': AppConstants.planCodeFromRole(normalizedRole),
             'subscription_plan': plan,
             'subscription_status': AppConstants.subscriptionStatusActive,
             'subscription_started': now.toIso8601String(),
@@ -229,6 +206,9 @@ class RoleManagementService {
         .update(
           user.id,
           body: {
+            'plan_code': AppConstants.planCodeFromRole(
+              user.getStringValue('role'),
+            ),
             'subscription_status': AppConstants.subscriptionStatusInactive,
             'subscription_started': null,
             'subscription_expired': null,
@@ -248,5 +228,39 @@ class RoleManagementService {
     } catch (_) {
       return null;
     }
+  }
+
+  Map<String, dynamic> _buildAccessBodyForRole(
+    String role, {
+    String? existingSubscriptionPlan,
+    String? existingSubscriptionStatus,
+  }) {
+    final normalizedRole = AppConstants.normalizeRole(role);
+    final body = <String, dynamic>{
+      'role': normalizedRole,
+      'system_role': AppConstants.systemRoleFromRole(normalizedRole),
+      'plan_code': AppConstants.planCodeFromRole(normalizedRole),
+    };
+
+    if (AppConstants.requiresSubscription(normalizedRole)) {
+      body['subscription_plan'] = (existingSubscriptionPlan ?? '').isNotEmpty
+          ? existingSubscriptionPlan
+          : (AppConstants.subscriptionPlanForRole(normalizedRole) ?? '');
+      body['subscription_status'] =
+          (existingSubscriptionStatus ?? '').isNotEmpty
+          ? AppConstants.normalizeSubscriptionStatus(
+              existingSubscriptionStatus!,
+            )
+          : AppConstants.subscriptionStatusInactive;
+      body['subscription_started'] = null;
+      body['subscription_expired'] = null;
+    } else {
+      body['subscription_plan'] = '';
+      body['subscription_status'] = AppConstants.subscriptionStatusInactive;
+      body['subscription_started'] = null;
+      body['subscription_expired'] = null;
+    }
+
+    return body;
   }
 }

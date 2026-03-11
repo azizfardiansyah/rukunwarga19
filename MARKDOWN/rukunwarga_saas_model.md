@@ -296,6 +296,91 @@ Aturan akses inti:
   `plan_code = rw` atau `rw_pro`
 - broadcast bisa dilakukan oleh akun yang subscribe, sesuai yuridiksi masing-masing
 
+## Rule Final Jabatan vs Subscription
+
+Prinsip final:
+
+- `jabatan` tidak perlu subscribe
+- `subscription` melekat ke akun operator atau seat
+- `jabatan` dipakai untuk identitas, struktur, badge, dan fungsi operasional
+- `plan_code` dipakai untuk membuka fitur SaaS
+- aksi sensitif harus lolos `plan + jabatan + scope`
+
+### 1. Aksi yang cukup `free`
+
+Kategori ini tidak butuh akun operator berbayar.
+
+| Aksi | Minimal status | Catatan |
+| --- | --- | --- |
+| tercatat di struktur organisasi | `warga + free` | nama muncul di unit resmi |
+| punya badge jabatan | `warga + free` | untuk tampilan profil atau chat |
+| histori masa bakti tersimpan | `warga + free` | untuk audit pengurus |
+| terlihat sebagai pengurus unit | `warga + free` | hanya sebagai identitas organisasi |
+| lihat informasi umum unit sendiri | `warga + free` | tanpa hak admin |
+
+Contoh:
+
+- `ketua_dkm` boleh tercatat sebagai pengurus walau belum subscribe
+- `bendahara_posyandu` boleh muncul di struktur organisasi walau bukan operator
+
+### 2. Aksi yang mensyaratkan `operator + plan`
+
+Kategori ini tidak harus punya jabatan khusus, tetapi harus punya seat operator
+aktif dan scope yang cocok.
+
+| Aksi | Minimal plan | Scope |
+| --- | --- | --- |
+| masuk area admin | `rt` | sesuai workspace dan yuridiksi |
+| lihat data warga operasional | `rt` | RT sendiri atau RW sendiri sesuai plan |
+| broadcast RT | `rt` | RT sendiri |
+| broadcast RW | `rw` | RW sendiri |
+| buat atau arsip grup custom | `rw` | RW sendiri |
+| akses dashboard dan laporan operator | `rt` atau `rw` | sesuai plan |
+| kirim voice note | `rw_pro` | conversation yang sah |
+| buat polling chat | `rw_pro` | conversation yang sah |
+| akses export lanjutan | `rw_pro` | sesuai workspace |
+
+Catatan:
+
+- jika user punya plan aktif tetapi tidak punya jabatan, user tetap bisa memakai
+  fitur operator umum sesuai scope
+- aksi sensitif seperti approval tetap tidak boleh tanpa jabatan yang cocok
+
+### 3. Aksi yang butuh `jabatan + plan` sekaligus
+
+Kategori ini dipakai untuk aksi resmi, sensitif, atau yang berdampak ke
+organisasi.
+
+| Aksi | Jabatan minimal | Minimal plan | Scope |
+| --- | --- | --- | --- |
+| input transaksi kas | `bendahara_*` | `rt` untuk unit RT, `rw` untuk RW atau unit resmi di RW | unit atau yuridiksi terkait |
+| submit transaksi kas | `bendahara_*` | sama seperti di atas | unit atau yuridiksi terkait |
+| approve atau reject transaksi | `ketua_*` atau `wakil_*` | `rt` untuk unit RT, `rw` untuk RW atau unit resmi di RW | unit atau yuridiksi terkait |
+| publish pengumuman kas | `ketua_*` atau `wakil_*` | `rw` atau `rw_pro` | sesuai yuridiksi data |
+| kelola jadwal ronda | `koordinator_ronda`, `ketua_rt`, `wakil_ketua_rt` | `rt` | RT terkait |
+| kelola acara Agustus | `panitia_agustus`, `ketua_rw`, `wakil_ketua_rw` | `rw` | RW terkait |
+| kelola jadwal khotib atau tarawih | `ketua_dkm`, `wakil_ketua_dkm`, `admin_dkm` | `rw` | unit DKM terkait |
+| kelola jadwal Posyandu | `ketua_posyandu`, `wakil_ketua_posyandu`, `kader_posyandu` | `rw` | unit Posyandu terkait |
+| broadcast unit resmi | jabatan pengurus unit yang diberi hak | `rw` | unit terkait |
+
+Aturan eksekusi:
+
+- `plan` membuka fitur
+- `jabatan` membuka aksi operasional
+- `scope` membatasi wilayah atau unit
+- jika `plan` ada tetapi `jabatan` tidak cocok, user hanya bisa lihat
+- jika `jabatan` ada tetapi `plan` tidak cocok, aksi tetap ditolak
+
+### 4. Kesimpulan Praktis
+
+Model paling sederhana yang dipakai adalah:
+
+- semua jabatan boleh tercatat walau masih `free`
+- semua menu admin butuh `operator + plan`
+- semua aksi keuangan dan jadwal resmi butuh `jabatan + plan`
+- jangan pernah mencampur jabatan dan paket menjadi istilah seperti
+  `ketua_rt_pro`
+
 ## Paket dan Harga
 
 ### Free / Warga
@@ -341,6 +426,8 @@ Fitur:
 - dashboard statistik
 - laporan iuran
 - broadcast sesuai yuridiksi
+- custom group basic
+- agenda komunitas dasar
 
 ### Plan RW Pro
 
