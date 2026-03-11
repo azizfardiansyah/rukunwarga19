@@ -15,6 +15,7 @@ class ChatService {
   ChatService(this._ref);
 
   final Ref _ref;
+  static const String _chatProfilesPath = '/api/rukunwarga/chat/profiles';
 
   AuthState get _auth => _ref.read(authProvider);
 
@@ -129,6 +130,14 @@ class ChatService {
       userId: authUser.id,
       memberships: memberships,
     );
+    final userProfiles = await _loadChatUserProfiles({
+      authUser.id,
+      ...accessible.map((record) => _recordText(record, 'owner')),
+    });
+    final hydratedUserProfiles = await _enrichPrivateConversationOwnerProfiles(
+      conversations: accessible,
+      profiles: userProfiles,
+    );
 
     final models =
         accessible
@@ -138,6 +147,7 @@ class ChatService {
                 currentUserId: authUser.id,
                 membership: memberships[record.id],
                 unreadCount: unreadCounts[record.id] ?? 0,
+                userProfiles: hydratedUserProfiles,
               ),
             )
             .toList()
@@ -212,8 +222,15 @@ class ChatService {
     final senderIds = <String>{
       ...records.map((record) => _recordText(record, 'sender')),
       ...relatedRecords.values.map((record) => _recordText(record, 'sender')),
+      _recordText(conversation, 'owner'),
     };
-    final senderNames = await _loadSenderNames(senderIds);
+    final senderProfiles = await _loadChatUserProfiles(senderIds);
+    final hydratedSenderProfiles =
+        await _enrichProfilesWithScopedWargaAvatarFallback(
+          profiles: senderProfiles,
+          rt: _recordInt(conversation, 'rt'),
+          rw: _recordInt(conversation, 'rw'),
+        );
     final pollsById = await _loadPollsForMessages(
       records,
       currentUserId: authUser.id,
@@ -229,13 +246,14 @@ class ChatService {
         currentUserId: authUser.id,
         membership: updatedMembership,
         unreadCount: 0,
+        userProfiles: hydratedSenderProfiles,
       ),
       messages: records
           .map(
             (record) => _buildMessageModel(
               record,
               currentUserId: authUser.id,
-              senderNames: senderNames,
+              senderProfiles: hydratedSenderProfiles,
               relatedRecords: relatedRecords,
               pollsById: pollsById,
             ),
@@ -337,7 +355,7 @@ class ChatService {
       if ((replyToId ?? '').isNotEmpty) replyToId!,
       if ((forwardedFromId ?? '').isNotEmpty) forwardedFromId!,
     });
-    final senderNames = await _loadSenderNames({
+    final senderProfiles = await _loadChatUserProfiles({
       authUser.id,
       ...relatedRecords.values.map((item) => _recordText(item, 'sender')),
     });
@@ -345,7 +363,7 @@ class ChatService {
     return _buildMessageModel(
       record,
       currentUserId: authUser.id,
-      senderNames: senderNames,
+      senderProfiles: senderProfiles,
       relatedRecords: relatedRecords,
       pollsById: const {},
     );
@@ -425,11 +443,11 @@ class ChatService {
         );
 
     await _markConversationReadByMember(membership.id);
-    final senderNames = await _loadSenderNames({authUser.id});
+    final senderProfiles = await _loadChatUserProfiles({authUser.id});
     return _buildMessageModel(
       record,
       currentUserId: authUser.id,
-      senderNames: senderNames,
+      senderProfiles: senderProfiles,
       relatedRecords: const {},
       pollsById: const {},
     );
@@ -533,6 +551,7 @@ class ChatService {
       currentUserId: authUser.id,
       membership: membership,
       unreadCount: 0,
+      userProfiles: const {},
     );
   }
 
@@ -639,14 +658,14 @@ class ChatService {
           },
         );
 
-    final senderNames = await _loadSenderNames({authUser.id});
+    final senderProfiles = await _loadChatUserProfiles({authUser.id});
     final enriched = await pb
         .collection(AppConstants.colMessages)
         .getOne(messageRecord.id);
     return _buildMessageModel(
       enriched,
       currentUserId: authUser.id,
-      senderNames: senderNames,
+      senderProfiles: senderProfiles,
       relatedRecords: const {},
       pollsById: {
         pollRecord.id: await _loadPoll(
@@ -719,7 +738,17 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    await _markConversationReadByMember(membership.id);
+    final memberships = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    if (memberships.isEmpty) {
+      await _markConversationReadByMember(membership.id);
+      return;
+    }
+    for (final item in memberships) {
+      await _markConversationReadByMember(item.id);
+    }
   }
 
   Future<void> markConversationUnread(String conversationId) async {
@@ -732,9 +761,21 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    await pb
-        .collection(AppConstants.colConversationMembers)
-        .update(membership.id, body: {'last_read_at': null});
+    final memberships = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    if (memberships.isEmpty) {
+      await pb
+          .collection(AppConstants.colConversationMembers)
+          .update(membership.id, body: {'last_read_at': null});
+      return;
+    }
+    for (final item in memberships) {
+      await pb
+          .collection(AppConstants.colConversationMembers)
+          .update(item.id, body: {'last_read_at': null});
+    }
   }
 
   Future<void> setConversationPreference({
@@ -769,9 +810,22 @@ class ChatService {
       return;
     }
 
-    await pb
-        .collection(AppConstants.colConversationMembers)
-        .update(membership.id, body: body);
+    final memberships = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    if (memberships.isEmpty) {
+      await pb
+          .collection(AppConstants.colConversationMembers)
+          .update(membership.id, body: body);
+      return;
+    }
+
+    for (final item in memberships) {
+      await pb
+          .collection(AppConstants.colConversationMembers)
+          .update(item.id, body: body);
+    }
   }
 
   Future<void> toggleMessageStar(String messageId) async {
@@ -942,6 +996,10 @@ class ChatService {
             sourceModule: _recordText(record, 'source_module'),
             publishState: _recordText(record, 'publish_state'),
             publishedByMemberId: _recordText(record, 'published_by_member'),
+            attachmentName: _recordText(record, 'attachment').isEmpty
+                ? null
+                : _recordText(record, 'attachment'),
+            attachmentUrl: _fileUrl(record, 'attachment'),
           ),
         )
         .toList(growable: false);
@@ -959,6 +1017,7 @@ class ChatService {
     int? targetRt,
     int? targetRw,
     String? orgUnitId,
+    PlatformFile? attachment,
   }) async {
     final auth = _auth;
     final authUser = auth.user;
@@ -977,10 +1036,18 @@ class ChatService {
         },
       );
     }
-    if (title.trim().isEmpty || content.trim().isEmpty) {
+    if (title.trim().isEmpty) {
       throw ClientException(
         statusCode: 400,
-        response: const {'message': 'Judul dan isi pengumuman wajib diisi.'},
+        response: const {'message': 'Judul pengumuman wajib diisi.'},
+      );
+    }
+    if (content.trim().isEmpty && attachment == null) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Isi pengumuman atau lampiran wajib diisi.',
+        },
       );
     }
 
@@ -1036,6 +1103,11 @@ class ChatService {
       );
     }
 
+    final files = <http.MultipartFile>[];
+    if (attachment != null) {
+      files.add(await _multipartFromPlatformFile('attachment', attachment));
+    }
+
     final record = await pb
         .collection(AppConstants.colAnnouncements)
         .create(
@@ -1061,6 +1133,7 @@ class ChatService {
             'provinsi': area.provinsi ?? '',
             'is_published': true,
           },
+          files: files,
         );
 
     return AnnouncementModel(
@@ -1080,6 +1153,10 @@ class ChatService {
       sourceModule: _recordText(record, 'source_module'),
       publishState: _recordText(record, 'publish_state'),
       publishedByMemberId: _recordText(record, 'published_by_member'),
+      attachmentName: _recordText(record, 'attachment').isEmpty
+          ? null
+          : _recordText(record, 'attachment'),
+      attachmentUrl: _fileUrl(record, 'attachment'),
     );
   }
 
@@ -1310,16 +1387,12 @@ class ChatService {
     required String conversationId,
     required String userId,
   }) async {
-    try {
-      return await pb
-          .collection(AppConstants.colConversationMembers)
-          .getFirstListItem(
-            'conversation = "${_escapeFilterValue(conversationId)}" && user = "${_escapeFilterValue(userId)}"',
-          );
-    } on ClientException catch (error) {
-      if (error.statusCode != 404) {
-        rethrow;
-      }
+    final existing = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: userId,
+    );
+    if (existing.isNotEmpty) {
+      return existing.first;
     }
 
     return pb
@@ -1497,35 +1570,315 @@ class ChatService {
 
   Future<Map<String, String>> _loadSenderNames(Set<String> userIds) async {
     final result = <String, String>{};
-    for (final userId in userIds.where((item) => item.isNotEmpty)) {
-      final name = await _resolveSenderName(userId);
-      if (name != null && name.isNotEmpty) {
-        result[userId] = name;
+    final profiles = await _loadChatUserProfiles(userIds);
+    for (final entry in profiles.entries) {
+      if (entry.value.displayName.isNotEmpty) {
+        result[entry.key] = entry.value.displayName;
       }
     }
     return result;
   }
 
-  Future<String?> _resolveSenderName(String userId) async {
+  Future<Map<String, _ChatUserProfile>> _loadChatUserProfiles(
+    Set<String> userIds,
+  ) async {
+    final result = <String, _ChatUserProfile>{};
+    final requestedIds = userIds.where((item) => item.isNotEmpty).toSet();
+    if (requestedIds.isEmpty) {
+      return result;
+    }
+
+    try {
+      final response = await pb.send<Map<String, dynamic>>(
+        _chatProfilesPath,
+        method: 'POST',
+        body: {'ids': requestedIds.toList(growable: false)},
+      );
+      final items = response['items'] as List<dynamic>? ?? const [];
+      for (final item in items) {
+        final json = Map<String, dynamic>.from(item as Map);
+        final userId = json['userId']?.toString() ?? '';
+        if (userId.isEmpty) {
+          continue;
+        }
+        result[userId] = _ChatUserProfile(
+          displayName: json['displayName']?.toString() ?? 'Pengguna',
+          avatarUrl: _normalizeChatAvatarUrl(json['avatarUrl']?.toString()),
+          role: AppConstants.effectiveLegacyRole(
+            role: json['role']?.toString(),
+            systemRole: json['systemRole']?.toString(),
+            planCode: json['planCode']?.toString(),
+          ),
+          systemRole: AppConstants.effectiveSystemRole(
+            role: json['role']?.toString(),
+            systemRole: json['systemRole']?.toString(),
+          ),
+          planCode: AppConstants.effectivePlanCode(
+            role: json['role']?.toString(),
+            planCode: json['planCode']?.toString(),
+          ),
+        );
+      }
+    } catch (_) {}
+
+    for (final userId in requestedIds.where(
+      (item) => !result.containsKey(item),
+    )) {
+      final profile = await _resolveChatUserProfile(userId);
+      if (profile != null) {
+        result[userId] = profile;
+      }
+    }
+    return result;
+  }
+
+  String? _normalizeChatAvatarUrl(String? value) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return raw;
+    }
+    if (raw.startsWith('/')) {
+      return '$pocketBaseUrl$raw';
+    }
+    return '$pocketBaseUrl/$raw';
+  }
+
+  Future<Map<String, _ChatUserProfile>>
+  _enrichPrivateConversationOwnerProfiles({
+    required Iterable<RecordModel> conversations,
+    required Map<String, _ChatUserProfile> profiles,
+  }) async {
+    final result = Map<String, _ChatUserProfile>.from(profiles);
+    final wargaCache = <String, _ChatUserProfile?>{};
+
+    for (final conversation in conversations) {
+      if (_recordText(conversation, 'type') != AppConstants.convPrivate) {
+        continue;
+      }
+
+      final ownerId = _recordText(conversation, 'owner');
+      if (ownerId.isEmpty) {
+        continue;
+      }
+
+      final existing = result[ownerId];
+      if ((existing?.avatarUrl ?? '').trim().isNotEmpty) {
+        continue;
+      }
+
+      final fallbackName = (existing?.displayName ?? '').trim().isNotEmpty
+          ? existing!.displayName.trim()
+          : _recordText(
+              conversation,
+              'name',
+            ).replaceFirst(RegExp(r'^Layanan\s*-\s*'), '').trim();
+      if (fallbackName.isEmpty) {
+        continue;
+      }
+
+      final cacheKey =
+          '${fallbackName.toLowerCase()}|${_recordInt(conversation, 'rt')}|${_recordInt(conversation, 'rw')}';
+      final fallbackProfile = wargaCache.containsKey(cacheKey)
+          ? wargaCache[cacheKey]
+          : await _resolveScopedWargaProfileByName(
+              displayName: fallbackName,
+              rt: _recordInt(conversation, 'rt'),
+              rw: _recordInt(conversation, 'rw'),
+              baseProfile: existing,
+            );
+      wargaCache[cacheKey] = fallbackProfile;
+
+      if (fallbackProfile != null) {
+        result[ownerId] = fallbackProfile;
+      }
+    }
+
+    return result;
+  }
+
+  Future<Map<String, _ChatUserProfile>>
+  _enrichProfilesWithScopedWargaAvatarFallback({
+    required Map<String, _ChatUserProfile> profiles,
+    required int rt,
+    required int rw,
+  }) async {
+    final result = Map<String, _ChatUserProfile>.from(profiles);
+    final wargaCache = <String, _ChatUserProfile?>{};
+
+    for (final entry in result.entries.toList()) {
+      if ((entry.value.avatarUrl ?? '').trim().isNotEmpty) {
+        continue;
+      }
+
+      final displayName = entry.value.displayName.trim();
+      if (displayName.isEmpty) {
+        continue;
+      }
+
+      final cacheKey = '${displayName.toLowerCase()}|$rt|$rw';
+      final fallbackProfile = wargaCache.containsKey(cacheKey)
+          ? wargaCache[cacheKey]
+          : await _resolveScopedWargaProfileByName(
+              displayName: displayName,
+              rt: rt,
+              rw: rw,
+              baseProfile: entry.value,
+            );
+      wargaCache[cacheKey] = fallbackProfile;
+
+      if (fallbackProfile != null) {
+        result[entry.key] = fallbackProfile;
+      }
+    }
+
+    return result;
+  }
+
+  Future<_ChatUserProfile?> _resolveScopedWargaProfileByName({
+    required String displayName,
+    required int rt,
+    required int rw,
+    _ChatUserProfile? baseProfile,
+  }) async {
+    final normalizedName = _normalizePersonName(displayName);
+    if (normalizedName.isEmpty) {
+      return baseProfile;
+    }
+
+    final clauses = <String>[];
+    if (rt > 0) {
+      clauses.add('rt = $rt');
+    }
+    if (rw > 0) {
+      clauses.add('rw = $rw');
+    }
+
+    try {
+      final records = await pb
+          .collection(AppConstants.colWarga)
+          .getFullList(
+            sort: 'nama_lengkap',
+            filter: clauses.isEmpty ? '' : clauses.join(' && '),
+          );
+      if (records.isEmpty) {
+        return baseProfile;
+      }
+      RecordModel? warga;
+      for (final record in records) {
+        if (_normalizePersonName(_recordText(record, 'nama_lengkap')) ==
+            normalizedName) {
+          warga = record;
+          break;
+        }
+      }
+      warga ??= records.firstWhere(
+        (record) => _normalizePersonName(
+          _recordText(record, 'nama_lengkap'),
+        ).contains(normalizedName),
+        orElse: () => records.first,
+      );
+      final fotoWarga = _recordText(warga, 'foto_warga');
+      final avatarUrl = fotoWarga.isNotEmpty
+          ? getFileUrl(warga, fotoWarga)
+          : null;
+
+      return _ChatUserProfile(
+        displayName: _recordText(warga, 'nama_lengkap').trim().isNotEmpty
+            ? _recordText(warga, 'nama_lengkap').trim()
+            : displayName.trim(),
+        avatarUrl: avatarUrl ?? baseProfile?.avatarUrl,
+        role: baseProfile?.role ?? AppConstants.roleWarga,
+        systemRole: baseProfile?.systemRole ?? AppConstants.systemRoleWarga,
+        planCode: baseProfile?.planCode ?? AppConstants.planFree,
+      );
+    } catch (_) {
+      return baseProfile;
+    }
+  }
+
+  Future<List<RecordModel>> _loadMembershipRecords({
+    required String conversationId,
+    required String userId,
+  }) {
+    return pb
+        .collection(AppConstants.colConversationMembers)
+        .getFullList(
+          sort: '-updated,-created',
+          filter:
+              'conversation = "${_escapeFilterValue(conversationId)}" && user = "${_escapeFilterValue(userId)}"',
+        );
+  }
+
+  String _normalizePersonName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  Future<_ChatUserProfile?> _resolveChatUserProfile(String userId) async {
+    String displayName = '';
+    String? avatarUrl;
+
     try {
       final warga = await pb
           .collection(AppConstants.colWarga)
           .getFirstListItem('user_id = "${_escapeFilterValue(userId)}"');
       final wargaName = _recordText(warga, 'nama_lengkap');
       if (wargaName.isNotEmpty) {
-        return wargaName;
+        displayName = wargaName;
+      }
+      final fotoWarga = _recordText(warga, 'foto_warga');
+      if (fotoWarga.isNotEmpty) {
+        avatarUrl = getFileUrl(warga, fotoWarga);
       }
     } catch (_) {}
 
     try {
       final user = await pb.collection(AppConstants.colUsers).getOne(userId);
-      final userName = _userDisplayName(user);
-      if (userName.isNotEmpty) {
-        return userName;
+      final avatarFile = _recordText(user, 'avatar');
+      return _ChatUserProfile(
+        displayName: displayName.isNotEmpty
+            ? displayName
+            : _userDisplayName(user),
+        avatarUrl: avatarFile.isNotEmpty
+            ? getFileUrl(user, avatarFile)
+            : avatarUrl,
+        role: AppConstants.effectiveLegacyRole(
+          role: _recordText(user, 'role'),
+          systemRole: _recordText(user, 'system_role'),
+          planCode: _recordText(user, 'plan_code'),
+          subscriptionPlan: _recordText(user, 'subscription_plan'),
+        ),
+        systemRole: AppConstants.effectiveSystemRole(
+          role: _recordText(user, 'role'),
+          systemRole: _recordText(user, 'system_role'),
+        ),
+        planCode: AppConstants.effectivePlanCode(
+          role: _recordText(user, 'role'),
+          planCode: _recordText(user, 'plan_code'),
+          subscriptionPlan: _recordText(user, 'subscription_plan'),
+        ),
+      );
+    } catch (_) {
+      if (displayName.isEmpty) {
+        return null;
       }
-    } catch (_) {}
 
-    return null;
+      return _ChatUserProfile(
+        displayName: displayName,
+        avatarUrl: avatarUrl,
+        role: AppConstants.roleWarga,
+        systemRole: AppConstants.systemRoleWarga,
+        planCode: AppConstants.planFree,
+      );
+    }
+  }
+
+  Future<String?> _resolveSenderName(String userId) async {
+    final profile = await _resolveChatUserProfile(userId);
+    final name = profile?.displayName ?? '';
+    return name.isEmpty ? null : name;
   }
 
   Future<Map<String, RecordModel>> _loadMessagesByIds(Set<String> ids) async {
@@ -1679,7 +2032,7 @@ class ChatService {
   MessageModel _buildMessageModel(
     RecordModel record, {
     required String currentUserId,
-    required Map<String, String> senderNames,
+    required Map<String, _ChatUserProfile> senderProfiles,
     required Map<String, RecordModel> relatedRecords,
     required Map<String, ChatPollModel> pollsById,
   }) {
@@ -1689,17 +2042,19 @@ class ChatService {
     final forwardedRecord = relatedRecords[forwardedId];
     final isDeleted = _recordText(record, 'deleted_at').isNotEmpty;
     final voiceDuration = _recordInt(record, 'voice_duration_seconds');
+    final senderId = _recordText(record, 'sender');
+    final senderProfile = senderProfiles[senderId];
 
     return MessageModel(
       id: record.id,
       conversationId: _recordText(record, 'conversation'),
-      senderId: _recordText(record, 'sender'),
-      senderName: senderNames[_recordText(record, 'sender')] ?? 'Pengguna',
+      senderId: senderId,
+      senderName: senderProfile?.displayName ?? 'Pengguna',
       text: _recordText(record, 'text'),
       messageType: _recordText(record, 'message_type').isEmpty
           ? 'text'
           : _recordText(record, 'message_type'),
-      isMine: _recordText(record, 'sender') == currentUserId,
+      isMine: senderId == currentUserId,
       isStarred: record.data['is_starred'] == true,
       isPinned: record.data['is_pinned'] == true,
       isDeleted: isDeleted,
@@ -1710,7 +2065,8 @@ class ChatService {
       replyToId: replyId.isEmpty ? null : replyId,
       replySenderName: replyRecord == null
           ? null
-          : senderNames[_recordText(replyRecord, 'sender')] ?? 'Pengguna',
+          : senderProfiles[_recordText(replyRecord, 'sender')]?.displayName ??
+                'Pengguna',
       replySnippet: replyRecord == null
           ? null
           : _recordText(replyRecord, 'text').isNotEmpty
@@ -1721,7 +2077,9 @@ class ChatService {
       forwardedFromId: forwardedId.isEmpty ? null : forwardedId,
       forwardedFromName: forwardedRecord == null
           ? null
-          : senderNames[_recordText(forwardedRecord, 'sender')] ?? 'Pengguna',
+          : senderProfiles[_recordText(forwardedRecord, 'sender')]
+                    ?.displayName ??
+                'Pengguna',
       createdAt: DateTime.tryParse(_recordText(record, 'created')),
       voiceDurationSeconds: voiceDuration > 0 ? voiceDuration : null,
       pollId: _recordText(record, 'poll').isEmpty
@@ -1730,6 +2088,9 @@ class ChatService {
       senderBadgeLabel: _recordText(record, 'sender_badge_label').isEmpty
           ? null
           : _recordText(record, 'sender_badge_label'),
+      senderAvatarUrl: senderProfile?.avatarUrl,
+      senderPlanCode: senderProfile?.planCode,
+      senderSystemRole: senderProfile?.systemRole,
       poll: pollsById[_recordText(record, 'poll')],
     );
   }
@@ -1739,12 +2100,29 @@ class ChatService {
     required String currentUserId,
     RecordModel? membership,
     required int unreadCount,
+    required Map<String, _ChatUserProfile> userProfiles,
   }) {
     final type = _recordText(record, 'type');
-    final isOwner = _recordText(record, 'owner') == currentUserId;
-    final title = type == AppConstants.convPrivate && isOwner
-        ? 'Inbox Admin RT/RW'
-        : _recordText(record, 'name');
+    final ownerId = _recordText(record, 'owner');
+    final isOwner = ownerId == currentUserId;
+    final ownerProfile = userProfiles[ownerId];
+    final rawName = _recordText(record, 'name');
+    final title = type == AppConstants.convPrivate
+        ? (isOwner
+              ? 'Inbox Admin RT/RW'
+              : (ownerProfile?.displayName ??
+                    rawName
+                        .replaceFirst(RegExp(r'^Layanan\\s*-\\s*'), '')
+                        .trim()))
+        : rawName;
+    final rt = _recordInt(record, 'rt');
+    final rw = _recordInt(record, 'rw');
+    final participantRole = ownerProfile == null
+        ? null
+        : AppConstants.roleFromSystemRolePlan(
+            systemRole: ownerProfile.systemRole,
+            planCode: ownerProfile.planCode,
+          );
 
     return ConversationModel(
       id: record.id,
@@ -1752,14 +2130,12 @@ class ChatService {
       type: type,
       name: title,
       subtitle: type == AppConstants.convPrivate
-          ? (isOwner
-                ? 'Gunakan untuk tanya dokumen, surat, iuran, dan layanan.'
-                : 'Percakapan layanan warga.')
+          ? 'RT ${rt.toString().padLeft(2, '0')} / RW ${rw.toString().padLeft(2, '0')}'
           : type == AppConstants.convGroupRt
           ? 'Forum operasional warga dan pengurus di RT ini.'
           : 'Koordinasi lintas RT untuk pengurus RW.',
-      rt: _recordInt(record, 'rt'),
-      rw: _recordInt(record, 'rw'),
+      rt: rt,
+      rw: rw,
       isReadonly: record.data['is_readonly'] == true,
       unreadCount: unreadCount,
       isPinned: membership?.data['is_pinned'] == true,
@@ -1785,6 +2161,18 @@ class ChatService {
       requiredPlanCode: _recordText(record, 'required_plan_code').isEmpty
           ? null
           : _recordText(record, 'required_plan_code'),
+      avatarUrl: type == AppConstants.convPrivate
+          ? ownerProfile?.avatarUrl
+          : null,
+      badgeLabel: type == AppConstants.convPrivate && participantRole != null
+          ? AppConstants.roleLabel(participantRole)
+          : null,
+      participantPlanCode: type == AppConstants.convPrivate
+          ? ownerProfile?.planCode
+          : null,
+      participantSystemRole: type == AppConstants.convPrivate
+          ? ownerProfile?.systemRole
+          : null,
     );
   }
 
@@ -1985,6 +2373,22 @@ class ChatService {
 }
 
 final chatServiceProvider = Provider<ChatService>((ref) => ChatService(ref));
+
+class _ChatUserProfile {
+  const _ChatUserProfile({
+    required this.displayName,
+    required this.avatarUrl,
+    required this.role,
+    required this.systemRole,
+    required this.planCode,
+  });
+
+  final String displayName;
+  final String? avatarUrl;
+  final String role;
+  final String systemRole;
+  final String planCode;
+}
 
 class _ChatScope {
   const _ChatScope({

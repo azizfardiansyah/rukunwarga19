@@ -44,7 +44,7 @@ class OrganizationSectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: AppTheme.cardDecoration(),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -56,13 +56,19 @@ class OrganizationSectionCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: AppTheme.bodyMedium.copyWith(
+                      style: AppTheme.bodySmall.copyWith(
                         fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                     if (subtitle?.isNotEmpty ?? false) ...[
-                      const SizedBox(height: 2),
-                      Text(subtitle!, style: AppTheme.caption.copyWith(color: AppTheme.textTertiary)),
+                      const SizedBox(height: 1),
+                      Text(
+                        subtitle!,
+                        style: AppTheme.caption.copyWith(
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -70,7 +76,7 @@ class OrganizationSectionCard extends StatelessWidget {
               action ?? const SizedBox.shrink(),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           child,
         ],
       ),
@@ -92,23 +98,35 @@ class OrganizationEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppTheme.paddingLarge),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 42, color: AppTheme.textSecondary),
-            const SizedBox(height: 12),
-            Text(title, textAlign: TextAlign.center, style: AppTheme.heading3),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppTheme.bodySmall,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
             ),
-          ],
-        ),
+            child: Icon(icon, size: 28, color: AppTheme.primaryColor),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppTheme.bodySmall.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTheme.caption,
+          ),
+        ],
       ),
     );
   }
@@ -148,16 +166,17 @@ class OrganizationBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final tone = color ?? AppTheme.primaryColor;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: tone.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: AppTheme.caption.copyWith(
-          color: tone,
+        style: TextStyle(
+          fontSize: 10,
           fontWeight: FontWeight.w700,
+          color: tone,
         ),
       ),
     );

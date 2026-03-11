@@ -9,6 +9,7 @@ import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/widgets/current_user_avatar.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -79,75 +80,35 @@ class SettingsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Pengaturan')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppTheme.paddingMedium,
-          AppTheme.paddingMedium,
-          AppTheme.paddingMedium,
-          AppTheme.paddingLarge,
-        ),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
         children: [
-          _ProfileHero(
-            nama: nama,
-            email: email,
-            roleLabel: roleLabel,
-            subscriptionLabel: subscriptionStatusLabel,
-            subscriptionColor: subscriptionColor,
-            requiresSubscription: authState.requiresSubscription,
-            hasActiveSubscription: authState.hasActiveSubscription,
+          _ProfileHero(nama: nama, email: email, roleLabel: roleLabel),
+          const SizedBox(height: 14),
+          // Inline summary chips row
+          Row(
+            children: [
+              _SummaryChip(
+                label: roleLabel,
+                icon: Icons.badge_outlined,
+                tone: AppTheme.roleColor(authState.role),
+              ),
+              const SizedBox(width: 6),
+              _SummaryChip(
+                label: _accessScopeLabel(authState.role),
+                icon: Icons.visibility_outlined,
+                tone: AppTheme.primaryColor,
+              ),
+              const SizedBox(width: 6),
+              _SummaryChip(
+                label: subscriptionStatusLabel,
+                icon: Icons.workspace_premium_outlined,
+                tone: subscriptionColor,
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
-          _SectionTitle(title: 'Ringkasan'),
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final cardWidth = (constraints.maxWidth - 12) / 2;
-              return Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: cardWidth,
-                    child: _SummaryCard(
-                      title: 'Role',
-                      value: roleLabel,
-                      icon: Icons.badge_outlined,
-                      tone: AppTheme.roleColor(authState.role),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _SummaryCard(
-                      title: 'Akses',
-                      value: _accessScopeLabel(authState.role),
-                      icon: Icons.visibility_outlined,
-                      tone: AppTheme.primaryColor,
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _SummaryCard(
-                      title: 'Subscription',
-                      value: subscriptionStatusLabel,
-                      icon: Icons.workspace_premium_outlined,
-                      tone: subscriptionColor,
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _SummaryCard(
-                      title: 'Akun',
-                      value: authState.isAuthenticated ? 'Aktif' : 'Offline',
-                      icon: Icons.verified_user_outlined,
-                      tone: AppTheme.successColor,
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           _SectionTitle(title: 'Akun'),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _ActionGroup(
             children: [
               _SettingsActionTile(
@@ -164,9 +125,9 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _SectionTitle(title: 'Akses'),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _ActionGroup(
             children: [
               _SettingsActionTile(
@@ -213,9 +174,9 @@ class SettingsScreen extends ConsumerWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _SectionTitle(title: 'Aplikasi'),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _ActionGroup(
             children: [
               _SettingsActionTile(
@@ -233,45 +194,69 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Container(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
+            padding: const EdgeInsets.all(14),
             decoration: AppTheme.cardDecoration(
               color: AppTheme.errorColor.withValues(alpha: 0.04),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.logout_rounded, color: AppTheme.errorColor),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Keluar dari perangkat ini',
-                      style: AppTheme.bodyLarge.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.errorColor,
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppTheme.errorColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.logout_rounded,
+                    color: AppTheme.errorColor,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Keluar',
+                        style: AppTheme.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.errorColor,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      Text(
+                        'Logout dari perangkat ini',
+                        style: AppTheme.caption.copyWith(
+                          color: AppTheme.textTertiary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 32,
+                  child: OutlinedButton(
+                    onPressed: () => _confirmLogout(context, ref),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.errorColor,
+                      side: const BorderSide(color: AppTheme.errorColor),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Gunakan ini jika Anda selesai memakai aplikasi di perangkat saat ini.',
-                  style: AppTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _confirmLogout(context, ref),
-                    icon: const Icon(Icons.logout, color: AppTheme.errorColor),
-                    label: const Text(
+                    child: const Text(
                       'Logout',
-                      style: TextStyle(color: AppTheme.errorColor),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppTheme.errorColor),
+                      style: TextStyle(
+                        color: AppTheme.errorColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -349,6 +334,7 @@ class SettingsScreen extends ConsumerWidget {
                 onPressed: () => Navigator.pop(ctx, true),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.errorColor,
+                  foregroundColor: Colors.white,
                 ),
                 child: const Text('Logout'),
               ),
@@ -370,124 +356,85 @@ class _ProfileHero extends StatelessWidget {
     required this.nama,
     required this.email,
     required this.roleLabel,
-    required this.subscriptionLabel,
-    required this.subscriptionColor,
-    required this.requiresSubscription,
-    required this.hasActiveSubscription,
   });
 
   final String nama;
   final String email;
   final String roleLabel;
-  final String subscriptionLabel;
-  final Color subscriptionColor;
-  final bool requiresSubscription;
-  final bool hasActiveSubscription;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Stack(
         children: [
           Positioned(
-            top: -32,
-            right: -18,
+            top: -24,
+            right: -14,
             child: Container(
-              width: 120,
-              height: 120,
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -26,
-            left: -12,
-            child: Container(
-              width: 92,
-              height: 92,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.08),
+                color: Colors.white.withValues(alpha: 0.06),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(AppTheme.paddingLarge),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            child: Row(
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: Colors.white,
-                      child: Text(
-                        nama.isNotEmpty ? nama[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          fontSize: 24,
+                const CurrentUserAvatar(
+                  size: 44,
+                  backgroundColor: Colors.white,
+                  textColor: AppTheme.primaryColor,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nama,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.primaryColor,
+                          letterSpacing: -0.3,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            nama,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            email,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.82),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 2),
+                      Text(
+                        email,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.65),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 18),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _HeroBadge(
-                      label: roleLabel,
-                      background: Colors.white.withValues(alpha: 0.18),
-                      foreground: Colors.white,
+                // Role badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.warmGradient,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    roleLabel,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
                     ),
-                    _HeroBadge(
-                      label: subscriptionLabel,
-                      background: subscriptionColor.withValues(alpha: 0.2),
-                      foreground: Colors.white,
-                    ),
-                    _HeroBadge(
-                      label: requiresSubscription
-                          ? (hasActiveSubscription
-                                ? 'Akses premium aktif'
-                                : 'Perlu aktivasi')
-                          : 'Akses standar',
-                      background: Colors.white.withValues(alpha: 0.14),
-                      foreground: Colors.white,
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -498,44 +445,47 @@ class _ProfileHero extends StatelessWidget {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.title,
-    required this.value,
+/// Compact inline chip to replace the tall summary cards
+class _SummaryChip extends StatelessWidget {
+  const _SummaryChip({
+    required this.label,
     required this.icon,
     required this.tone,
   });
 
-  final String title;
-  final String value;
+  final String label;
   final IconData icon;
   final Color tone;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
-      decoration: AppTheme.cardDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: tone.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: tone.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: tone.withValues(alpha: 0.12)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: tone),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                label,
+                style: AppTheme.caption.copyWith(
+                  color: tone,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            child: Icon(icon, color: tone),
-          ),
-          const SizedBox(height: 12),
-          Text(title, style: AppTheme.caption),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -548,9 +498,27 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 14,
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: AppTheme.caption.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.5,
+            fontSize: 12,
+            color: AppTheme.textPrimary,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -569,7 +537,7 @@ class _ActionGroup extends StatelessWidget {
           for (var i = 0; i < children.length; i++) ...[
             children[i],
             if (i < children.length - 1)
-              const Divider(height: 1, indent: 68, endIndent: 16),
+              const Divider(height: 1, indent: 56, endIndent: 12),
           ],
         ],
       ),
@@ -602,99 +570,74 @@ class _SettingsActionTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppTheme.paddingMedium,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppTheme.primaryColor.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: AppTheme.primaryColor),
+                child: Icon(icon, color: AppTheme.primaryColor, size: 18),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: AppTheme.bodyMedium.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        if ((badgeLabel ?? '').isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: (badgeColor ?? AppTheme.primaryColor)
-                                  .withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              badgeLabel!,
-                              style: AppTheme.caption.copyWith(
-                                color: badgeColor ?? AppTheme.primaryColor,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                      ],
+                    Text(
+                      title,
+                      style: AppTheme.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13.5,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: AppTheme.bodySmall),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              const Icon(
+              if ((badgeLabel ?? '').isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (badgeColor ?? AppTheme.primaryColor).withValues(
+                      alpha: 0.10,
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    badgeLabel!,
+                    style: AppTheme.caption.copyWith(
+                      color: badgeColor ?? AppTheme.primaryColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              Icon(
                 Icons.chevron_right_rounded,
-                color: AppTheme.textSecondary,
+                color: AppTheme.textTertiary,
+                size: 18,
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroBadge extends StatelessWidget {
-  const _HeroBadge({
-    required this.label,
-    required this.background,
-    required this.foreground,
-  });
-
-  final String label;
-  final Color background;
-  final Color foreground;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: AppTheme.caption.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );

@@ -558,7 +558,7 @@ class _CompactWargaRow extends StatelessWidget {
                 gradient: isKepala
                     ? AppTheme.primaryGradient
                     : const LinearGradient(
-                        colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
+                        colors: [Color(0xFFE5E0DA), Color(0xFFD4CDC5)],
                       ),
                 borderRadius: BorderRadius.circular(11),
               ),

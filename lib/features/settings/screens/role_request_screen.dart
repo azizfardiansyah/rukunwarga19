@@ -204,48 +204,62 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Unsubscribe')),
       body: ListView(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
-          AppTheme.glassContainer(
-            opacity: 0.78,
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: AppTheme.cardDecoration(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Role Saat Ini', style: AppTheme.heading3),
-                const SizedBox(height: 8),
+                Text(
+                  'Role Saat Ini',
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
+                    horizontal: 10,
+                    vertical: 5,
                   ),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     AppConstants.roleLabel(auth.role),
-                    style: AppTheme.bodyMedium.copyWith(
+                    style: AppTheme.bodySmall.copyWith(
                       fontWeight: FontWeight.w700,
                       color: AppTheme.primaryColor,
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 const Text(
                   'Begitu unsubscribe dijalankan, akun langsung kembali ke role Warga tanpa review sysadmin.',
-                  style: AppTheme.bodySmall,
+                  style: AppTheme.caption,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          AppTheme.glassContainer(
-            opacity: 0.76,
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: AppTheme.cardDecoration(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Dampak Unsubscribe', style: AppTheme.heading3),
-                const SizedBox(height: 12),
+                Text(
+                  'Dampak Unsubscribe',
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
                 _impactItem('Role berubah menjadi Warga'),
                 _impactItem('Subscription admin langsung dinonaktifkan'),
                 _impactItem('Akses fitur premium admin langsung dicabut'),
@@ -253,21 +267,21 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
                   _impactItem(
                     'Masa aktif sebelumnya tidak dipakai lagi setelah unsubscribe',
                   ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: _isSubmitting ? null : _unsubscribe,
                     icon: _isSubmitting
                         ? const SizedBox(
-                            width: 18,
-                            height: 18,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
                             ),
                           )
-                        : const Icon(Icons.person_off_rounded),
+                        : const Icon(Icons.person_off_rounded, size: 18),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.errorColor,
                     ),
@@ -284,13 +298,13 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
 
   Widget _impactItem(String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 22,
-            height: 22,
+            width: 18,
+            height: 18,
             margin: const EdgeInsets.only(top: 1),
             decoration: BoxDecoration(
               color: AppTheme.errorColor.withValues(alpha: 0.12),
@@ -298,12 +312,12 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
             ),
             child: const Icon(
               Icons.remove_rounded,
-              size: 16,
+              size: 12,
               color: AppTheme.errorColor,
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: AppTheme.bodySmall)),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: AppTheme.caption)),
         ],
       ),
     );

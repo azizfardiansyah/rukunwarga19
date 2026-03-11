@@ -435,7 +435,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       child: _imageSourceCard(
                         icon: Icons.photo_library_rounded,
                         label: 'Galeri',
-                        color: const Color(0xFF7C3AED),
+                        color: AppTheme.toneAmber,
                         onTap: () =>
                             Navigator.pop(sheetContext, ImageSource.gallery),
                       ),
@@ -445,7 +445,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       child: _imageSourceCard(
                         icon: Icons.camera_alt_rounded,
                         label: 'Kamera',
-                        color: const Color(0xFF0EA5E9),
+                        color: AppTheme.toneCrimson,
                         onTap: () =>
                             Navigator.pop(sheetContext, ImageSource.camera),
                       ),
@@ -1490,8 +1490,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
 
             final isMale = jenisKelamin == 'Laki-laki';
             final avatarColor = isMale
-                ? const Color(0xFF3B82F6)
-                : const Color(0xFFEC4899);
+                ? AppTheme.toneCharcoal
+                : AppTheme.tonePink;
             final avatarBg = avatarColor.withValues(alpha: 0.1);
 
             return SafeArea(
@@ -2681,8 +2681,8 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       final isComplete = hasName && hasNik && hasHubungan;
                       final isMale = member.jenisKelamin != 'Perempuan';
                       final genderColor = isMale
-                          ? const Color(0xFF3B82F6)
-                          : const Color(0xFFEC4899);
+                          ? AppTheme.toneCharcoal
+                          : AppTheme.tonePink;
 
                       return InkWell(
                         onTap: () => _showMemberDetail(index),

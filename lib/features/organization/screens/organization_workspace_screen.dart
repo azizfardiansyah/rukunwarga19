@@ -6,7 +6,6 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../core/utils/error_classifier.dart';
-import '../../../shared/widgets/app_surface.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
@@ -43,20 +42,20 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
             children: [
               _WorkspaceHero(overview: overview),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               _StatsGrid(overview: overview),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               OrganizationSectionCard(
                 title: 'Navigasi organisasi',
                 subtitle:
-                    'Kelola unit, struktur pengurus, dan membership dari satu jalur.',
+                    'Kelola unit, struktur pengurus, dan membership.',
                 child: Column(
                   children: [
                     _NavTile(
                       icon: Icons.account_tree_outlined,
                       title: 'Kelola Unit',
                       subtitle:
-                          'Atur RT, DKM, Posyandu, dan unit custom di workspace.',
+                          'Atur RT, DKM, Posyandu, dan unit custom.',
                       onTap: () => context.push(Routes.organizationUnits),
                     ),
                     const Divider(height: 1),
@@ -64,20 +63,20 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
                       icon: Icons.badge_outlined,
                       title: 'Kelola Pengurus',
                       subtitle:
-                          'Assign jabatan, masa bakti, primary membership, dan status aktif.',
+                          'Assign jabatan, masa bakti, primary membership.',
                       onTap: () => context.push(Routes.organizationMemberships),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               OrganizationSectionCard(
                 title: 'Detail workspace',
-                subtitle: 'Informasi inti workspace aktif dan pemilik seat.',
+                subtitle: 'Informasi inti workspace aktif.',
                 action: overview.profile.canManageWorkspace
                     ? FilledButton.icon(
                         onPressed: () => _editWorkspace(context, ref, overview),
-                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        icon: const Icon(Icons.edit_outlined, size: 16),
                         label: const Text('Edit'),
                       )
                     : null,
@@ -106,17 +105,17 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               OrganizationSectionCard(
                 title: 'Operator aktif',
                 subtitle:
-                    'Seat operator yang sedang bergabung di workspace aktif.',
+                    'Seat operator di workspace.',
                 child: overview.workspaceActors.isEmpty
                     ? const OrganizationEmptyState(
                         icon: Icons.group_off_outlined,
                         title: 'Belum ada operator',
                         message:
-                            'Tambahkan workspace member aktif agar organisasi bisa dikelola.',
+                            'Tambahkan workspace member aktif.',
                       )
                     : Column(
                         children: overview.workspaceActors
@@ -242,25 +241,71 @@ class _WorkspaceHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final workspace = overview.profile.workspace;
-    return AppHeroPanel(
-      eyebrow: workspace.status.toUpperCase(),
-      icon: Icons.apartment_outlined,
-      title: workspace.name,
-      subtitle: 'Kode ${workspace.code} • RW ${workspace.rw}',
-      chips: [
-        if ((workspace.desaKelurahan ?? '').isNotEmpty)
-          AppHeroBadge(
-            label: workspace.desaKelurahan!,
-            foregroundColor: AppTheme.textSecondary,
-            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.06),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: AppTheme.cardDecoration(),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.primaryColor.withValues(alpha: 0.12),
+                  AppTheme.accentColor.withValues(alpha: 0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.apartment_outlined,
+              color: AppTheme.primaryColor,
+              size: 20,
+            ),
           ),
-        if ((workspace.kecamatan ?? '').isNotEmpty)
-          AppHeroBadge(
-            label: workspace.kecamatan!,
-            foregroundColor: AppTheme.textSecondary,
-            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.06),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  workspace.name,
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'Kode ${workspace.code} • RW ${workspace.rw}',
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.textTertiary,
+                  ),
+                ),
+              ],
+            ),
           ),
-      ],
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              workspace.status.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.primaryColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -273,13 +318,9 @@ class _StatsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final cardWidth = (screenWidth - (AppTheme.paddingMedium * 2) - 12) / 2;
+    final cardWidth = (screenWidth - 28 - 10) / 2;
     final stats = [
-      (
-        'Seat aktif',
-        '${overview.workspaceActors.length}',
-        Icons.groups_rounded,
-      ),
+      ('Seat aktif', '${overview.workspaceActors.length}', Icons.groups_rounded),
       ('Unit', '${overview.orgUnits.length}', Icons.account_tree_outlined),
       (
         'Pengurus',
@@ -294,28 +335,50 @@ class _StatsGrid extends StatelessWidget {
     ];
 
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: stats
-          .map((item) {
-            return SizedBox(
-              width: cardWidth,
-              child: Container(
-                padding: const EdgeInsets.all(AppTheme.paddingMedium),
-                decoration: AppTheme.cardDecoration(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(item.$3, color: AppTheme.primaryColor),
-                    const SizedBox(height: 10),
-                    Text(item.$2, style: AppTheme.heading2),
-                    Text(item.$1, style: AppTheme.bodySmall),
-                  ],
+      spacing: 10,
+      runSpacing: 10,
+      children: stats.map((item) {
+        return SizedBox(
+          width: cardWidth,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: AppTheme.cardDecoration(),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(item.$3, color: AppTheme.primaryColor, size: 16),
                 ),
-              ),
-            );
-          })
-          .toList(growable: false),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$2,
+                        style: AppTheme.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        item.$1,
+                        style: AppTheme.caption,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(growable: false),
     );
   }
 }
@@ -335,24 +398,52 @@ class _NavTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: AppTheme.primaryColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: AppTheme.primaryColor),
-      ),
-      title: Text(
-        title,
-        style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
-      ),
-      subtitle: Text(subtitle, style: AppTheme.bodySmall),
-      trailing: const Icon(Icons.chevron_right_rounded),
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: AppTheme.primaryColor, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTheme.bodySmall.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: AppTheme.caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: AppTheme.textTertiary,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -364,40 +455,60 @@ class _ActorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
-        child: Text(
-          actor.displayName.isNotEmpty
-              ? actor.displayName[0].toUpperCase()
-              : '?',
-          style: AppTheme.bodyMedium.copyWith(
-            color: AppTheme.primaryColor,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      title: Text(
-        actor.displayName,
-        style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
-      ),
-      subtitle: Text(
-        '${actor.email}\n${actor.shortScope}',
-        style: AppTheme.bodySmall,
-      ),
-      isThreeLine: true,
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          OrganizationBadge(label: actor.member.planCode.toUpperCase()),
-          const SizedBox(height: 6),
-          if (actor.member.isOwner)
-            const OrganizationBadge(
-              label: 'OWNER',
-              color: AppTheme.accentColor,
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+            child: Text(
+              actor.displayName.isNotEmpty
+                  ? actor.displayName[0].toUpperCase()
+                  : '?',
+              style: AppTheme.caption.copyWith(
+                color: AppTheme.primaryColor,
+                fontWeight: FontWeight.w700,
+              ),
             ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  actor.displayName,
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  actor.email,
+                  style: AppTheme.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    OrganizationBadge(label: actor.member.planCode.toUpperCase()),
+                    if (actor.member.isOwner)
+                      const OrganizationBadge(
+                        label: 'OWNER',
+                        color: AppTheme.accentColor,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -413,16 +524,22 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 96, child: Text(label, style: AppTheme.bodySmall)),
-          const SizedBox(width: 12),
+          SizedBox(
+            width: 70,
+            child: Text(label, style: AppTheme.caption),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               value.isEmpty ? '-' : value,
-              style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+              style: AppTheme.bodySmall.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
             ),
           ),
         ],

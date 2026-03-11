@@ -65,6 +65,10 @@ class ConversationModel {
     this.orgUnitId,
     this.scopeType,
     this.requiredPlanCode,
+    this.avatarUrl,
+    this.badgeLabel,
+    this.participantPlanCode,
+    this.participantSystemRole,
   });
 
   final String id;
@@ -85,6 +89,10 @@ class ConversationModel {
   final String? orgUnitId;
   final String? scopeType;
   final String? requiredPlanCode;
+  final String? avatarUrl;
+  final String? badgeLabel;
+  final String? participantPlanCode;
+  final String? participantSystemRole;
 
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
     return ConversationModel(
@@ -106,6 +114,10 @@ class ConversationModel {
       orgUnitId: json['orgUnitId']?.toString(),
       scopeType: json['scopeType']?.toString(),
       requiredPlanCode: json['requiredPlanCode']?.toString(),
+      avatarUrl: json['avatarUrl']?.toString(),
+      badgeLabel: json['badgeLabel']?.toString(),
+      participantPlanCode: json['participantPlanCode']?.toString(),
+      participantSystemRole: json['participantSystemRole']?.toString(),
     );
   }
 
@@ -131,6 +143,10 @@ class ConversationModel {
       orgUnitId: _recordText(record, 'org_unit'),
       scopeType: _recordText(record, 'scope_type'),
       requiredPlanCode: _recordText(record, 'required_plan_code'),
+      avatarUrl: null,
+      badgeLabel: null,
+      participantPlanCode: null,
+      participantSystemRole: null,
     );
   }
 
@@ -163,6 +179,9 @@ class MessageModel {
     this.voiceDurationSeconds,
     this.pollId,
     this.senderBadgeLabel,
+    this.senderAvatarUrl,
+    this.senderPlanCode,
+    this.senderSystemRole,
     this.poll,
   });
 
@@ -187,6 +206,9 @@ class MessageModel {
   final int? voiceDurationSeconds;
   final String? pollId;
   final String? senderBadgeLabel;
+  final String? senderAvatarUrl;
+  final String? senderPlanCode;
+  final String? senderSystemRole;
   final ChatPollModel? poll;
 
   bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
@@ -216,6 +238,9 @@ class MessageModel {
       voiceDurationSeconds: _jsonNullableInt(json['voiceDurationSeconds']),
       pollId: json['pollId']?.toString(),
       senderBadgeLabel: json['senderBadgeLabel']?.toString(),
+      senderAvatarUrl: json['senderAvatarUrl']?.toString(),
+      senderPlanCode: json['senderPlanCode']?.toString(),
+      senderSystemRole: json['senderSystemRole']?.toString(),
       poll: json['poll'] is Map
           ? ChatPollModel.fromJson(
               Map<String, dynamic>.from(json['poll'] as Map),
@@ -245,6 +270,9 @@ class MessageModel {
       ),
       pollId: _recordText(record, 'poll'),
       senderBadgeLabel: _recordText(record, 'sender_badge_label'),
+      senderAvatarUrl: null,
+      senderPlanCode: null,
+      senderSystemRole: null,
       poll: null,
     );
   }
@@ -331,6 +359,8 @@ class AnnouncementModel {
     this.sourceModule,
     this.publishState,
     this.publishedByMemberId,
+    this.attachmentName,
+    this.attachmentUrl,
   });
 
   final String id;
@@ -346,6 +376,8 @@ class AnnouncementModel {
   final String? sourceModule;
   final String? publishState;
   final String? publishedByMemberId;
+  final String? attachmentName;
+  final String? attachmentUrl;
 
   factory AnnouncementModel.fromJson(Map<String, dynamic> json) {
     return AnnouncementModel(
@@ -362,12 +394,16 @@ class AnnouncementModel {
       sourceModule: json['sourceModule']?.toString(),
       publishState: json['publishState']?.toString(),
       publishedByMemberId: json['publishedByMemberId']?.toString(),
+      attachmentName: json['attachmentName']?.toString(),
+      attachmentUrl: json['attachmentUrl']?.toString(),
     );
   }
 
   String get targetLabel => targetType == 'rt'
       ? 'RT ${rt.toString().padLeft(2, '0')}'
       : 'RW ${rw.toString().padLeft(2, '0')}';
+
+  bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
 }
 
 class ChatBootstrapData {

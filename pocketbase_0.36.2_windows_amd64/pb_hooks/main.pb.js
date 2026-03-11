@@ -2001,6 +2001,37 @@ routerAdd(
   },
 );
 
+routerAdd(
+  "POST",
+  "/api/rukunwarga/chat/profiles",
+  (e) => {
+    requireUserAuth(e);
+
+    const requestBody = {};
+    e.bindBody(requestBody);
+
+    const ids = Array.isArray(requestBody.ids) ? requestBody.ids : [];
+    const items = [];
+    const seen = {};
+
+    for (const rawId of ids) {
+      const userId = asString(rawId).trim();
+      if (!userId || seen[userId]) {
+        continue;
+      }
+      seen[userId] = true;
+
+      const profile = buildChatProfilePayload(userId);
+      if (profile) {
+        items.push(profile);
+      }
+    }
+
+    return e.json(200, { items: items });
+  },
+  $apis.requireAuth(USERS_COLLECTION),
+);
+
 function requireUserAuth(e) {
   const info = e.requestInfo();
 
@@ -2009,6 +2040,68 @@ function requireUserAuth(e) {
   }
 
   return info.auth;
+}
+
+function buildChatProfilePayload(userId) {
+  let userRecord = null;
+  try {
+    userRecord = $app.findRecordById(USERS_COLLECTION, userId);
+  } catch (_) {
+    return null;
+  }
+
+  let wargaRecord = null;
+  try {
+    wargaRecord = $app.findFirstRecordByFilter(
+      "warga",
+      "user_id = {:userId}",
+      { userId: userId },
+    );
+  } catch (_) {}
+
+  const wargaName = wargaRecord ? asString(wargaRecord.getString("nama_lengkap")) : "";
+  const avatarFile = asString(userRecord.getString("avatar"));
+  const fotoWarga = wargaRecord ? asString(wargaRecord.getString("foto_warga")) : "";
+  const displayName =
+    wargaName ||
+    getUserDisplayName(userRecord) ||
+    asString(userRecord.getString("email")).split("@")[0] ||
+    "Pengguna";
+
+  return {
+    userId: userId,
+    displayName: displayName,
+    avatarUrl:
+      avatarFile
+        ? buildRecordFileUrl(userRecord, avatarFile, userRecord.newFileToken())
+        : fotoWarga
+          ? buildRecordFileUrl(wargaRecord, fotoWarga, "")
+          : "",
+    role: normalizeUserRole(userRecord.getString("role")),
+    systemRole: inferTargetSystemRole(userRecord.getString("role")),
+    planCode: inferPlanCode(
+      userRecord.getString("plan_code") || userRecord.getString("subscription_plan"),
+      userRecord.getString("role"),
+    ),
+  };
+}
+
+function buildRecordFileUrl(record, filename, token) {
+  if (!record || !filename) {
+    return "";
+  }
+
+  const basePath = asString(record.baseFilesPath());
+  if (!basePath) {
+    return "";
+  }
+
+  let url = basePath + "/" + encodeURIComponent(filename);
+  if (token) {
+    url += (url.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(token);
+  }
+
+  return url;
 }
 
 function getMidtransConfig() {

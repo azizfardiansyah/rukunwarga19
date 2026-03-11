@@ -69,11 +69,15 @@ class _OrganizationMembershipScreenState
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: _unitFilter,
-                  decoration: const InputDecoration(labelText: 'Filter unit'),
+                  decoration: const InputDecoration(
+                    labelText: 'Filter unit',
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
                   items: [
                     const DropdownMenuItem<String>(
                       value: 'all',
@@ -90,18 +94,18 @@ class _OrganizationMembershipScreenState
                     setState(() => _unitFilter = value ?? 'all');
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
                 if (memberships.isEmpty)
                   const OrganizationEmptyState(
                     icon: Icons.badge_outlined,
                     title: 'Belum ada pengurus',
                     message:
-                        'Assign jabatan ke member workspace untuk mulai membentuk struktur organisasi.',
+                        'Assign jabatan ke member workspace.',
                   )
                 else
                   ...memberships.map(
                     (membership) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: 8),
                       child: _MembershipCard(
                         membership: membership,
                         actor: overview.actorByMemberId(
@@ -462,7 +466,7 @@ class _MembershipCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: AppTheme.cardDecoration(),
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -475,20 +479,23 @@ class _MembershipCard extends StatelessWidget {
                   children: [
                     Text(
                       actor?.displayName ?? 'Member tidak dikenal',
-                      style: AppTheme.bodyLarge.copyWith(
+                      style: AppTheme.bodySmall.copyWith(
                         fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
                       '${membership.jabatan?.label ?? "-"} • ${membership.orgUnit?.name ?? "-"}',
-                      style: AppTheme.bodySmall,
+                      style: AppTheme.caption,
                     ),
                   ],
                 ),
               ),
               if (canManage)
                 PopupMenuButton<String>(
+                  iconSize: 18,
+                  padding: EdgeInsets.zero,
                   onSelected: (value) {
                     if (value == 'edit') {
                       onEdit();
@@ -506,10 +513,10 @@ class _MembershipCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 4,
             children: [
               OrganizationBadge(
                 label: membership.status.toUpperCase(),
@@ -527,7 +534,7 @@ class _MembershipCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           _MembershipInfo(label: 'Akun', value: actor?.email ?? '-'),
           _MembershipInfo(
             label: 'Mulai',
@@ -552,14 +559,14 @@ class _MembershipInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 3),
       child: RichText(
         text: TextSpan(
-          style: AppTheme.bodySmall,
+          style: AppTheme.caption,
           children: [
             TextSpan(
               text: '$label: ',
-              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+              style: AppTheme.caption.copyWith(fontWeight: FontWeight.w700),
             ),
             TextSpan(text: value),
           ],

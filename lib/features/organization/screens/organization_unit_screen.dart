@@ -67,11 +67,11 @@ class _OrganizationUnitScreenState
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
               children: [
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
                     for (final filter in const [
                       'all',
@@ -90,21 +90,21 @@ class _OrganizationUnitScreenState
                       ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
                 if (units.isEmpty)
                   const OrganizationEmptyState(
                     icon: Icons.account_tree_outlined,
                     title: 'Belum ada unit',
                     message:
-                        'Tambahkan unit resmi atau custom untuk mulai membentuk struktur organisasi.',
+                        'Tambahkan unit untuk membentuk struktur organisasi.',
                   )
                 else
                   ...units.map(
                     (unit) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: 8),
                       child: Container(
                         decoration: AppTheme.cardDecoration(),
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(10),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -118,20 +118,23 @@ class _OrganizationUnitScreenState
                                     children: [
                                       Text(
                                         unit.name,
-                                        style: AppTheme.bodyLarge.copyWith(
+                                        style: AppTheme.bodySmall.copyWith(
                                           fontWeight: FontWeight.w800,
+                                          color: AppTheme.textPrimary,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 2),
                                       Text(
                                         'Kode ${unit.code}',
-                                        style: AppTheme.bodySmall,
+                                        style: AppTheme.caption,
                                       ),
                                     ],
                                   ),
                                 ),
                                 if (overview.profile.canManageUnit)
                                   PopupMenuButton<String>(
+                                    iconSize: 18,
+                                    padding: EdgeInsets.zero,
                                     onSelected: (value) {
                                       if (value == 'edit') {
                                         _openUnitDialog(
@@ -157,10 +160,10 @@ class _OrganizationUnitScreenState
                                   ),
                               ],
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 6),
                             Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
+                              spacing: 6,
+                              runSpacing: 4,
                               children: [
                                 OrganizationBadge(
                                   label: _unitTypeLabel(unit.type),
@@ -179,7 +182,7 @@ class _OrganizationUnitScreenState
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 6),
                             _InfoLine(
                               label: 'Parent',
                               value: parentNames[unit.parentUnitId] ?? '-',
@@ -468,14 +471,14 @@ class _InfoLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 3),
       child: RichText(
         text: TextSpan(
-          style: AppTheme.bodySmall,
+          style: AppTheme.caption,
           children: [
             TextSpan(
               text: '$label: ',
-              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+              style: AppTheme.caption.copyWith(fontWeight: FontWeight.w700),
             ),
             TextSpan(text: value),
           ],

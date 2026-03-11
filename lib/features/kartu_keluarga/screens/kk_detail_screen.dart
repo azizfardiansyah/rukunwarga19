@@ -658,7 +658,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                   gradient: index == 0
                       ? AppTheme.primaryGradient
                       : const LinearGradient(
-                          colors: [Color(0xFFCBD5E1), Color(0xFF94A3B8)],
+                          colors: [Color(0xFFD4CDC5), Color(0xFFA3A3A3)],
                         ),
                   borderRadius: BorderRadius.circular(12),
                 ),

@@ -10,6 +10,7 @@ import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/surat_service.dart';
 import '../../../core/utils/area_access.dart';
+import '../../../shared/widgets/current_user_avatar.dart';
 import '../../surat/providers/surat_providers.dart';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -124,7 +125,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _hasNavigatedToKkForm = false;
-  bool _isGridView = true; // default: grid view (compact cards)
+  bool _isGridView = true;
 
   void _navigateToKkFormIfNeeded(bool hasKartuKeluarga) {
     if (_hasNavigatedToKkForm || !mounted || hasKartuKeluarga) return;
@@ -150,7 +151,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.people_rounded,
           label: 'Data Warga',
           subtitle: 'Kelola data penduduk',
-          tone: AppTheme.primaryColor,
+          tone: AppTheme.toneRose,
           onTap: () => context.go(Routes.warga),
         ),
       if (showSelfWargaSetup)
@@ -158,7 +159,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.person_add_alt_1_rounded,
           label: 'Lengkapi Warga',
           subtitle: 'Isi data diri Anda',
-          tone: AppTheme.primaryColor,
+          tone: AppTheme.tonePink,
           onTap: () => context.push(Routes.wargaForm),
         ),
       if (!isWarga)
@@ -166,7 +167,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.family_restroom_rounded,
           label: 'Kartu Keluarga',
           subtitle: 'Data KK warga',
-          tone: AppTheme.infoColor,
+          tone: AppTheme.toneAmber,
           onTap: () {
             final hasKK = ref
                 .read(hasKartuKeluargaProvider)
@@ -181,14 +182,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.add_home_work_rounded,
           label: 'Lengkapi KK',
           subtitle: 'Isi data Kartu Keluarga',
-          tone: AppTheme.infoColor,
+          tone: AppTheme.toneAmber,
           onTap: () => context.go(Routes.kkForm),
         ),
       _MenuEntry(
         icon: Icons.badge_rounded,
         label: 'Dokumen',
         subtitle: 'Arsip dokumen warga',
-        tone: AppTheme.accentColor,
+        tone: AppTheme.toneSienna,
         onTap: () => context.push(Routes.dokumen),
       ),
     ];
@@ -199,14 +200,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         icon: Icons.mail_rounded,
         label: 'Surat Pengantar',
         subtitle: 'Ajukan & pantau surat',
-        tone: const Color(0xFF6366F1),
+        tone: AppTheme.toneCrimson,
         onTap: () => context.push(Routes.surat),
       ),
       _MenuEntry(
         icon: Icons.payments_rounded,
         label: 'Iuran',
         subtitle: 'Tagihan & pembayaran',
-        tone: AppTheme.primaryDark,
+        tone: AppTheme.toneGold,
         onTap: () => context.push(Routes.iuran),
       ),
       if (canOpenFinance)
@@ -214,7 +215,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.account_balance_wallet_rounded,
           label: 'Keuangan',
           subtitle: 'Arus kas & transaksi',
-          tone: const Color(0xFF0891B2),
+          tone: AppTheme.toneTerracotta,
           onTap: () => context.push(Routes.finance),
         ),
     ];
@@ -226,14 +227,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.account_tree_rounded,
           label: 'Organisasi',
           subtitle: 'Struktur & pengurus',
-          tone: const Color(0xFF7C3AED),
+          tone: AppTheme.toneCharcoal,
           onTap: () => context.push(Routes.organization),
         ),
       _MenuEntry(
         icon: Icons.campaign_rounded,
         label: 'Pengumuman',
         subtitle: 'Info & berita warga',
-        tone: const Color(0xFFDB2777),
+        tone: AppTheme.tonePink,
         onTap: () => context.push(Routes.announcements),
       ),
       if (!isWarga)
@@ -241,7 +242,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.insights_rounded,
           label: 'Laporan',
           subtitle: 'Statistik & ringkasan',
-          tone: const Color(0xFF475569),
+          tone: AppTheme.toneSlate,
           onTap: () => context.push(Routes.laporan),
         ),
     ];
@@ -316,7 +317,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          // ── Header hero with stats ──
+          // ── Header hero ──
           _buildHeader(
             authState: authState,
             userName: userName,
@@ -326,14 +327,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             suratSummaryAsync: suratSummaryAsync,
           ),
 
+          // ── Quick stat cards (admin only) ──
+          if (!isWarga) ...[
+            const SizedBox(height: 16),
+            _buildQuickStats(statsAsync, suratSummaryAsync),
+          ],
+
           // ── Setup hint ──
           if (showSetupMenu) _buildSetupHint(showSelfKkSetup: showSelfKkSetup),
 
           // ── Menu section header with view toggle ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 12, 0),
+            padding: const EdgeInsets.fromLTRB(20, 20, 12, 0),
             child: Row(
               children: [
+                // Accent bar
+                Container(
+                  width: 4,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Menu',
@@ -395,7 +412,61 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   // ─────────────────────────────────────────────────────────
-  // Header — compact, with real avatar
+  // Quick stat cards — signature horizontal cards below header
+  // ─────────────────────────────────────────────────────────
+  Widget _buildQuickStats(
+    AsyncValue<DashboardStats> statsAsync,
+    AsyncValue<SuratDashboardSummary> suratSummaryAsync,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: _QuickStatCard(
+              label: 'Warga',
+              value: statsAsync.maybeWhen(
+                data: (s) => s.totalWarga.toString(),
+                orElse: () => '—',
+              ),
+              icon: Icons.people_rounded,
+              color: AppTheme.toneRose,
+              onTap: () => context.push('${Routes.laporan}?focus=warga_total'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _QuickStatCard(
+              label: 'KK',
+              value: statsAsync.maybeWhen(
+                data: (s) => s.totalKk.toString(),
+                orElse: () => '—',
+              ),
+              icon: Icons.family_restroom_rounded,
+              color: AppTheme.toneAmber,
+              onTap: () => context.push('${Routes.laporan}?focus=kk_total'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _QuickStatCard(
+              label: 'Surat',
+              value: suratSummaryAsync.maybeWhen(
+                data: (s) => s.total.toString(),
+                orElse: () => '—',
+              ),
+              icon: Icons.mail_rounded,
+              color: AppTheme.toneCrimson,
+              onTap: () => context.push('${Routes.laporan}?focus=surat_total'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Header — dark, bold, with warm accent
   // ─────────────────────────────────────────────────────────
   Widget _buildHeader({
     required AuthState authState,
@@ -405,163 +476,119 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required AsyncValue<DashboardStats> statsAsync,
     required AsyncValue<SuratDashboardSummary> suratSummaryAsync,
   }) {
-    // Build avatar URL from PocketBase user record
-    final user = authState.user;
-    final avatarFile = user?.getStringValue('avatar') ?? '';
-    final avatarUrl = (avatarFile.isNotEmpty && user != null)
-        ? getFileUrl(user, avatarFile)
-        : null;
+    // Time-based greeting
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Selamat Pagi'
+        : hour < 17
+        ? 'Selamat Siang'
+        : 'Selamat Malam';
 
     return Container(
       decoration: const BoxDecoration(
         gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
       ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 8, 14),
+          padding: const EdgeInsets.fromLTRB(20, 10, 12, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Row 1: Avatar + Name + Role + Notification ──
+              // ── Row: Avatar + Greeting + Notification ──
               Row(
                 children: [
-                  // Avatar with network image or fallback initial
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Colors.white.withValues(alpha: 0.2),
-                    backgroundImage: avatarUrl != null
-                        ? NetworkImage(avatarUrl)
-                        : null,
-                    child: avatarUrl == null
-                        ? Text(
-                            userName.isNotEmpty
-                                ? userName[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          )
-                        : null,
+                  const CurrentUserAvatar(
+                    size: 40,
+                    showRing: true,
+                    ringColor: Colors.white24,
+                    backgroundColor: Color(0x33FFFFFF),
+                    textColor: Colors.white,
                   ),
-                  const SizedBox(width: 10),
-                  // Name + role badge inline
+                  const SizedBox(width: 12),
+                  // Name + greeting
                   Expanded(
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          child: Text(
-                            userName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        Text(
+                          greeting,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(
-                            roleLabel,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
+                        const SizedBox(height: 1),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                userName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: AppTheme.warmGradient,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                roleLabel,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                   // Notification icon
                   SizedBox(
-                    width: 36,
-                    height: 36,
+                    width: 38,
+                    height: 38,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      icon: const Icon(
-                        Icons.notifications_outlined,
-                        color: Colors.white,
-                        size: 20,
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.notifications_outlined,
+                          color: Colors.white,
+                          size: 20,
+                        ),
                       ),
                       onPressed: () => context.push(Routes.notifikasi),
                     ),
                   ),
                 ],
               ),
-              // ── Row 2: Inline stats (admin only) ──
-              if (!isWarga) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      _InlineStat(
-                        value: statsAsync.maybeWhen(
-                          data: (s) => s.totalWarga.toString(),
-                          orElse: () => '—',
-                        ),
-                        label: 'Warga',
-                        onTap: () =>
-                            context.push('${Routes.laporan}?focus=warga_total'),
-                      ),
-                      _statDivider(),
-                      _InlineStat(
-                        value: statsAsync.maybeWhen(
-                          data: (s) => s.totalKk.toString(),
-                          orElse: () => '—',
-                        ),
-                        label: 'KK',
-                        onTap: () =>
-                            context.push('${Routes.laporan}?focus=kk_total'),
-                      ),
-                      _statDivider(),
-                      _InlineStat(
-                        value: suratSummaryAsync.maybeWhen(
-                          data: (s) => s.total.toString(),
-                          orElse: () => '—',
-                        ),
-                        label: 'Surat',
-                        onTap: () =>
-                            context.push('${Routes.laporan}?focus=surat_total'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _statDivider() {
-    return Container(
-      width: 1,
-      height: 24,
-      color: Colors.white.withValues(alpha: 0.15),
     );
   }
 
@@ -575,19 +602,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: AppTheme.warningColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: AppTheme.warningColor.withValues(alpha: 0.2),
+            color: AppTheme.warningColor.withValues(alpha: 0.25),
           ),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.info_outline_rounded,
-              size: 18,
-              color: AppTheme.warningColor,
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppTheme.warningColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.info_outline_rounded,
+                size: 16,
+                color: AppTheme.warningColor,
+              ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 showSelfKkSetup
@@ -595,7 +629,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     : 'Lengkapi data warga Anda.',
                 style: AppTheme.bodySmall.copyWith(
                   color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -614,18 +648,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Section label
+          // Section label with accent dot
           Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Row(
               children: [
-                Icon(group.icon, size: 13, color: AppTheme.textTertiary),
-                const SizedBox(width: 5),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Text(
                   group.title.toUpperCase(),
                   style: AppTheme.caption.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.0,
                     fontSize: 10,
                     color: AppTheme.textTertiary,
                   ),
@@ -699,6 +740,88 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// QUICK STAT CARD — signature stat tile
+// ═══════════════════════════════════════════════════════════════════
+class _QuickStatCard extends StatelessWidget {
+  const _QuickStatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.15)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    color.withValues(alpha: 0.15),
+                    color.withValues(alpha: 0.05),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 17, color: color),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.textPrimary,
+                letterSpacing: -0.5,
+                height: 1,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: AppTheme.caption.copyWith(
+                color: AppTheme.textTertiary,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // VIEW TOGGLE BUTTON
 // ═══════════════════════════════════════════════════════════════════
 class _ViewToggleButton extends StatelessWidget {
@@ -734,7 +857,7 @@ class _ViewToggleButton extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// GRID CARD — compact 3-column card (icon + label)
+// GRID CARD — bold, warm-toned 3-column card
 // ═══════════════════════════════════════════════════════════════════
 class _GridCard extends StatelessWidget {
   final _MenuEntry entry;
@@ -745,40 +868,40 @@ class _GridCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: entry.onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: entry.tone.withValues(alpha: 0.12)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      entry.tone.withValues(alpha: 0.12),
-                      entry.tone.withValues(alpha: 0.05),
+                      entry.tone.withValues(alpha: 0.14),
+                      entry.tone.withValues(alpha: 0.04),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(13),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(entry.icon, size: 21, color: entry.tone),
+                child: Icon(entry.icon, size: 22, color: entry.tone),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 entry.label,
                 style: AppTheme.caption.copyWith(
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.textPrimary,
                   fontSize: 11,
                   height: 1.2,
@@ -814,11 +937,18 @@ class _ListRow extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  color: entry.tone.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  gradient: LinearGradient(
+                    colors: [
+                      entry.tone.withValues(alpha: 0.14),
+                      entry.tone.withValues(alpha: 0.04),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(11),
                 ),
                 child: Icon(entry.icon, size: 18, color: entry.tone),
               ),
@@ -831,7 +961,7 @@ class _ListRow extends StatelessWidget {
                     Text(
                       entry.label,
                       style: AppTheme.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w600,
+                        fontWeight: FontWeight.w700,
                         fontSize: 13.5,
                         height: 1.2,
                       ),
@@ -848,9 +978,9 @@ class _ListRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.chevron_right_rounded,
-                color: AppTheme.textTertiary,
+                color: entry.tone.withValues(alpha: 0.4),
                 size: 18,
               ),
             ],
@@ -862,52 +992,7 @@ class _ListRow extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// INLINE STAT — compact stat inside header
-// ═══════════════════════════════════════════════════════════════════
-class _InlineStat extends StatelessWidget {
-  const _InlineStat({required this.value, required this.label, this.onTap});
-
-  final String value;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-                height: 1.1,
-              ),
-            ),
-            const SizedBox(height: 1),
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.6),
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// SURAT SUMMARY — compact horizontal chips
+// SURAT SUMMARY — warm-toned horizontal chips
 // ═══════════════════════════════════════════════════════════════════
 class _SuratSummaryCard extends StatelessWidget {
   const _SuratSummaryCard({required this.summary, required this.onOpenFocus});
@@ -921,24 +1006,38 @@ class _SuratSummaryCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                Icons.mail_outline_rounded,
-                size: 16,
-                color: AppTheme.primaryColor,
+              Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Icon(
+                  Icons.mail_outline_rounded,
+                  size: 14,
+                  color: AppTheme.primaryColor,
+                ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Text(
                 'Ringkasan Surat',
                 style: AppTheme.caption.copyWith(
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   letterSpacing: 0.3,
                   fontSize: 11,
                   color: AppTheme.textSecondary,
@@ -946,37 +1045,37 @@ class _SuratSummaryCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               _chip(
                 'Total',
                 summary.total,
-                AppTheme.primaryColor,
+                AppTheme.toneRose,
                 () => onOpenFocus('surat_total'),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               _chip(
                 'Aksi',
                 summary.actionRequired,
-                AppTheme.accentColor,
+                AppTheme.toneAmber,
                 () => onOpenFocus('surat_action'),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               _chip(
                 'Revisi',
                 summary.needRevision,
-                AppTheme.warningColor,
+                AppTheme.toneGold,
                 () => onOpenFocus('surat_revision'),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               _chip(
                 'Selesai',
                 summary.completed,
                 AppTheme.successColor,
                 () => onOpenFocus('surat_completed'),
               ),
-              const SizedBox(width: 5),
+              const SizedBox(width: 6),
               _chip(
                 'Tolak',
                 summary.rejected,
@@ -995,10 +1094,10 @@ class _SuratSummaryCard extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1007,13 +1106,18 @@ class _SuratSummaryCard extends StatelessWidget {
                 value.toString(),
                 style: TextStyle(
                   color: color,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+              const SizedBox(height: 1),
               Text(
                 label,
-                style: AppTheme.caption.copyWith(fontSize: 9, color: color),
+                style: AppTheme.caption.copyWith(
+                  fontSize: 9,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),

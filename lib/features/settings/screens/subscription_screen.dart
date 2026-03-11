@@ -273,7 +273,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         onRefresh: () => _refreshAccount(showFeedback: false),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(AppTheme.paddingMedium),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
           children: [
             _buildHero(
               roleLabel: AppConstants.roleLabel(auth.role),
@@ -283,13 +283,13 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               selectedPlan: selectedPlan,
               canSelfSubscribe: canSelfSubscribe,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             if (!canSelfSubscribe)
               _buildNotice(
                 icon: Icons.lock_outline_rounded,
                 title: 'Role ini tidak bisa checkout sendiri',
                 description:
-                    'Sysadmin tidak memakai alur pembayaran self-service. Kelola akses dari menu manajemen user.',
+                    'Sysadmin tidak memakai alur pembayaran self-service.',
                 action: OutlinedButton(
                   onPressed: () => context.go(Routes.settings),
                   child: const Text('Kembali ke Settings'),
@@ -300,15 +300,15 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 hasCheckout: hasCheckout,
                 hasPremiumAccess: hasPremiumAccess,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 10),
               catalogAsync.when(
                 data: (catalog) {
                   if (catalog.plans.isEmpty) {
                     return _buildNotice(
                       icon: Icons.inventory_2_outlined,
-                      title: 'Belum ada paket yang bisa dibeli',
+                      title: 'Belum ada paket',
                       description:
-                          'Aktifkan plan di collection subscription_plans agar user bisa memilih role admin.',
+                          'Aktifkan plan di subscription_plans untuk memilih role admin.',
                     );
                   }
 
@@ -324,23 +324,23 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                               : 'Konfigurasi Midtrans di PocketBase belum lengkap.',
                           tone: AppTheme.errorColor,
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
                       ],
                       _buildPlanSelector(
                         auth: auth,
                         plans: catalog.plans,
                         selectedPlan: selectedPlan,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       _buildSummary(
                         auth: auth,
                         selectedPlan: selectedPlan,
                         statusLabel: currentStatusLabel,
                         statusColor: currentStatusColor,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       _buildCheckoutCard(),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
                       _buildActionCard(
                         auth: auth,
                         selectedPlan: selectedPlan,
@@ -353,9 +353,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 },
                 loading: () => _buildNotice(
                   icon: Icons.sync_rounded,
-                  title: 'Memuat paket subscription',
+                  title: 'Memuat paket...',
                   description:
-                      'Sistem sedang mengambil daftar paket admin, tagihan, dan durasi dari server.',
+                      'Mengambil daftar paket subscription dari server.',
                   loading: true,
                 ),
                 error: (error, _) => _buildNotice(
@@ -397,7 +397,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         : 'Paket ini akan meng-upgrade role Anda ke ${AppConstants.roleLabel(selectedPlan.targetRole)} setelah pembayaran sukses.';
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingLarge),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         gradient: AppTheme.headerGradient,
         borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
@@ -405,35 +405,63 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            roleLabel,
-            style: AppTheme.caption.copyWith(
-              color: Colors.white.withValues(alpha: 0.82),
-              letterSpacing: 1.2,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.workspace_premium_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Subscription & Pembayaran',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    Text(
+                      roleLabel,
+                      style: AppTheme.caption.copyWith(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'Kelola subscription admin',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               _pill(statusLabel, statusColor, filled: true),
               _pill(targetRoleLabel, Colors.white, filled: true),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             description,
-            style: AppTheme.bodyMedium.copyWith(color: Colors.white),
+            style: AppTheme.caption.copyWith(
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -447,18 +475,18 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final paymentDone = _checkout?.isPaid == true || hasPremiumAccess;
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: AppTheme.cardDecoration(),
       child: Row(
         children: [
           Expanded(
             child: _StepTile(
               index: '1',
-              title: 'Pilih paket',
+              title: 'Pilih',
               active: _selectedPlanCode.isNotEmpty,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _StepTile(
               index: '2',
@@ -466,7 +494,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               active: hasCheckout,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: _StepTile(index: '3', title: 'Bayar', active: paymentDone),
           ),
@@ -486,7 +514,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final accent = tone ?? AppTheme.primaryColor;
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.cardDecoration(
         color: accent.withValues(alpha: 0.04),
       ),
@@ -496,37 +524,37 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
           Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   color: accent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: loading
                     ? Padding(
-                        padding: const EdgeInsets.all(10),
+                        padding: const EdgeInsets.all(8),
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: accent,
                         ),
                       )
-                    : Icon(icon, color: accent),
+                    : Icon(icon, color: accent, size: 20),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   title,
-                  style: AppTheme.bodyLarge.copyWith(
+                  style: AppTheme.bodyMedium.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(description, style: AppTheme.bodyMedium),
+          const SizedBox(height: 6),
+          Text(description, style: AppTheme.bodySmall),
           if (action != null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             SizedBox(width: double.infinity, child: action),
           ],
         ],
@@ -540,21 +568,21 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     required SubscriptionPlan? selectedPlan,
   }) {
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Pilih paket admin',
-            style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           const Text(
-            'Hanya ada tiga role berbayar: Admin RT, Admin RW, dan Admin RW Pro.',
-            style: AppTheme.bodySmall,
+            'Role berbayar: Admin RT, Admin RW, Admin RW Pro.',
+            style: AppTheme.caption,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           ...plans.map((plan) {
             final isSelected = selectedPlan?.code == plan.code;
             final intent = _planIntentLabel(
@@ -563,99 +591,94 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             );
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.only(bottom: 8),
               child: InkWell(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(14),
                 onTap: () => setState(() => _selectedPlanCode = plan.code),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppTheme.primaryColor.withValues(alpha: 0.06)
                         : Colors.white,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
                           ? AppTheme.primaryColor
-                          : AppTheme.primaryColor.withValues(alpha: 0.12),
+                          : AppTheme.dividerColor,
                       width: isSelected ? 1.4 : 1,
                     ),
                   ),
-                  child: Column(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            isSelected
-                                ? Icons.radio_button_checked_rounded
-                                : Icons.radio_button_off_rounded,
-                            color: isSelected
-                                ? AppTheme.primaryColor
-                                : AppTheme.textSecondary,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                      Icon(
+                        isSelected
+                            ? Icons.radio_button_checked_rounded
+                            : Icons.radio_button_off_rounded,
+                        color: isSelected
+                            ? AppTheme.primaryColor
+                            : AppTheme.textTertiary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                Text(
-                                  plan.name,
-                                  style: AppTheme.bodyMedium.copyWith(
-                                    fontWeight: FontWeight.w800,
+                                Expanded(
+                                  child: Text(
+                                    plan.name,
+                                    style: AppTheme.bodySmall.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.textPrimary,
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    _pill(
-                                      AppConstants.roleLabel(plan.targetRole),
-                                      AppTheme.roleColor(plan.targetRole),
-                                    ),
-                                    _pill(
-                                      intent,
-                                      isSelected
-                                          ? AppTheme.primaryColor
-                                          : AppTheme.textSecondary,
-                                    ),
-                                  ],
+                                Text(
+                                  Formatters.rupiah(plan.amount),
+                                  style: AppTheme.bodySmall.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.primaryDark,
+                                  ),
                                 ),
                               ],
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            Formatters.rupiah(plan.amount),
-                            style: AppTheme.bodyMedium.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.primaryDark,
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                _pill(
+                                  AppConstants.roleLabel(plan.targetRole),
+                                  AppTheme.roleColor(plan.targetRole),
+                                ),
+                                _pill(
+                                  intent,
+                                  isSelected
+                                      ? AppTheme.primaryColor
+                                      : AppTheme.textSecondary,
+                                ),
+                                _pill(
+                                  '${plan.durationDays}hr',
+                                  AppTheme.toneCharcoal,
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(plan.description, style: AppTheme.bodySmall),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _miniInfo(
-                              'Durasi',
-                              '${plan.durationDays} hari',
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _miniInfo(
-                              'Tagihan',
-                              Formatters.rupiah(plan.amount),
-                            ),
-                          ),
-                        ],
+                            if (plan.description.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                plan.description,
+                                style: AppTheme.caption,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -691,7 +714,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         : 'Checkout ini akan meng-upgrade akses Anda ke ${AppConstants.roleLabel(selectedPlan.targetRole)}.';
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -701,7 +724,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               Expanded(
                 child: Text(
                   'Status & target akses',
-                  style: AppTheme.bodyLarge.copyWith(
+                  style: AppTheme.bodyMedium.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -709,7 +732,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               _pill(statusLabel, statusColor),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -718,19 +741,19 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   AppConstants.roleLabel(auth.role),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(child: _miniInfo('Setelah bayar', nextRoleLabel)),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(child: _miniInfo('Paket aktif', currentPlanLabel)),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(child: _miniInfo('Paket dipilih', targetPlanLabel)),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           _detailRow(
             'Mulai',
             auth.subscriptionStartedAt == null
@@ -743,15 +766,15 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 ? 'Belum dijadwalkan'
                 : Formatters.tanggalWaktu(auth.subscriptionExpiredAt!),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppTheme.primaryColor.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Text(note, style: AppTheme.bodySmall),
+            child: Text(note, style: AppTheme.caption),
           ),
         ],
       ),
@@ -770,7 +793,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     }
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -780,7 +803,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               Expanded(
                 child: Text(
                   'Checkout terakhir',
-                  style: AppTheme.bodyLarge.copyWith(
+                  style: AppTheme.bodyMedium.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -791,7 +814,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           _detailRow('Order ID', checkout.orderId),
           _detailRow('Plan', checkout.planName),
           _detailRow(
@@ -810,17 +833,17 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
             ),
           if (checkout.redirectUrl.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: AppTheme.primaryColor.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: SelectableText(
                 checkout.redirectUrl,
-                style: AppTheme.bodySmall.copyWith(color: AppTheme.primaryDark),
+                style: AppTheme.caption.copyWith(color: AppTheme.primaryDark),
               ),
             ),
           ],
@@ -839,31 +862,39 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final canCreateCheckout = selectedPlan != null && checkoutReady;
 
     return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       decoration: AppTheme.cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Aksi',
-            style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
+            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             checkoutReady
-                ? 'Gunakan Midtrans Sandbox untuk pengujian dev. Setelah bayar, cek status dan refresh akses.'
+                ? 'Buat checkout, bayar di Midtrans, lalu cek status.'
                 : ((checkoutMessage ?? '').trim().isNotEmpty
                       ? checkoutMessage!
-                      : 'Konfigurasi Midtrans belum siap, checkout sementara dinonaktifkan.'),
-            style: AppTheme.bodySmall,
+                      : 'Konfigurasi Midtrans belum siap.'),
+            style: AppTheme.caption,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: !canCreateCheckout || _isCreatingCheckout
                   ? null
                   : () => _createCheckout(selectedPlan.code),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: AppTheme.primaryColor.withValues(
+                  alpha: 0.25,
+                ),
+                disabledForegroundColor: Colors.white70,
+              ),
               icon: _isCreatingCheckout
                   ? const SizedBox(
                       width: 18,
@@ -887,7 +918,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -895,27 +926,33 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   onPressed: !hasCheckout || _isOpeningPayment
                       ? null
                       : _openPayment,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textPrimary,
+                  ),
                   icon: _isOpeningPayment
                       ? const SizedBox(
-                          width: 18,
-                          height: 18,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.open_in_new_rounded),
-                  label: const Text('Buka Pembayaran'),
+                      : const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Buka Bayar'),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: !hasCheckout ? null : _copyPaymentLink,
-                  icon: const Icon(Icons.copy_all_rounded),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textPrimary,
+                  ),
+                  icon: const Icon(Icons.copy_all_rounded, size: 16),
                   label: const Text('Salin Link'),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -923,29 +960,35 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   onPressed: !hasCheckout || _isCheckingStatus
                       ? null
                       : _checkStatus,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                  ),
                   icon: _isCheckingStatus
                       ? const SizedBox(
-                          width: 18,
-                          height: 18,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.sync_rounded),
-                  label: const Text('Cek Status Midtrans'),
+                      : const Icon(Icons.sync_rounded, size: 16),
+                  label: const Text('Cek Status'),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextButton.icon(
                   onPressed: _isRefreshingAccount
                       ? null
                       : () => _refreshAccount(showFeedback: true),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                  ),
                   icon: _isRefreshingAccount
                       ? const SizedBox(
-                          width: 18,
-                          height: 18,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.verified_user_outlined),
+                      : const Icon(Icons.verified_user_outlined, size: 16),
                   label: const Text('Refresh Akses'),
                 ),
               ),
@@ -1007,19 +1050,24 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
   Widget _miniInfo(String label, String value) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: AppTheme.primaryColor.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: AppTheme.caption),
-          const SizedBox(height: 6),
+          const SizedBox(height: 2),
           Text(
             value,
-            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+            style: AppTheme.bodySmall.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -1028,16 +1076,16 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
   Widget _detailRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 110, child: Text(label, style: AppTheme.caption)),
-          const Text(': '),
+          SizedBox(width: 90, child: Text(label, style: AppTheme.caption)),
+          const Text(': ', style: AppTheme.caption),
           Expanded(
             child: Text(
               value,
-              style: AppTheme.bodySmall.copyWith(color: AppTheme.textPrimary),
+              style: AppTheme.caption.copyWith(color: AppTheme.textPrimary),
             ),
           ),
         ],
@@ -1052,16 +1100,17 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     final foreground = color == Colors.white ? AppTheme.primaryDark : color;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: AppTheme.caption.copyWith(
-          color: foreground,
+        style: TextStyle(
+          fontSize: 10,
           fontWeight: FontWeight.w700,
+          color: foreground,
         ),
       ),
     );
@@ -1101,21 +1150,20 @@ class _StepTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = active ? AppTheme.primaryColor : AppTheme.textSecondary;
+    final tone = active ? AppTheme.primaryColor : AppTheme.textTertiary;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: tone.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: tone.withValues(alpha: 0.12)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
           Container(
-            width: 26,
-            height: 26,
+            width: 22,
+            height: 22,
             decoration: BoxDecoration(
               color: tone,
               borderRadius: BorderRadius.circular(999),
@@ -1126,14 +1174,22 @@ class _StepTile extends StatelessWidget {
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
+                  fontSize: 11,
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              title,
+              style: AppTheme.caption.copyWith(
+                fontWeight: FontWeight.w700,
+                color: active ? AppTheme.textPrimary : AppTheme.textTertiary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),

@@ -11,6 +11,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
 import '../../../shared/widgets/app_surface.dart';
+import '../../../shared/widgets/current_user_avatar.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/chat_providers.dart';
@@ -29,13 +30,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   _ChatSection _section = _ChatSection.inbox;
   bool _showArchived = false;
   String get _searchQuery => _searchCtrl.text.trim().toLowerCase();
-
-  void _triggerRefresh({bool includeAnnouncements = false}) {
-    ref.read(chatRefreshTickProvider.notifier).bump();
-    if (includeAnnouncements || _section == _ChatSection.announcements) {
-      ref.invalidate(chatAnnouncementsProvider);
-    }
-  }
 
   @override
   void dispose() {
@@ -60,9 +54,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             tooltip: _showArchived ? 'Tampilkan aktif' : 'Tampilkan arsip',
             onPressed: () => setState(() => _showArchived = !_showArchived),
             icon: Icon(
-              _showArchived
-                  ? Icons.unarchive_outlined
-                  : Icons.archive_outlined,
+              _showArchived ? Icons.unarchive_outlined : Icons.archive_outlined,
             ),
           ),
         ],
@@ -96,7 +88,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               hintText: switch (_section) {
                 _ChatSection.inbox => 'Cari nama, isi chat, atau percakapan...',
                 _ChatSection.groups => 'Cari grup, isi chat, atau RT/RW...',
-                _ChatSection.announcements => 'Cari judul, isi, atau pembuat...',
+                _ChatSection.announcements =>
+                  'Cari judul, isi, atau pembuat...',
               },
               value: _searchCtrl.text,
               onChanged: (value) {
@@ -114,21 +107,22 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       onRefresh: _refresh,
                       child: switch (_section) {
                         _ChatSection.inbox => _buildConversationList(
-                            items: bootstrapData.inbox,
-                            emptyTitle: 'Belum ada inbox layanan',
-                            emptySubtitle:
-                                'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
-                            emptyIcon: Icons.mark_chat_unread_outlined,
-                          ),
+                          items: bootstrapData.inbox,
+                          emptyTitle: 'Belum ada inbox layanan',
+                          emptySubtitle:
+                              'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
+                          emptyIcon: Icons.mark_chat_unread_outlined,
+                        ),
                         _ChatSection.groups => _buildConversationList(
-                            items: bootstrapData.groups,
-                            emptyTitle: 'Belum ada grup wilayah',
-                            emptySubtitle:
-                                'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
-                            emptyIcon: Icons.groups_2_outlined,
-                          ),
-                        _ChatSection.announcements =>
-                          _buildAnnouncementPreview(announcementsAsync),
+                          items: bootstrapData.groups,
+                          emptyTitle: 'Belum ada grup wilayah',
+                          emptySubtitle:
+                              'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
+                          emptyIcon: Icons.groups_2_outlined,
+                        ),
+                        _ChatSection.announcements => _buildAnnouncementPreview(
+                          announcementsAsync,
+                        ),
                       },
                     )
                   : bootstrapAsync.when(
@@ -136,22 +130,22 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         onRefresh: _refresh,
                         child: switch (_section) {
                           _ChatSection.inbox => _buildConversationList(
-                        items: data.inbox,
-                        emptyTitle: 'Belum ada inbox layanan',
-                        emptySubtitle:
-                            'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
-                        emptyIcon: Icons.mark_chat_unread_outlined,
-                      ),
-                    _ChatSection.groups => _buildConversationList(
-                        items: data.groups,
-                        emptyTitle: 'Belum ada grup wilayah',
-                        emptySubtitle:
-                            'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
-                        emptyIcon: Icons.groups_2_outlined,
-                      ),
-                    _ChatSection.announcements =>
-                      _buildAnnouncementPreview(announcementsAsync),
-                  },
+                            items: data.inbox,
+                            emptyTitle: 'Belum ada inbox layanan',
+                            emptySubtitle:
+                                'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
+                            emptyIcon: Icons.mark_chat_unread_outlined,
+                          ),
+                          _ChatSection.groups => _buildConversationList(
+                            items: data.groups,
+                            emptyTitle: 'Belum ada grup wilayah',
+                            emptySubtitle:
+                                'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
+                            emptyIcon: Icons.groups_2_outlined,
+                          ),
+                          _ChatSection.announcements =>
+                            _buildAnnouncementPreview(announcementsAsync),
+                        },
                       ),
                       loading: () =>
                           const Center(child: CircularProgressIndicator()),
@@ -189,34 +183,91 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     required ChatBootstrapData? data,
   }) {
     final title = switch (_section) {
-      _ChatSection.inbox => 'Inbox layanan warga dan pengurus',
+      _ChatSection.inbox => 'Inbox warga & pengurus',
       _ChatSection.groups => 'Forum RT dan koordinasi RW',
       _ChatSection.announcements => 'Pengumuman resmi wilayah Anda',
     };
 
-    return AppHeroPanel(
-      eyebrow: roleLabel,
-      icon: switch (_section) {
-        _ChatSection.inbox => Icons.mark_chat_read_outlined,
-        _ChatSection.groups => Icons.groups_outlined,
-        _ChatSection.announcements => Icons.campaign_outlined,
-      },
-      title: title,
-      subtitle: areaLabel.isEmpty ? authName : '$authName • $areaLabel',
-      chips: [
-        AppHeroBadge(
-          icon: Icons.mark_chat_read_rounded,
-          label: 'Inbox ${data?.inbox.length ?? 0}',
-          foregroundColor: AppTheme.primaryColor,
-          backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
-        ),
-        AppHeroBadge(
-          icon: Icons.groups_rounded,
-          label: 'Grup ${data?.groups.length ?? 0}',
-          foregroundColor: AppTheme.primaryColor,
-          backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
-        ),
-      ],
+    final subtitle = areaLabel.isEmpty ? authName : '$authName / $areaLabel';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      decoration: const BoxDecoration(
+        gradient: AppTheme.headerGradient,
+        borderRadius: BorderRadius.all(Radius.circular(22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CurrentUserAvatar(
+                size: 42,
+                showRing: true,
+                ringColor: Colors.white24,
+                backgroundColor: Color(0x33FFFFFF),
+                textColor: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTheme.bodyLarge.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: AppTheme.caption.copyWith(
+                        color: Colors.white.withValues(alpha: 0.76),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  roleLabel,
+                  style: AppTheme.caption.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _HeroStatChip(
+                icon: Icons.mark_chat_read_rounded,
+                label: 'Inbox ${data?.inbox.length ?? 0}',
+              ),
+              _HeroStatChip(
+                icon: Icons.groups_rounded,
+                label: 'Grup ${data?.groups.length ?? 0}',
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -248,9 +299,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             child: _SectionPill(
               label: 'Pengumuman',
               selected: _section == _ChatSection.announcements,
-              onTap: () => setState(
-                () => _section = _ChatSection.announcements,
-              ),
+              onTap: () =>
+                  setState(() => _section = _ChatSection.announcements),
             ),
           ),
         ],
@@ -283,7 +333,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   Icon(emptyIcon, size: 44, color: AppTheme.textSecondary),
                   const SizedBox(height: 12),
                   Text(
-                    _showArchived ? 'Belum ada chat yang diarsipkan' : emptyTitle,
+                    _showArchived
+                        ? 'Belum ada chat yang diarsipkan'
+                        : emptyTitle,
                     style: AppTheme.heading3,
                   ),
                   const SizedBox(height: 6),
@@ -309,11 +361,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final conversation = filtered[index];
-        final scopeLabel = conversation.isPrivate
-            ? 'Percakapan layanan'
-            : conversation.isGroupRt
-                ? 'RT ${conversation.rt.toString().padLeft(2, '0')} / RW ${conversation.rw.toString().padLeft(2, '0')}'
-                : 'RW ${conversation.rw.toString().padLeft(2, '0')}';
 
         return Slidable(
           key: ValueKey(conversation.id),
@@ -343,7 +390,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 icon: conversation.isPinned
                     ? Icons.push_pin_rounded
                     : Icons.push_pin_outlined,
-                label: conversation.isPinned ? 'Unpin' : 'Pin',
+                label: conversation.isPinned ? 'Lepas Pin' : 'Pin Chat',
               ),
             ],
           ),
@@ -395,48 +442,22 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             },
             borderRadius: BorderRadius.circular(18),
             child: Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppTheme.dividerColor),
                 boxShadow: [
                   BoxShadow(
                     color: AppTheme.primaryColor.withValues(alpha: 0.04),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                    gradient: conversation.isPrivate
-                        ? const LinearGradient(
-                            colors: [AppTheme.primaryColor, AppTheme.primaryLight],
-                          )
-                        : conversation.isGroupRt
-                            ? const LinearGradient(
-                                colors: [Color(0xFF2E5F55), AppTheme.primaryColor],
-                              )
-                            : const LinearGradient(
-                                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
-                              ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      conversation.isPrivate
-                          ? Icons.support_agent_rounded
-                          : conversation.isGroupRt
-                              ? Icons.groups_rounded
-                              : Icons.hub_rounded,
-                      color: Colors.white,
-                      size: 22,
-                    ),
-                  ),
+                  _ConversationLeadingAvatar(conversation: conversation),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -449,57 +470,64 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                 conversation.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppTheme.bodyLarge.copyWith(
+                                style: AppTheme.bodyMedium.copyWith(
                                   fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                  height: 1.2,
                                 ),
                               ),
                             ),
                             Text(
                               conversation.lastMessageAt != null
-                                  ? Formatters.waktuRingkas(conversation.lastMessageAt!)
+                                  ? Formatters.waktuRingkas(
+                                      conversation.lastMessageAt!,
+                                    )
                                   : '',
                               style: AppTheme.caption.copyWith(
                                 color: AppTheme.textSecondary,
+                                fontSize: 11,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 4),
                         Row(
-                          children: [
-                            Expanded(child: Text(scopeLabel, style: AppTheme.caption)),
-                            if (conversation.isPinned)
-                              const Icon(
-                                Icons.push_pin_rounded,
-                                size: 14,
-                                color: AppTheme.accentColor,
-                              ),
-                            if (conversation.isMuted) ...[
-                              const SizedBox(width: 6),
-                              const Icon(
-                                Icons.notifications_off_rounded,
-                                size: 14,
-                                color: AppTheme.textSecondary,
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Expanded(
                               child: Text(
-                                (conversation.lastMessage ?? '').trim().isNotEmpty
+                                (conversation.lastMessage ?? '')
+                                        .trim()
+                                        .isNotEmpty
                                     ? conversation.lastMessage!.trim()
-                                    : conversation.subtitle,
-                                maxLines: 2,
+                                    : 'Belum ada pesan',
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AppTheme.bodyMedium.copyWith(
+                                style: AppTheme.caption.copyWith(
                                   color: AppTheme.textSecondary,
-                                  height: 1.3,
+                                  fontSize: 11,
+                                  height: 1.2,
                                 ),
                               ),
                             ),
+                            if (conversation.isPinned)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 8),
+                                child: Icon(
+                                  Icons.push_pin_rounded,
+                                  size: 14,
+                                  color: AppTheme.accentColor,
+                                ),
+                              ),
+                            if (conversation.isMuted)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 6),
+                                child: Icon(
+                                  Icons.notifications_off_rounded,
+                                  size: 14,
+                                  color: AppTheme.textSecondary,
+                                ),
+                              ),
                             if (conversation.unreadCount > 0) ...[
                               const SizedBox(width: 8),
                               Container(
@@ -541,7 +569,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   ) {
     final data = announcementsAsync.asData?.value;
     if (data != null) {
-      final items = data.items.where(_matchesAnnouncementSearch).toList(growable: false);
+      final items = data.items
+          .where(_matchesAnnouncementSearch)
+          .toList(growable: false);
       if (items.isEmpty) {
         return ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -559,7 +589,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       color: AppTheme.textSecondary,
                     ),
                     const SizedBox(height: 12),
-                    Text('Tidak ada hasil pengumuman', style: AppTheme.heading3),
+                    Text(
+                      'Tidak ada hasil pengumuman',
+                      style: AppTheme.heading3,
+                    ),
                     const SizedBox(height: 6),
                     Text(
                       _searchQuery.isEmpty
@@ -596,7 +629,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.accentColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(999),
@@ -619,18 +655,64 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text(item.title, style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800)),
+                Text(
+                  item.title,
+                  style: AppTheme.bodyLarge.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
-                  item.content,
+                  item.content.trim().isNotEmpty
+                      ? item.content
+                      : item.hasAttachment
+                      ? 'Lampiran tersedia: ${item.attachmentName}'
+                      : '-',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: AppTheme.bodyMedium.copyWith(height: 1.35),
                 ),
+                if (item.hasAttachment) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F3EE),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppTheme.dividerColor),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.attach_file_rounded,
+                          size: 16,
+                          color: AppTheme.primaryColor,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item.attachmentName!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.bodySmall.copyWith(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'Oleh ${item.authorName}',
-                  style: AppTheme.caption.copyWith(color: AppTheme.textSecondary),
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -823,8 +905,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   }
 
   Future<void> _refresh() async {
-    _triggerRefresh(includeAnnouncements: true);
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    ref.invalidate(chatBootstrapProvider);
+    ref.invalidate(chatAnnouncementsProvider);
+    await ref.read(chatBootstrapProvider.future);
+    await ref.read(chatAnnouncementsProvider.future);
   }
 }
 
@@ -856,6 +940,7 @@ class _SectionPill extends StatelessWidget {
           label,
           textAlign: TextAlign.center,
           style: AppTheme.bodyMedium.copyWith(
+            fontSize: 13.5,
             color: selected ? Colors.white : AppTheme.textSecondary,
             fontWeight: FontWeight.w700,
           ),
@@ -865,4 +950,151 @@ class _SectionPill extends StatelessWidget {
   }
 }
 
+class _HeroStatChip extends StatelessWidget {
+  const _HeroStatChip({required this.icon, required this.label});
 
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConversationLeadingAvatar extends StatelessWidget {
+  const _ConversationLeadingAvatar({required this.conversation});
+
+  final ConversationModel conversation;
+
+  @override
+  Widget build(BuildContext context) {
+    if (conversation.isPrivate) {
+      return _AvatarCircle(
+        imageUrl: conversation.avatarUrl,
+        label: conversation.name,
+        size: 40,
+      );
+    }
+
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        gradient: conversation.isGroupRt
+            ? const LinearGradient(
+                colors: [Color(0xFF2E5F55), AppTheme.primaryColor],
+              )
+            : const LinearGradient(
+                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
+              ),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(
+        conversation.isGroupRt ? Icons.groups_rounded : Icons.hub_rounded,
+        color: Colors.white,
+        size: 22,
+      ),
+    );
+  }
+}
+
+class _AvatarCircle extends StatelessWidget {
+  const _AvatarCircle({
+    required this.imageUrl,
+    required this.label,
+    this.size = 36,
+  });
+
+  final String? imageUrl;
+  final String label;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeLabel = label.trim().isEmpty ? '?' : label.trim();
+    final normalizedUrl = (imageUrl ?? '').trim();
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: AppTheme.primaryColor.withValues(alpha: 0.18),
+        ),
+      ),
+      child: ClipOval(
+        child: normalizedUrl.isNotEmpty
+            ? Image.network(
+                normalizedUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _AvatarFallback(
+                  label: safeLabel,
+                  size: size,
+                  textColor: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.primaryColor.withValues(
+                    alpha: 0.12,
+                  ),
+                ),
+              )
+            : _AvatarFallback(
+                label: safeLabel,
+                size: size,
+                textColor: AppTheme.primaryColor,
+                backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+              ),
+      ),
+    );
+  }
+}
+
+class _AvatarFallback extends StatelessWidget {
+  const _AvatarFallback({
+    required this.label,
+    required this.size,
+    required this.textColor,
+    required this.backgroundColor,
+  });
+
+  final String label;
+  final double size;
+  final Color textColor;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      color: backgroundColor,
+      alignment: Alignment.center,
+      child: Text(
+        Formatters.inisial(label),
+        style: AppTheme.bodyMedium.copyWith(
+          color: textColor,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}

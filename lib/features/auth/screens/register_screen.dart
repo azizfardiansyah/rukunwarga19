@@ -219,7 +219,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'Registrasi publik selalu membuat akun Warga. Role admin_rt, admin_rw, admin_rw_pro, dan sysadmin ditetapkan oleh sysadmin.',
+                                          'Pendaftaran publik akan membuat akun warga terlebih dahulu. Akses fitur pengurus bisa dibuka nanti sesuai paket langganan dan wilayah yang dikelola.',
                                           style: AppTheme.bodySmall.copyWith(
                                             color: AppTheme.textPrimary,
                                             height: 1.45,

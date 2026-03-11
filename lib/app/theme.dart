@@ -7,68 +7,86 @@ class AppTheme {
   AppTheme._();
 
   // ═══════════════════════════════════════════════════════════════════
-  // COLORS — vibrant community blue identity
+  // COLORS — warm, bold, signature palette
+  // No green, blue, or purple. Coral / Charcoal / Amber identity.
   // ═══════════════════════════════════════════════════════════════════
-  static const Color primaryColor = Color(0xFF2563EB); // vibrant blue
-  static const Color primaryLight = Color(0xFF60A5FA);
-  static const Color primaryDark = Color(0xFF1D4ED8);
-  static const Color secondaryColor = Color(0xFF64748B); // slate
-  static const Color accentColor = Color(0xFFD97706); // amber-600
-  static const Color errorColor = Color(0xFFDC2626);
-  static const Color successColor = Color(0xFF16A34A);
-  static const Color warningColor = Color(0xFFF59E0B);
-  static const Color infoColor = Color(0xFF0EA5E9);
-  static const Color backgroundColor = Color(0xFFF8FAFC);
+  static const Color primaryColor = Color(0xFFE8453C);     // bold coral-red
+  static const Color primaryLight = Color(0xFFFF6F61);     // soft coral
+  static const Color primaryDark = Color(0xFFC02E25);      // deep crimson
+  static const Color secondaryColor = Color(0xFF3C3C3C);   // charcoal
+  static const Color accentColor = Color(0xFFE8983C);      // warm amber
+  static const Color errorColor = Color(0xFFD32F2F);       // classic red
+  static const Color successColor = Color(0xFF2E7D32);     // dark forest (muted)
+  static const Color warningColor = Color(0xFFF9A825);     // golden yellow
+  static const Color infoColor = Color(0xFFE8453C);        // same as primary — no blue
+  static const Color backgroundColor = Color(0xFFF5F2EE);  // warm off-white
   static const Color surfaceColor = Colors.white;
-  static const Color textPrimary = Color(0xFF0F172A);
-  static const Color textSecondary = Color(0xFF64748B);
-  static const Color textTertiary = Color(0xFF94A3B8);
-  static const Color dividerColor = Color(0xFFE2E8F0);
+  static const Color textPrimary = Color(0xFF1A1A1A);      // near-black
+  static const Color textSecondary = Color(0xFF6B6B6B);    // warm gray
+  static const Color textTertiary = Color(0xFFA3A3A3);     // light warm gray
+  static const Color dividerColor = Color(0xFFE5E0DA);     // warm divider
 
-  // Gradient colors
+  // Semantic tones for menus (distinct, warm-family, NO blue/green/purple)
+  static const Color toneRose = Color(0xFFE8453C);
+  static const Color toneAmber = Color(0xFFE8983C);
+  static const Color toneSienna = Color(0xFFB45309);
+  static const Color toneTerracotta = Color(0xFFD2691E);
+  static const Color toneCrimson = Color(0xFFC02E25);
+  static const Color toneCharcoal = Color(0xFF3C3C3C);
+  static const Color toneSlate = Color(0xFF6B6B6B);
+  static const Color tonePink = Color(0xFFE84575);
+  static const Color toneGold = Color(0xFFD4A017);
+
+  // Gradient colors — warm, dramatic
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFF1D4ED8), Color(0xFF2563EB), Color(0xFF3B82F6)],
+    colors: [Color(0xFFC02E25), Color(0xFFE8453C), Color(0xFFFF6F61)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient headerGradient = LinearGradient(
-    colors: [Color(0xFF1E3A5F), Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+    colors: [Color(0xFF1A1A1A), Color(0xFF2D2222), Color(0xFF3C2A2A)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
   static const LinearGradient surfaceGradient = LinearGradient(
-    colors: [Color(0xFFF8FAFC), Color(0xFFFFFFFF), Color(0xFFF1F5F9)],
+    colors: [Color(0xFFF5F2EE), Color(0xFFFFFFFF), Color(0xFFF0ECE6)],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
 
+  static const LinearGradient warmGradient = LinearGradient(
+    colors: [Color(0xFFE8453C), Color(0xFFE8983C)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
   // ═══════════════════════════════════════════════════════════════════
-  // TEXT STYLES
+  // TEXT STYLES — bolder, more character
   // ═══════════════════════════════════════════════════════════════════
   static const TextStyle heading1 = TextStyle(
-    fontSize: 28,
+    fontSize: 30,
+    fontWeight: FontWeight.w900,
+    color: textPrimary,
+    height: 1.1,
+    letterSpacing: -0.8,
+  );
+
+  static const TextStyle heading2 = TextStyle(
+    fontSize: 22,
     fontWeight: FontWeight.w800,
     color: textPrimary,
     height: 1.15,
     letterSpacing: -0.5,
   );
 
-  static const TextStyle heading2 = TextStyle(
-    fontSize: 22,
-    fontWeight: FontWeight.w700,
-    color: textPrimary,
-    height: 1.2,
-    letterSpacing: -0.3,
-  );
-
   static const TextStyle heading3 = TextStyle(
     fontSize: 17,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w700,
     color: textPrimary,
-    height: 1.3,
-    letterSpacing: -0.1,
+    height: 1.25,
+    letterSpacing: -0.2,
   );
 
   static const TextStyle bodyLarge = TextStyle(
@@ -102,14 +120,14 @@ class AppTheme {
 
   static const TextStyle buttonText = TextStyle(
     fontSize: 14,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w700,
     color: Colors.white,
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   );
 
   static const TextStyle labelMedium = TextStyle(
     fontSize: 12,
-    fontWeight: FontWeight.w600,
+    fontWeight: FontWeight.w700,
     color: textPrimary,
     letterSpacing: 0.3,
   );
@@ -151,7 +169,7 @@ class AppTheme {
           primary: primaryColor,
           secondary: secondaryColor,
           surface: surfaceColor,
-          surfaceContainerHighest: const Color(0xFFF1F5F9),
+          surfaceContainerHighest: const Color(0xFFF0ECE6),
           error: errorColor,
           onPrimary: Colors.white,
           onSurface: textPrimary,
@@ -180,7 +198,7 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: backgroundColor,
       appBarTheme: AppBarTheme(
-        backgroundColor: surfaceColor.withValues(alpha: 0.85),
+        backgroundColor: surfaceColor.withValues(alpha: 0.92),
         foregroundColor: textPrimary,
         elevation: 0,
         centerTitle: true,
@@ -188,9 +206,9 @@ class AppTheme {
         scrolledUnderElevation: 0.5,
         titleTextStyle: const TextStyle(
           fontSize: 17,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           color: textPrimary,
-          letterSpacing: -0.1,
+          letterSpacing: -0.2,
         ),
       ),
       cardTheme: CardThemeData(
@@ -230,12 +248,12 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: const Color(0xFFF8FAFC),
+        fillColor: const Color(0xFFF5F2EE),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: paddingMedium,
           vertical: 14,
@@ -273,7 +291,7 @@ class AppTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surfaceColor.withValues(alpha: 0.92),
+        backgroundColor: surfaceColor.withValues(alpha: 0.95),
         elevation: 0,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           return caption.copyWith(
@@ -297,7 +315,7 @@ class AppTheme {
         }),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: const Color(0xFFF1F5F9),
+        backgroundColor: const Color(0xFFF0ECE6),
         selectedColor: primaryLight.withValues(alpha: 0.15),
         labelStyle: bodySmall.copyWith(fontWeight: FontWeight.w500),
         shape: RoundedRectangleBorder(
@@ -312,7 +330,7 @@ class AppTheme {
         space: 0,
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: const Color(0xFF1A1A1A),
         contentTextStyle: bodyMedium.copyWith(color: Colors.white),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusMedium),
@@ -342,7 +360,7 @@ class AppTheme {
         labelColor: primaryColor,
         unselectedLabelColor: textTertiary,
         indicatorColor: primaryColor,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+        labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
         unselectedLabelStyle: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 13,
@@ -378,7 +396,7 @@ class AppTheme {
         centerTitle: true,
         titleTextStyle: TextStyle(
           fontSize: 17,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
       ),
@@ -477,6 +495,30 @@ class AppTheme {
           color: Colors.black.withValues(alpha: 0.02),
           blurRadius: 24,
           offset: const Offset(0, 8),
+        ),
+      ],
+    );
+  }
+
+  /// Signature elevated card with colored top accent stripe
+  static BoxDecoration accentCardDecoration({
+    required Color accentColor,
+    double borderRadius = radiusLarge,
+  }) {
+    return BoxDecoration(
+      color: surfaceColor,
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: dividerColor.withValues(alpha: 0.4)),
+      boxShadow: [
+        BoxShadow(
+          color: accentColor.withValues(alpha: 0.08),
+          blurRadius: 16,
+          offset: const Offset(0, 4),
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.03),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
         ),
       ],
     );

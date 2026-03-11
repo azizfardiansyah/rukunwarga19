@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import 'current_user_avatar.dart';
 
 class AppPageBackground extends StatelessWidget {
   const AppPageBackground({
@@ -46,6 +47,47 @@ class AppSurfaceCard extends StatelessWidget {
   }
 }
 
+/// Signature accent card with colored left stripe
+class AppAccentCard extends StatelessWidget {
+  const AppAccentCard({
+    super.key,
+    required this.child,
+    required this.accentColor,
+    this.padding = const EdgeInsets.all(14),
+    this.margin,
+    this.onTap,
+  });
+
+  final Widget child;
+  final Color accentColor;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? margin;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      decoration: AppTheme.accentCardDecoration(accentColor: accentColor),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Row(
+            children: [
+              Container(width: 4, color: accentColor),
+              Expanded(
+                child: Padding(padding: padding, child: child),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AppEmptyState extends StatelessWidget {
   const AppEmptyState({
     super.key,
@@ -69,15 +111,26 @@ class AppEmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 64,
-              height: 64,
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  colors: [
+                    AppTheme.primaryColor.withValues(alpha: 0.10),
+                    AppTheme.accentColor.withValues(alpha: 0.06),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
               ),
-              child: Icon(icon, size: 30, color: AppTheme.textTertiary),
+              child: Icon(
+                icon,
+                size: 32,
+                color: AppTheme.primaryColor.withValues(alpha: 0.6),
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Text(title, style: AppTheme.heading3, textAlign: TextAlign.center),
             const SizedBox(height: 6),
             Text(
@@ -85,7 +138,7 @@ class AppEmptyState extends StatelessWidget {
               style: AppTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
-            if (action != null) ...[const SizedBox(height: 16), action!],
+            if (action != null) ...[const SizedBox(height: 18), action!],
           ],
         ),
       ),
@@ -108,15 +161,25 @@ class AppSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        // Signature accent dot
+        Container(
+          width: 4,
+          height: 18,
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: AppTheme.heading3),
               if ((subtitle ?? '').isNotEmpty) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(subtitle!, style: AppTheme.bodySmall),
               ],
             ],
@@ -137,6 +200,7 @@ class AppHeroPanel extends StatelessWidget {
     this.icon,
     this.chips = const [],
     this.trailing,
+    this.showCurrentUserAvatar = true,
   });
 
   final String title;
@@ -145,19 +209,32 @@ class AppHeroPanel extends StatelessWidget {
   final IconData? icon;
   final List<Widget> chips;
   final Widget? trailing;
+  final bool showCurrentUserAvatar;
 
   @override
   Widget build(BuildContext context) {
-    // Compact minimalist inline header
+    final hasEyebrow = (eyebrow ?? '').isNotEmpty;
+    final trailingWidget = trailing;
+    final trailingChildren = trailingWidget == null
+        ? null
+        : <Widget>[trailingWidget];
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (icon != null) ...[
           Container(
-            padding: const EdgeInsets.all(7),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.primaryColor.withValues(alpha: 0.12),
+                  AppTheme.accentColor.withValues(alpha: 0.06),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: AppTheme.primaryColor, size: 18),
           ),
@@ -189,22 +266,37 @@ class AppHeroPanel extends StatelessWidget {
             ],
           ),
         ),
-        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
-        if ((eyebrow ?? '').isNotEmpty) ...[
+        if (trailing != null || showCurrentUserAvatar || hasEyebrow) ...[
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              eyebrow!,
-              style: AppTheme.caption.copyWith(
-                color: AppTheme.primaryColor,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...?trailingChildren,
+              if (showCurrentUserAvatar) ...[
+                if (trailingChildren != null) const SizedBox(width: 8),
+                const CurrentUserAvatar(size: 32),
+              ],
+              if (hasEyebrow) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    eyebrow!,
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ],

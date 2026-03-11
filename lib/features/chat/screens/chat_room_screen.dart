@@ -682,7 +682,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 icon: message.isPinned
                     ? Icons.push_pin_rounded
                     : Icons.push_pin_outlined,
-                label: message.isPinned ? 'Lepas Pin' : 'Pin',
+                label: message.isPinned ? 'Lepas Pin Pesan' : 'Pin Pesan',
                 onTap: () async {
                   Navigator.pop(context);
                   await _runMessageAction(() async {
@@ -725,6 +725,41 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     }
   }
 
+  Future<void> _toggleConversationPin() async {
+    final conversation = _data?.conversation;
+    if (conversation == null) {
+      return;
+    }
+
+    try {
+      await ref
+          .read(chatServiceProvider)
+          .setConversationPreference(
+            conversationId: conversation.id,
+            isPinned: !conversation.isPinned,
+          );
+      await _loadMessages(silent: true);
+      ref.invalidate(chatBootstrapProvider);
+      await ref.read(chatBootstrapProvider.future);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            conversation.isPinned
+                ? 'Pin chat dilepas'
+                : 'Chat dipin ke posisi teratas',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -750,29 +785,99 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final conversation = _data?.conversation;
+    final roomAvatarUrl = _resolveRoomAvatarUrl(conversation);
+    final roomHeaderBadgeLabel = _conversationHeaderBadgeLabel(conversation);
+    final auth = ref.watch(authProvider);
+    final currentUser = auth.user;
+    final currentUserAvatarFile = currentUser?.getStringValue('avatar') ?? '';
+    final currentUserAvatarUrl =
+        currentUser != null && currentUserAvatarFile.isNotEmpty
+        ? getFileUrl(currentUser, currentUserAvatarFile)
+        : null;
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        toolbarHeight: 88,
+        backgroundColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: AppTheme.headerGradient,
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+          ),
+        ),
+        title: Row(
           children: [
-            Text(
-              conversation?.name ?? 'Chat',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Kembali',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
             ),
-            if (conversation != null)
-              Text(
-                conversation.subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.caption.copyWith(
-                  color: Colors.white.withValues(alpha: 0.86),
-                ),
+            if (conversation != null) ...[
+              _RoomConversationAvatar(
+                conversation: conversation,
+                imageUrlOverride: roomAvatarUrl,
               ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    conversation?.name ?? 'Chat',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.heading3.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (conversation != null)
+                    Text(
+                      _conversationHeaderSubtitle(conversation),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.bodySmall.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
+        actions: [
+          if (conversation != null && roomHeaderBadgeLabel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Center(
+                child: _MessageSubscriptionBadge(
+                  label: roomHeaderBadgeLabel,
+                  planCode: conversation.participantPlanCode,
+                  systemRole: conversation.participantSystemRole,
+                ),
+              ),
+            ),
+          if (conversation != null)
+            IconButton(
+              tooltip: conversation.isPinned ? 'Lepas pin chat' : 'Pin chat',
+              onPressed: _toggleConversationPin,
+              icon: Icon(
+                conversation.isPinned
+                    ? Icons.push_pin_rounded
+                    : Icons.push_pin_outlined,
+                color: Colors.white,
+              ),
+            ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -788,56 +893,6 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         ),
         child: Column(
           children: [
-            if (conversation != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.dividerColor),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        conversation.isPrivate
-                            ? 'Inbox'
-                            : conversation.isGroupRt
-                            ? 'Grup RT'
-                            : 'Forum RW',
-                        style: AppTheme.caption.copyWith(
-                          color: AppTheme.primaryColor,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        conversation.lastMessageAt != null
-                            ? 'Aktif ${Formatters.waktuRingkas(conversation.lastMessageAt!)}'
-                            : conversation.subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             Expanded(
               child: _isLoading && _data == null
                   ? const Center(child: CircularProgressIndicator())
@@ -876,6 +931,8 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                           final message = _data!.messages[index];
                           return _MessageBubble(
                             message: message,
+                            roomAvatarUrl: roomAvatarUrl,
+                            currentUserAvatarUrl: currentUserAvatarUrl,
                             onOpenAttachment: message.hasAttachment
                                 ? () => _openAttachment(message)
                                 : null,
@@ -993,6 +1050,47 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         ),
       ),
     );
+  }
+
+  String _conversationHeaderSubtitle(ConversationModel conversation) {
+    final lastSeenAt = conversation.lastMessageAt;
+    if (lastSeenAt == null) {
+      return 'Last seen belum tersedia';
+    }
+    return 'Last seen ${Formatters.waktuRingkas(lastSeenAt)}';
+  }
+
+  String _conversationHeaderBadgeLabel(ConversationModel? conversation) {
+    if (conversation == null) {
+      return '';
+    }
+    final explicit = (conversation.badgeLabel ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+    if (!conversation.isPrivate) {
+      return '';
+    }
+    final participantRole = AppConstants.roleFromSystemRolePlan(
+      systemRole: conversation.participantSystemRole ?? '',
+      planCode: conversation.participantPlanCode ?? '',
+    );
+    return AppConstants.roleLabel(participantRole);
+  }
+
+  String? _resolveRoomAvatarUrl(ConversationModel? conversation) {
+    final explicit = (conversation?.avatarUrl ?? '').trim();
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    for (final message in _data?.messages ?? const <MessageModel>[]) {
+      final avatarUrl = (message.senderAvatarUrl ?? '').trim();
+      if (!message.isMine && avatarUrl.isNotEmpty) {
+        return avatarUrl;
+      }
+    }
+    return null;
   }
 }
 
@@ -1664,12 +1762,16 @@ class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.message,
     required this.onShowActions,
+    required this.roomAvatarUrl,
+    required this.currentUserAvatarUrl,
     this.onOpenAttachment,
     this.onVotePoll,
   });
 
   final MessageModel message;
   final VoidCallback onShowActions;
+  final String? roomAvatarUrl;
+  final String? currentUserAvatarUrl;
   final VoidCallback? onOpenAttachment;
   final Future<void> Function(List<String> optionIds)? onVotePoll;
 
@@ -1677,184 +1779,452 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isMine = message.isMine;
     final bubbleTextColor = isMine ? Colors.white : AppTheme.textPrimary;
-
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: onShowActions,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.8,
+    final badgeLabel = _messageBadgeLabel(message);
+    final sentAtLabel = message.createdAt != null
+        ? Formatters.waktu(message.createdAt!)
+        : '';
+    final bubble = GestureDetector(
+      onLongPress: onShowActions,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.76,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: isMine
+              ? AppTheme.primaryGradient
+              : const LinearGradient(
+                  colors: [Color(0xFFFFFFFF), Color(0xFFF8FBFA)],
+                ),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMine ? 16 : 6),
+            bottomRight: Radius.circular(isMine ? 6 : 16),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            gradient: isMine
-                ? AppTheme.primaryGradient
-                : const LinearGradient(
-                    colors: [Color(0xFFFFFFFF), Color(0xFFF8FBFA)],
-                  ),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(isMine ? 16 : 6),
-              bottomRight: Radius.circular(isMine ? 6 : 16),
+          border: isMine
+              ? null
+              : Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.9)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isMine ? 0.08 : 0.04),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
-            border: isMine
-                ? null
-                : Border.all(
-                    color: AppTheme.dividerColor.withValues(alpha: 0.9),
-                  ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (!isMine)
-                    Expanded(
-                      child: Text(
-                        message.senderName,
-                        style: AppTheme.caption.copyWith(
-                          color: AppTheme.primaryColor,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    )
-                  else
-                    const Spacer(),
-                  if (message.isStarred)
-                    Icon(Icons.star_rounded, size: 14, color: bubbleTextColor),
-                  if (message.isPinned) ...[
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.push_pin_rounded,
-                      size: 14,
-                      color: bubbleTextColor,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    message.senderName,
+                    textAlign: isMine ? TextAlign.right : TextAlign.left,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.caption.copyWith(
+                      color: isMine
+                          ? Colors.white.withValues(alpha: 0.94)
+                          : AppTheme.primaryColor,
+                      fontWeight: FontWeight.w700,
                     ),
-                  ],
+                  ),
+                ),
+                if (badgeLabel.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  _MessageSubscriptionBadge(
+                    label: badgeLabel,
+                    planCode: message.senderPlanCode,
+                    systemRole: message.senderSystemRole,
+                  ),
                 ],
-              ),
-              if (!isMine) const SizedBox(height: 3),
-              if (message.isForwarded) ...[
-                Text(
-                  'Diteruskan${(message.forwardedFromName ?? '').isNotEmpty ? ' dari ${message.forwardedFromName}' : ''}',
-                  style: AppTheme.caption.copyWith(
-                    color: isMine
-                        ? Colors.white.withValues(alpha: 0.82)
-                        : AppTheme.textSecondary,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-                const SizedBox(height: 4),
-              ],
-              if (message.hasReply)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isMine
-                        ? Colors.white.withValues(alpha: 0.14)
-                        : const Color(0xFFF4F7F5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        message.replySenderName ?? 'Pesan sebelumnya',
-                        style: AppTheme.caption.copyWith(
-                          color: isMine ? Colors.white : AppTheme.primaryColor,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        message.replySnippet ?? 'Pesan',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTheme.caption.copyWith(
-                          color: isMine
-                              ? Colors.white.withValues(alpha: 0.88)
-                              : AppTheme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              if (message.isDeleted)
-                Text(
-                  'Pesan dihapus',
-                  style: AppTheme.bodyMedium.copyWith(
-                    color: bubbleTextColor.withValues(alpha: 0.88),
-                    fontStyle: FontStyle.italic,
-                  ),
-                )
-              else ...[
-                if (message.isPoll && message.poll != null)
-                  _PollMessageCard(
-                    message: message,
-                    isMine: isMine,
-                    textColor: bubbleTextColor,
-                    onVote: onVotePoll,
-                  )
-                else if (message.isVoice)
-                  _VoiceMessageCard(
-                    message: message,
-                    isMine: isMine,
-                    textColor: bubbleTextColor,
-                    onOpenAttachment: onOpenAttachment,
-                  )
-                else if (message.hasAttachment)
-                  _MessageAttachmentPreview(
-                    message: message,
-                    isMine: isMine,
-                    onOpenAttachment: onOpenAttachment,
-                    textColor: bubbleTextColor,
-                    bottomSpacing: message.text.isEmpty ? 0 : 8,
-                  ),
-                if (message.text.isNotEmpty && !message.isPoll)
-                  _LinkifiedText(
-                    text: message.text,
-                    style: AppTheme.bodyMedium.copyWith(
-                      color: bubbleTextColor,
-                      height: 1.35,
-                    ),
-                  ),
-              ],
-              const SizedBox(height: 5),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+                if (sentAtLabel.isNotEmpty) ...[
+                  const SizedBox(width: 8),
                   Text(
-                    message.createdAt != null
-                        ? Formatters.waktu(message.createdAt!)
-                        : '',
+                    sentAtLabel,
                     style: AppTheme.caption.copyWith(
                       color: isMine
                           ? Colors.white.withValues(alpha: 0.84)
                           : AppTheme.textSecondary,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: onShowActions,
+                ],
+                const SizedBox(width: 2),
+                GestureDetector(
+                  onTap: onShowActions,
+                  child: Icon(
+                    Icons.expand_more_rounded,
+                    size: 16,
+                    color: isMine
+                        ? Colors.white.withValues(alpha: 0.84)
+                        : AppTheme.textSecondary,
+                  ),
+                ),
+                if (message.isStarred)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
                     child: Icon(
-                      Icons.expand_more_rounded,
-                      size: 16,
-                      color: isMine
-                          ? Colors.white.withValues(alpha: 0.84)
-                          : AppTheme.textSecondary,
+                      Icons.star_rounded,
+                      size: 14,
+                      color: bubbleTextColor,
+                    ),
+                  ),
+                if (message.isPinned) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Icon(
+                      Icons.push_pin_rounded,
+                      size: 14,
+                      color: bubbleTextColor,
                     ),
                   ),
                 ],
+              ],
+            ),
+            if (!isMine) const SizedBox(height: 3),
+            if (message.isForwarded) ...[
+              Text(
+                'Diteruskan${(message.forwardedFromName ?? '').isNotEmpty ? ' dari ${message.forwardedFromName}' : ''}',
+                style: AppTheme.caption.copyWith(
+                  color: isMine
+                      ? Colors.white.withValues(alpha: 0.82)
+                      : AppTheme.textSecondary,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
+            if (message.hasReply)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: isMine
+                      ? Colors.white.withValues(alpha: 0.14)
+                      : const Color(0xFFF4F7F5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      message.replySenderName ?? 'Pesan sebelumnya',
+                      style: AppTheme.caption.copyWith(
+                        color: isMine ? Colors.white : AppTheme.primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      message.replySnippet ?? 'Pesan',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: isMine
+                            ? Colors.white.withValues(alpha: 0.88)
+                            : AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (message.isDeleted)
+              Text(
+                'Pesan dihapus',
+                style: AppTheme.bodyMedium.copyWith(
+                  color: bubbleTextColor.withValues(alpha: 0.88),
+                  fontStyle: FontStyle.italic,
+                ),
+              )
+            else ...[
+              if (message.isPoll && message.poll != null)
+                _PollMessageCard(
+                  message: message,
+                  isMine: isMine,
+                  textColor: bubbleTextColor,
+                  onVote: onVotePoll,
+                )
+              else if (message.isVoice)
+                _VoiceMessageCard(
+                  message: message,
+                  isMine: isMine,
+                  textColor: bubbleTextColor,
+                  onOpenAttachment: onOpenAttachment,
+                )
+              else if (message.hasAttachment)
+                _MessageAttachmentPreview(
+                  message: message,
+                  isMine: isMine,
+                  onOpenAttachment: onOpenAttachment,
+                  textColor: bubbleTextColor,
+                  bottomSpacing: message.text.isEmpty ? 0 : 8,
+                ),
+              if (message.text.isNotEmpty && !message.isPoll)
+                _LinkifiedText(
+                  text: message.text,
+                  style: AppTheme.bodyMedium.copyWith(
+                    color: bubbleTextColor,
+                    height: 1.35,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    return Align(
+      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          mainAxisAlignment: isMine
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isMine) ...[
+              _ChatParticipantAvatar(
+                imageUrl: message.senderAvatarUrl ?? roomAvatarUrl,
+                label: message.senderName,
+              ),
+              const SizedBox(width: 8),
+            ],
+            bubble,
+            if (isMine) ...[
+              const SizedBox(width: 8),
+              _ChatParticipantAvatar(
+                imageUrl: message.senderAvatarUrl ?? currentUserAvatarUrl,
+                label: message.senderName,
               ),
             ],
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _messageBadgeLabel(MessageModel message) {
+  final explicit = (message.senderBadgeLabel ?? '').trim();
+  if (explicit.isNotEmpty) {
+    return explicit;
+  }
+
+  final systemRole = AppConstants.normalizeSystemRole(
+    message.senderSystemRole ?? '',
+  );
+  if (systemRole == AppConstants.systemRoleSysadmin) {
+    return 'Sysadmin';
+  }
+  if (systemRole == AppConstants.systemRoleWarga) {
+    return 'Warga';
+  }
+
+  final planCode = AppConstants.normalizePlanCode(message.senderPlanCode ?? '');
+  switch (planCode) {
+    case AppConstants.planRwPro:
+      return 'Admin RW Pro';
+    case AppConstants.planRw:
+      return 'Admin RW';
+    case AppConstants.planRt:
+      return 'Admin RT';
+    default:
+      return AppConstants.planCodeLabel(planCode);
+  }
+}
+
+class _MessageSubscriptionBadge extends StatelessWidget {
+  const _MessageSubscriptionBadge({
+    required this.label,
+    required this.planCode,
+    required this.systemRole,
+  });
+
+  final String label;
+  final String? planCode;
+  final String? systemRole;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedSystemRole = AppConstants.normalizeSystemRole(
+      systemRole ?? '',
+    );
+    final normalizedPlanCode = AppConstants.normalizePlanCode(planCode ?? '');
+
+    Color foreground;
+    List<Color> background;
+
+    if (normalizedSystemRole == AppConstants.systemRoleSysadmin) {
+      foreground = Colors.white;
+      background = const [Color(0xFF2B2F38), Color(0xFF515B70)];
+    } else {
+      switch (normalizedPlanCode) {
+        case AppConstants.planRwPro:
+          foreground = const Color(0xFF5C3A00);
+          background = const [Color(0xFFFFD977), Color(0xFFFFF2C2)];
+          break;
+        case AppConstants.planRw:
+          foreground = Colors.white;
+          background = const [Color(0xFFE85B4A), Color(0xFFFF8D6D)];
+          break;
+        case AppConstants.planRt:
+          foreground = Colors.white;
+          background = const [Color(0xFF2E7D6D), Color(0xFF55B6A0)];
+          break;
+        default:
+          foreground = AppTheme.textSecondary;
+          background = const [Color(0xFFE9ECEB), Color(0xFFF6F8F7)];
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: background),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: AppTheme.caption.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w800,
+          fontSize: 10,
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatParticipantAvatar extends StatelessWidget {
+  const _ChatParticipantAvatar({required this.imageUrl, required this.label});
+
+  final String? imageUrl;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeLabel = label.trim().isEmpty ? '?' : label.trim();
+    final normalizedUrl = (imageUrl ?? '').trim();
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+      child: ClipOval(
+        child: normalizedUrl.isNotEmpty
+            ? Image.network(
+                normalizedUrl,
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _RoomAvatarFallback(
+                  label: safeLabel,
+                  size: 32,
+                  textColor: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.primaryColor.withValues(
+                    alpha: 0.12,
+                  ),
+                ),
+              )
+            : _RoomAvatarFallback(
+                label: safeLabel,
+                size: 32,
+                textColor: AppTheme.primaryColor,
+                backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+              ),
+      ),
+    );
+  }
+}
+
+class _RoomConversationAvatar extends StatelessWidget {
+  const _RoomConversationAvatar({
+    required this.conversation,
+    this.imageUrlOverride,
+  });
+
+  final ConversationModel conversation;
+  final String? imageUrlOverride;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedImageUrl = (imageUrlOverride ?? conversation.avatarUrl ?? '')
+        .trim();
+
+    if (conversation.isPrivate) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.white.withValues(alpha: 0.16),
+        child: ClipOval(
+          child: resolvedImageUrl.isNotEmpty
+              ? Image.network(
+                  resolvedImageUrl,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => _RoomAvatarFallback(
+                    label: conversation.name,
+                    size: 40,
+                    textColor: Colors.white,
+                    backgroundColor: Colors.white.withValues(alpha: 0.16),
+                  ),
+                )
+              : _RoomAvatarFallback(
+                  label: conversation.name,
+                  size: 40,
+                  textColor: Colors.white,
+                  backgroundColor: Colors.white.withValues(alpha: 0.16),
+                ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        conversation.isGroupRt ? Icons.groups_rounded : Icons.hub_rounded,
+        color: Colors.white,
+        size: 18,
+      ),
+    );
+  }
+}
+
+class _RoomAvatarFallback extends StatelessWidget {
+  const _RoomAvatarFallback({
+    required this.label,
+    required this.size,
+    required this.textColor,
+    required this.backgroundColor,
+  });
+
+  final String label;
+  final double size;
+  final Color textColor;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      color: backgroundColor,
+      alignment: Alignment.center,
+      child: Text(
+        Formatters.inisial(label),
+        style: AppTheme.caption.copyWith(
+          color: textColor,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

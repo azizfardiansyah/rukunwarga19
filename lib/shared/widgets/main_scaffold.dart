@@ -128,10 +128,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
   int _getSelectedIndex(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    if (location == Routes.dashboard) return 0;
-    if (location == Routes.warga) return 1;
-    if (location == Routes.chat) return 2;
-    if (location == Routes.settings) return 3;
+    if (location == Routes.dashboard || location == Routes.warga) return 0;
+    if (location == Routes.chat) return 1;
+    if (location == Routes.settings) return 2;
     return 0;
   }
 
@@ -172,12 +171,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
                   context.go(Routes.dashboard);
                   break;
                 case 1:
-                  context.go(Routes.warga);
-                  break;
-                case 2:
                   context.go(Routes.chat);
                   break;
-                case 3:
+                case 2:
                   context.go(Routes.settings);
                   break;
               }
@@ -187,11 +183,6 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
                 icon: Icon(Icons.space_dashboard_outlined),
                 selectedIcon: Icon(Icons.space_dashboard),
                 label: 'Dashboard',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.people_outline_rounded),
-                selectedIcon: Icon(Icons.people_rounded),
-                label: 'Warga',
               ),
               NavigationDestination(
                 icon: unreadCount > 0
