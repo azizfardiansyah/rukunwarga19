@@ -194,12 +194,7 @@ class _FinanceFormScreenState extends ConsumerState<FinanceFormScreen> {
     return FinanceScreenShell(
       title: isEditing ? 'Edit Draft' : 'Buat Transaksi',
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppTheme.paddingMedium,
-          AppTheme.paddingMedium,
-          AppTheme.paddingMedium,
-          AppTheme.paddingLarge,
-        ),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
         children: [
           FinanceSectionCard(
             title: isEditing

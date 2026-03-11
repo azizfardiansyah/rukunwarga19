@@ -151,7 +151,7 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
               subtitle:
                   'Buat satu periode, pilih target KK, lalu sistem akan membuat tagihan penuh sesuai nominal yang Anda tetapkan.',
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             AppSurfaceCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

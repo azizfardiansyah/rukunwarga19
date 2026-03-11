@@ -61,7 +61,7 @@ Aturan per komponen:
 - FAB/action bar: terasa penting tapi tidak mengganggu
 
 Aturan warna dan tema:
-- pertahankan identitas hijau/komunitas project ini, tapi naikkan kualitas tone dan kontras
+- rubah identitas menjadi biru cerah/komunitas project ini, tapi naikkan kualitas tone dan kontras
 - gunakan semantic color yang jelas untuk success, warning, danger, info, pending
 - jangan gunakan warna hanya untuk dekorasi; warna harus membantu memahami state
 

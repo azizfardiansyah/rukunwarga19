@@ -75,15 +75,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           data: (data) => Column(
             children: [
               _buildHero(auth, data),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               AppSearchBar(
                 hintText: 'Cari tagihan, jenis iuran, KK, atau catatan',
                 value: _query,
                 onChanged: (value) => setState(() => _query = value),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _buildTabs(isAdminView),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: () async =>

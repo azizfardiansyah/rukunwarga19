@@ -171,9 +171,9 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     final isAdmin = auth.isAdmin;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail Kartu Keluarga')),
+      appBar: AppBar(title: const Text('Detail KK')),
       body: AppPageBackground(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
         child: FutureBuilder<_KkDetailData>(
           future: _loadDetail(),
           builder: (context, snapshot) {
@@ -207,14 +207,15 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
             final kk = data.kk;
             final kkOwnerId = data.kkRecord.getStringValue('user_id');
             final canManage =
-                isAdmin || (auth.user?.id != null && auth.user!.id == kkOwnerId);
+                isAdmin ||
+                (auth.user?.id != null && auth.user!.id == kkOwnerId);
 
             return SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildHero(kk, data.anggotaRecords.length),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildSection(
                     icon: Icons.location_on_rounded,
                     title: 'Alamat KK',
@@ -226,38 +227,40 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                           value: 'RT ${kk.rt} / RW ${kk.rw}',
                         ),
                         _InfoRow(
-                          label: 'Desa/Kelurahan',
+                          label: 'Desa/Kel.',
                           value: (kk.desaKelurahan ?? '').isEmpty
                               ? '-'
                               : kk.desaKelurahan!,
                         ),
                         _InfoRow(
                           label: 'Kecamatan',
-                          value:
-                              (kk.kecamatan ?? '').isEmpty ? '-' : kk.kecamatan!,
+                          value: (kk.kecamatan ?? '').isEmpty
+                              ? '-'
+                              : kk.kecamatan!,
                         ),
                         _InfoRow(
-                          label: 'Kabupaten/Kota',
+                          label: 'Kab./Kota',
                           value: (kk.kabupatenKota ?? '').isEmpty
                               ? '-'
                               : kk.kabupatenKota!,
                         ),
                         _InfoRow(
                           label: 'Provinsi',
-                          value:
-                              (kk.provinsi ?? '').isEmpty ? '-' : kk.provinsi!,
+                          value: (kk.provinsi ?? '').isEmpty
+                              ? '-'
+                              : kk.provinsi!,
                           isLast: true,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   _buildSection(
                     icon: Icons.preview_rounded,
-                    title: 'Preview File KK',
+                    title: 'File KK',
                     child: _buildScanPreview(kkRecord: data.kkRecord, kk: kk),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   if (canManage) ...[
                     _buildSection(
                       icon: Icons.auto_awesome_rounded,
@@ -271,11 +274,13 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                                   label: 'Edit KK',
                                   icon: Icons.edit_rounded,
                                   onTap: () => _refreshAfter(
-                                    context.push('${Routes.kkForm}?id=${kk.id}'),
+                                    context.push(
+                                      '${Routes.kkForm}?id=${kk.id}',
+                                    ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: _actionButton(
                                   label: 'Tambah Anggota',
@@ -289,7 +294,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton.icon(
@@ -298,18 +303,24 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                                 foregroundColor: AppTheme.errorColor,
                                 side: BorderSide(
                                   color: AppTheme.errorColor.withValues(
-                                    alpha: 0.45,
+                                    alpha: 0.35,
                                   ),
                                 ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
                               ),
-                              icon: const Icon(Icons.delete_outline_rounded),
+                              icon: const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 18,
+                              ),
                               label: const Text('Hapus KK'),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
                   ],
                   _buildSection(
                     icon: Icons.groups_rounded,
@@ -318,9 +329,8 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                     child: data.anggotaRecords.isEmpty
                         ? AppEmptyState(
                             icon: Icons.person_search_rounded,
-                            title: 'Belum ada anggota keluarga',
-                            message:
-                                'Tambahkan anggota dari menu aksi cepat agar struktur keluarga tampil lengkap.',
+                            title: 'Belum ada anggota',
+                            message: 'Tambahkan anggota dari menu aksi cepat.',
                           )
                         : Column(
                             children: List.generate(
@@ -330,7 +340,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                                   bottom:
                                       index == data.anggotaRecords.length - 1
                                       ? 0
-                                      : 12,
+                                      : 8,
                                 ),
                                 child: _buildMemberCard(
                                   anggotaRecord: data.anggotaRecords[index],
@@ -351,96 +361,88 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
   }
 
   Widget _buildHero(KartuKeluargaModel kk, int totalAnggota) {
-    return AppTheme.glassContainer(
-      opacity: 0.78,
-      padding: EdgeInsets.zero,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              AppTheme.primaryColor.withValues(alpha: 0.95),
-              AppTheme.primaryLight.withValues(alpha: 0.92),
-              AppTheme.secondaryColor.withValues(alpha: 0.9),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        ),
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: const Icon(
-                    Icons.credit_card_rounded,
-                    color: Colors.white,
-                    size: 28,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Kartu Keluarga',
-                        style: AppTheme.caption.copyWith(
-                          color: Colors.white.withValues(alpha: 0.82),
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        Formatters.formatNoKk(kk.noKk),
-                        style: AppTheme.heading2.copyWith(
-                          color: Colors.white,
-                          height: 1.1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _heroChip(
-                  icon: Icons.people_alt_rounded,
-                  text: '$totalAnggota anggota',
-                ),
-                _heroChip(
-                  icon: Icons.home_rounded,
-                  text: 'RT ${kk.rt}/${kk.rw}',
-                ),
-                if ((kk.kecamatan ?? '').isNotEmpty)
-                  _heroChip(
-                    icon: Icons.location_city_rounded,
-                    text: kk.kecamatan!,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              kk.alamat,
-              style: AppTheme.bodyMedium.copyWith(
-                color: Colors.white.withValues(alpha: 0.9),
-                height: 1.35,
-              ),
-            ),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor.withValues(alpha: 0.95),
+            AppTheme.primaryLight.withValues(alpha: 0.90),
           ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  Icons.credit_card_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Kartu Keluarga',
+                      style: AppTheme.caption.copyWith(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      Formatters.formatNoKk(kk.noKk),
+                      style: AppTheme.heading3.copyWith(
+                        color: Colors.white,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _heroChip(
+                icon: Icons.people_alt_rounded,
+                text: '$totalAnggota anggota',
+              ),
+              _heroChip(icon: Icons.home_rounded, text: 'RT ${kk.rt}/${kk.rw}'),
+              if ((kk.kecamatan ?? '').isNotEmpty)
+                _heroChip(
+                  icon: Icons.location_city_rounded,
+                  text: kk.kecamatan!,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            kk.alamat,
+            style: AppTheme.bodySmall.copyWith(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 13,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -452,25 +454,31 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     Widget? trailing,
   }) {
     return AppSurfaceCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 18, color: AppTheme.primaryColor),
+                child: Icon(icon, size: 16, color: AppTheme.primaryColor),
               ),
-              const SizedBox(width: 10),
-              Expanded(child: Text(title, style: AppTheme.heading3)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTheme.heading3.copyWith(fontSize: 15),
+                ),
+              ),
               if (trailing case final Widget trailingWidget) trailingWidget,
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           child,
         ],
       ),
@@ -485,25 +493,30 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     if (fileName.isEmpty) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(22),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.68),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+          color: const Color(0xFFF8FAFB),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppTheme.dividerColor.withValues(alpha: 0.5),
+          ),
         ),
         child: Column(
           children: [
             Icon(
               Icons.image_not_supported_outlined,
-              size: 42,
-              color: AppTheme.textSecondary.withValues(alpha: 0.42),
+              size: 36,
+              color: AppTheme.textSecondary.withValues(alpha: 0.35),
             ),
-            const SizedBox(height: 10),
-            Text('Belum ada file scan KK', style: AppTheme.bodyMedium),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
-              'Unggah file KK di form edit agar preview dapat ditampilkan di sini.',
-              style: AppTheme.bodySmall,
+              'Belum ada file scan KK',
+              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Unggah file KK di form edit.',
+              style: AppTheme.caption,
               textAlign: TextAlign.center,
             ),
           ],
@@ -518,32 +531,27 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(12),
           child: AspectRatio(
             aspectRatio: 16 / 10,
             child: isPdf
                 ? Container(
-                    color: Colors.white.withValues(alpha: 0.74),
+                    color: const Color(0xFFF8FAFB),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Icon(
                           Icons.picture_as_pdf_rounded,
-                          size: 56,
+                          size: 42,
                           color: AppTheme.errorColor,
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Text(
-                          'Preview langsung untuk PDF belum tersedia.',
-                          style: AppTheme.bodyMedium.copyWith(
-                            fontWeight: FontWeight.w700,
+                          'Preview PDF belum tersedia.',
+                          style: AppTheme.bodySmall.copyWith(
+                            fontWeight: FontWeight.w600,
                           ),
                           textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Buka file untuk melihat dokumen lengkap.',
-                          style: AppTheme.bodySmall,
                         ),
                       ],
                     ),
@@ -556,7 +564,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                         fileUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => Container(
-                          color: Colors.white.withValues(alpha: 0.74),
+                          color: const Color(0xFFF8FAFB),
                           child: const Center(
                             child: Text('Preview file tidak tersedia'),
                           ),
@@ -566,21 +574,33 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                   ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         Wrap(
-          spacing: 10,
-          runSpacing: 10,
+          spacing: 8,
+          runSpacing: 8,
           children: [
             ElevatedButton.icon(
               onPressed: () => _openFileUrl(fileUrl),
-              icon: const Icon(Icons.open_in_new_rounded),
-              label: Text(isPdf ? 'Buka PDF KK' : 'Buka File KK'),
+              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+              label: Text(isPdf ? 'Buka PDF' : 'Buka File'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+              ),
             ),
             if (!isPdf)
               OutlinedButton.icon(
                 onPressed: () => _showImagePreview(fileUrl),
-                icon: const Icon(Icons.zoom_in_rounded),
-                label: const Text('Perbesar Preview'),
+                icon: const Icon(Icons.zoom_in_rounded, size: 16),
+                label: const Text('Perbesar'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                ),
               ),
           ],
         ),
@@ -618,48 +638,41 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: warga == null ? null : openDetail,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.74),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryColor.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            color: const Color(0xFFF8FAFB),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppTheme.dividerColor.withValues(alpha: 0.5),
+            ),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   gradient: index == 0
                       ? AppTheme.primaryGradient
-                      : LinearGradient(
-                          colors: [
-                            AppTheme.secondaryColor.withValues(alpha: 0.9),
-                            AppTheme.primaryLight.withValues(alpha: 0.85),
-                          ],
+                      : const LinearGradient(
+                          colors: [Color(0xFFCBD5E1), Color(0xFF94A3B8)],
                         ),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   '${index + 1}',
-                  style: AppTheme.bodyLarge.copyWith(
+                  style: AppTheme.bodyMedium.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,23 +685,23 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                warga?.namaLengkap ??
-                                    'Data warga belum terhubung',
-                                style: AppTheme.bodyLarge.copyWith(
-                                  fontWeight: FontWeight.w700,
+                                warga?.namaLengkap ?? 'Belum terhubung',
+                                style: AppTheme.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
                                 ),
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 4),
                               Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
+                                spacing: 6,
+                                runSpacing: 4,
                                 children: [
                                   _softChip(
                                     icon: Icons.family_restroom_rounded,
                                     label: hubungan.isEmpty ? '-' : hubungan,
                                     foregroundColor: AppTheme.secondaryColor,
                                     backgroundColor: AppTheme.secondaryColor
-                                        .withValues(alpha: 0.12),
+                                        .withValues(alpha: 0.1),
                                   ),
                                   _softChip(
                                     icon: isActive
@@ -702,7 +715,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                                         (isActive
                                                 ? AppTheme.successColor
                                                 : AppTheme.textSecondary)
-                                            .withValues(alpha: 0.12),
+                                            .withValues(alpha: 0.1),
                                   ),
                                 ],
                               ),
@@ -713,61 +726,36 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                           IconButton(
                             onPressed: openEdit,
                             tooltip: 'Edit warga',
-                            icon: const Icon(Icons.edit_rounded),
+                            icon: const Icon(Icons.edit_rounded, size: 16),
                             style: IconButton.styleFrom(
                               foregroundColor: AppTheme.primaryColor,
                               backgroundColor: AppTheme.primaryColor.withValues(
                                 alpha: 0.08,
                               ),
+                              padding: const EdgeInsets.all(6),
+                              minimumSize: const Size(32, 32),
                             ),
                           ),
                       ],
                     ),
                     if (warga != null) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _dataChip(
-                            icon: Icons.badge_outlined,
-                            text: Formatters.formatNik(warga.nik),
-                          ),
-                          if (warga.jenisKelamin.isNotEmpty)
-                            _dataChip(
-                              icon: warga.jenisKelamin == 'Perempuan'
-                                  ? Icons.female_rounded
-                                  : Icons.male_rounded,
-                              text: warga.jenisKelamin,
-                            ),
-                          if (warga.tempatLahir.isNotEmpty)
-                            _dataChip(
-                              icon: Icons.location_city_rounded,
-                              text: warga.tempatLahir,
-                            ),
-                          if (warga.tanggalLahir != null)
-                            _dataChip(
-                              icon: Icons.cake_rounded,
-                              text: Formatters.tanggalPendek(
-                                warga.tanggalLahir!,
-                              ),
-                            ),
-                          if (warga.golonganDarah.isNotEmpty)
-                            _dataChip(
-                              icon: Icons.water_drop_rounded,
-                              text: warga.golonganDarah,
-                            ),
-                        ],
+                      const SizedBox(height: 6),
+                      Text(
+                        '${Formatters.formatNik(warga.nik)}  ·  ${warga.jenisKelamin}',
+                        style: AppTheme.caption.copyWith(
+                          color: AppTheme.textTertiary,
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
               if (warga != null) ...[
-                const SizedBox(width: 4),
+                const SizedBox(width: 2),
                 Icon(
                   Icons.chevron_right_rounded,
-                  color: AppTheme.textSecondary.withValues(alpha: 0.55),
+                  size: 18,
+                  color: AppTheme.textSecondary.withValues(alpha: 0.5),
                 ),
               ],
             ],
@@ -785,31 +773,35 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     return FilledButton.icon(
       onPressed: onTap,
       style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 15),
+        padding: const EdgeInsets.symmetric(vertical: 12),
       ),
-      icon: Icon(icon, size: 18),
-      label: Text(label, textAlign: TextAlign.center),
+      icon: Icon(icon, size: 16),
+      label: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 13),
+      ),
     );
   }
 
   Widget _heroChip({required IconData icon, required String text}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: Colors.white),
+          const SizedBox(width: 4),
           Text(
             text,
             style: AppTheme.caption.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w700,
+              fontSize: 10,
             ),
           ),
         ],
@@ -819,7 +811,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
 
   Widget _countChip(int count) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: AppTheme.primaryColor.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -834,31 +826,6 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     );
   }
 
-  Widget _dataChip({required IconData icon, required String text}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF4F7FB),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.95)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: AppTheme.textSecondary),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: AppTheme.caption.copyWith(
-              color: AppTheme.textPrimary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _softChip({
     required IconData icon,
     required String label,
@@ -866,7 +833,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
     required Color backgroundColor,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
@@ -874,20 +841,20 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: foregroundColor),
-          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: foregroundColor),
+          const SizedBox(width: 4),
           Text(
             label,
             style: AppTheme.caption.copyWith(
               color: foregroundColor,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
             ),
           ),
         ],
       ),
     );
   }
-
 }
 
 class _InfoRow extends StatelessWidget {
@@ -903,26 +870,31 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
-      ),
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 100,
             child: Text(
               label,
-              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+              style: AppTheme.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textTertiary,
+              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(value, style: AppTheme.bodyMedium)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTheme.bodyMedium.copyWith(
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ),
         ],
       ),
     );

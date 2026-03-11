@@ -95,9 +95,7 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
     final isAdmin = auth.isAdmin;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Data Warga'),
-      ),
+      appBar: AppBar(title: const Text('Data Warga')),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: isAdmin
           ? FloatingActionPill(
@@ -116,11 +114,11 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
             )
           : null,
       body: AppPageBackground(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
         child: Column(
           children: [
-            _buildTopPanel(isAdmin: isAdmin),
-            const SizedBox(height: 14),
+            _buildCompactHeader(context, isAdmin: isAdmin),
+            const SizedBox(height: 10),
             Expanded(
               child: wargaAsync.when(
                 data: (data) {
@@ -152,10 +150,10 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                     child: ListView.separated(
                       physics: const AlwaysScrollableScrollPhysics(),
                       itemCount: groups.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final group = groups[index];
-                        return _WargaGroupCard(
+                        return _WargaGroupTile(
                           group: group,
                           onOpenKk: group.kk == null
                               ? null
@@ -242,32 +240,52 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
     return groups;
   }
 
-  Widget _buildTopPanel({required bool isAdmin}) {
+  Widget _buildCompactHeader(BuildContext context, {required bool isAdmin}) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AppHeroPanel(
-          eyebrow: isAdmin ? 'Panel Operasional' : 'Akses Warga',
-          icon: Icons.groups_2_rounded,
-          title: 'Data warga per keluarga',
-          subtitle: isAdmin
-              ? 'Data warga ditampilkan sesuai wilayah akses dan dikelompokkan per nomor KK.'
-              : 'Data warga Anda ditampilkan bersama grup keluarga yang terkait.',
-          chips: [
-            AppHeroBadge(
-              label: 'Grouped by KK',
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.white.withValues(alpha: 0.16),
-              icon: Icons.family_restroom_rounded,
+        // Slim info row
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.groups_2_rounded,
+                size: 18,
+                color: AppTheme.primaryColor,
+              ),
             ),
-            AppHeroBadge(
-              label: isAdmin ? 'Scope wilayah aktif' : 'Akun pribadi',
-              foregroundColor: Colors.white,
-              backgroundColor: Colors.white.withValues(alpha: 0.16),
-              icon: Icons.visibility_outlined,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Dikelompokkan per KK',
+                style: AppTheme.bodySmall.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                isAdmin ? 'Scope wilayah' : 'Akun pribadi',
+                style: AppTheme.caption.copyWith(
+                  color: AppTheme.primaryColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         AppSearchBar(
           controller: _searchController,
           value: _searchQuery,
@@ -291,8 +309,9 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
   }
 }
 
-class _WargaGroupCard extends StatelessWidget {
-  const _WargaGroupCard({
+// ─── Compact expandable group tile ───────────────────────────────────
+class _WargaGroupTile extends StatefulWidget {
+  const _WargaGroupTile({
     required this.group,
     required this.onOpenWarga,
     this.onOpenKk,
@@ -303,195 +322,317 @@ class _WargaGroupCard extends StatelessWidget {
   final ValueChanged<WargaModel> onOpenWarga;
 
   @override
+  State<_WargaGroupTile> createState() => _WargaGroupTileState();
+}
+
+class _WargaGroupTileState extends State<_WargaGroupTile>
+    with SingleTickerProviderStateMixin {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    final kk = group.kk;
+    final kk = widget.group.kk;
     final kkLabel = kk == null
         ? 'KK belum terhubung'
-        : 'No. KK ${Formatters.formatNoKk(kk.noKk)}';
+        : Formatters.formatNoKk(kk.noKk);
+    // Find kepala keluarga name from members
+    final kepalaName = _findKepalaName();
 
-    return AppSurfaceCard(
-      padding: const EdgeInsets.all(16),
+    return Container(
+      decoration: AppTheme.cardDecoration(),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  gradient: AppTheme.primaryGradient,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.family_restroom_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      kkLabel,
-                      style: AppTheme.bodyLarge.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+          // ── Collapsed header row ──
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  // Gradient icon pill
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.primaryGradient,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      kk?.alamat ?? 'Belum ada alamat KK yang terhubung.',
-                      style: AppTheme.bodySmall,
+                    child: const Icon(
+                      Icons.family_restroom_rounded,
+                      color: Colors.white,
+                      size: 18,
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                  ),
+                  const SizedBox(width: 12),
+                  // KK number + kepala keluarga
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _pill(
-                          Icons.people_alt_rounded,
-                          '${group.members.length} warga',
-                        ),
-                        if (kk != null)
-                          _pill(
-                            Icons.home_work_rounded,
-                            'RT ${kk.rt}/RW ${kk.rw}',
+                        Text(
+                          kkLabel,
+                          style: AppTheme.bodyMedium.copyWith(
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
                           ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          kepalaName,
+                          style: AppTheme.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-              if (onOpenKk != null)
-                TextButton.icon(
-                  onPressed: onOpenKk,
-                  icon: const Icon(Icons.visibility_rounded),
-                  label: const Text('Lihat KK'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          ...group.members.map(
-            (warga) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _WargaListCard(
-                warga: warga,
-                onTap: () => onOpenWarga(warga),
+                  ),
+                  const SizedBox(width: 6),
+                  // Member count badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${widget.group.members.length}',
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
               ),
             ),
+          ),
+
+          // ── Expanded member list ──
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: _buildExpandedContent(),
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 220),
+            sizeCurve: Curves.easeInOut,
           ),
         ],
       ),
     );
   }
 
-  Widget _pill(IconData icon, String label) {
-    return AppHeroBadge(
-      label: label,
-      foregroundColor: AppTheme.textPrimary,
-      backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
-      icon: icon,
+  String _findKepalaName() {
+    final kk = widget.group.kk;
+    if (kk == null) {
+      return widget.group.members.isNotEmpty
+          ? widget.group.members.first.namaLengkap
+          : 'Tidak diketahui';
+    }
+    // kepalaKeluarga is a warga id
+    for (final member in widget.group.members) {
+      if (member.id == kk.kepalaKeluarga) {
+        return member.namaLengkap;
+      }
+    }
+    // Fallback: first member
+    return widget.group.members.isNotEmpty
+        ? widget.group.members.first.namaLengkap
+        : '-';
+  }
+
+  Widget _buildExpandedContent() {
+    final kk = widget.group.kk;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFB),
+        border: Border(
+          top: BorderSide(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Compact info row
+          if (kk != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.location_on_outlined,
+                    size: 13,
+                    color: AppTheme.textTertiary,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      kk.alamat.isNotEmpty ? kk.alamat : 'Alamat belum diisi',
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'RT ${kk.rt}/RW ${kk.rw}',
+                    style: AppTheme.caption.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                  if (widget.onOpenKk != null) ...[
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: widget.onOpenKk,
+                      child: Text(
+                        'Lihat KK',
+                        style: AppTheme.caption.copyWith(
+                          color: AppTheme.primaryColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 4),
+          // Member list — compact
+          ...widget.group.members.map(
+            (warga) => _CompactWargaRow(
+              warga: warga,
+              isKepala: kk != null && warga.id == kk.kepalaKeluarga,
+              onTap: () => widget.onOpenWarga(warga),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+      ),
     );
   }
 }
 
-class _WargaListCard extends StatelessWidget {
-  const _WargaListCard({required this.warga, required this.onTap});
+// ─── Compact warga row inside group ──────────────────────────────────
+class _CompactWargaRow extends StatelessWidget {
+  const _CompactWargaRow({
+    required this.warga,
+    required this.onTap,
+    this.isKepala = false,
+  });
 
   final WargaModel warga;
   final VoidCallback onTap;
+  final bool isKepala;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-          color: const Color(0xFFFBFCFC),
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-          border: Border.all(color: AppTheme.dividerColor),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Avatar circle
             Container(
-              width: 50,
-              height: 50,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
-                gradient: AppTheme.primaryGradient,
-                borderRadius: BorderRadius.circular(16),
+                gradient: isKepala
+                    ? AppTheme.primaryGradient
+                    : const LinearGradient(
+                        colors: [Color(0xFFE2E8F0), Color(0xFFCBD5E1)],
+                      ),
+                borderRadius: BorderRadius.circular(11),
               ),
-              child: Center(
-                child: Text(
-                  Formatters.inisial(warga.namaLengkap),
-                  style: AppTheme.bodyMedium.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
+              alignment: Alignment.center,
+              child: Text(
+                Formatters.inisial(warga.namaLengkap),
+                style: AppTheme.caption.copyWith(
+                  color: isKepala ? Colors.white : AppTheme.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
                 ),
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 10),
+            // Name + info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    warga.namaLengkap,
-                    style: AppTheme.bodyLarge.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    Formatters.formatNik(warga.nik),
-                    style: AppTheme.bodySmall.copyWith(
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  Row(
                     children: [
-                      _miniChip(
-                        Icons.home_work_rounded,
-                        'RT ${warga.rt}/RW ${warga.rw}',
-                      ),
-                      if (warga.jenisKelamin.isNotEmpty)
-                        _miniChip(Icons.wc_rounded, warga.jenisKelamin),
-                      if (warga.golonganDarah.isNotEmpty)
-                        _miniChip(
-                          Icons.water_drop_rounded,
-                          warga.golonganDarah,
+                      Flexible(
+                        child: Text(
+                          warga.namaLengkap,
+                          style: AppTheme.bodyMedium.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
+                      if (isKepala) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Kepala',
+                            style: AppTheme.caption.copyWith(
+                              color: AppTheme.primaryColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    '${Formatters.formatNik(warga.nik)}  ·  ${warga.jenisKelamin}',
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.textTertiary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 10),
             const Icon(
-              Icons.arrow_forward_ios_rounded,
-              size: 16,
-              color: AppTheme.textSecondary,
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: AppTheme.textTertiary,
             ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _miniChip(IconData icon, String text) {
-    return AppHeroBadge(
-      label: text,
-      foregroundColor: AppTheme.textPrimary,
-      backgroundColor: AppTheme.backgroundColor,
-      icon: icon,
     );
   }
 }

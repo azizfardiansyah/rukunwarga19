@@ -13,9 +13,9 @@ import '../../../core/utils/formatters.dart';
 import '../../auth/providers/auth_provider.dart';
 
 final subscriptionPlansProvider =
-    FutureProvider.autoDispose<List<SubscriptionPlan>>((ref) async {
+    FutureProvider.autoDispose<SubscriptionCatalog>((ref) async {
       try {
-        return await ref.watch(subscriptionPaymentServiceProvider).getPlans();
+        return await ref.watch(subscriptionPaymentServiceProvider).getCatalog();
       } catch (error) {
         if (ErrorClassifier.isAuthError(error)) {
           ref.read(authProvider.notifier).logout();
@@ -245,11 +245,12 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final plansAsync = ref.watch(subscriptionPlansProvider);
+    final catalogAsync = ref.watch(subscriptionPlansProvider);
     final canSelfSubscribe = AppConstants.canSelfSubscribe(auth.role);
     final isPremiumRole = auth.requiresSubscription;
     final hasPremiumAccess = isPremiumRole && auth.hasActiveSubscription;
-    final plans = plansAsync.asData?.value ?? const <SubscriptionPlan>[];
+    final catalog = catalogAsync.asData?.value;
+    final plans = catalog?.plans ?? const <SubscriptionPlan>[];
 
     _syncSelectedPlan(plans, auth);
 
@@ -300,9 +301,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 hasPremiumAccess: hasPremiumAccess,
               ),
               const SizedBox(height: 16),
-              plansAsync.when(
-                data: (items) {
-                  if (items.isEmpty) {
+              catalogAsync.when(
+                data: (catalog) {
+                  if (catalog.plans.isEmpty) {
                     return _buildNotice(
                       icon: Icons.inventory_2_outlined,
                       title: 'Belum ada paket yang bisa dibeli',
@@ -313,9 +314,21 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
                   return Column(
                     children: [
+                      if (!catalog.checkoutReady) ...[
+                        _buildNotice(
+                          icon: Icons.settings_ethernet_rounded,
+                          title: 'Checkout Midtrans belum siap',
+                          description:
+                              (catalog.checkoutMessage ?? '').trim().isNotEmpty
+                              ? catalog.checkoutMessage!
+                              : 'Konfigurasi Midtrans di PocketBase belum lengkap.',
+                          tone: AppTheme.errorColor,
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       _buildPlanSelector(
                         auth: auth,
-                        plans: items,
+                        plans: catalog.plans,
                         selectedPlan: selectedPlan,
                       ),
                       const SizedBox(height: 16),
@@ -332,6 +345,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         auth: auth,
                         selectedPlan: selectedPlan,
                         hasCheckout: hasCheckout,
+                        checkoutReady: catalog.checkoutReady,
+                        checkoutMessage: catalog.checkoutMessage,
                       ),
                     ],
                   );
@@ -818,8 +833,10 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
     required AuthState auth,
     required SubscriptionPlan? selectedPlan,
     required bool hasCheckout,
+    required bool checkoutReady,
+    required String? checkoutMessage,
   }) {
-    final canCreateCheckout = selectedPlan != null;
+    final canCreateCheckout = selectedPlan != null && checkoutReady;
 
     return Container(
       padding: const EdgeInsets.all(AppTheme.paddingMedium),
@@ -832,8 +849,12 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             style: AppTheme.bodyLarge.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Gunakan Midtrans Sandbox untuk pengujian dev. Setelah bayar, cek status dan refresh akses.',
+          Text(
+            checkoutReady
+                ? 'Gunakan Midtrans Sandbox untuk pengujian dev. Setelah bayar, cek status dan refresh akses.'
+                : ((checkoutMessage ?? '').trim().isNotEmpty
+                      ? checkoutMessage!
+                      : 'Konfigurasi Midtrans belum siap, checkout sementara dinonaktifkan.'),
             style: AppTheme.bodySmall,
           ),
           const SizedBox(height: 16),
@@ -854,12 +875,15 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                     )
                   : const Icon(Icons.payment_rounded),
               label: Text(
-                _primaryActionLabel(
-                  currentRole: auth.role,
-                  selectedPlan: selectedPlan,
-                  hasPremiumAccess:
-                      auth.requiresSubscription && auth.hasActiveSubscription,
-                ),
+                checkoutReady
+                    ? _primaryActionLabel(
+                        currentRole: auth.role,
+                        selectedPlan: selectedPlan,
+                        hasPremiumAccess:
+                            auth.requiresSubscription &&
+                            auth.hasActiveSubscription,
+                      )
+                    : 'Checkout Belum Siap',
               ),
             ),
           ),

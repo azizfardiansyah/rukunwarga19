@@ -102,7 +102,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   AppSurfaceCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,7 +112,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                           subtitle:
                               'Informasi utama surat dan status prosesnya.',
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
                         _InfoRow(label: 'Jenis Surat', value: request.title),
                         _InfoRow(
                           label: 'Status',
@@ -159,7 +159,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                             subtitle:
                                 'Gunakan template surat untuk export PDF atau cetak langsung.',
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
                               Expanded(
@@ -199,7 +199,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                           subtitle:
                               'Data warga dan KK yang terhubung ke pengajuan surat.',
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
                         _InfoRow(
                           label: 'Nama Warga',
                           value: detail.warga?.namaLengkap ?? '-',
@@ -235,7 +235,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                           subtitle:
                               'Detail field yang diisi pemohon sesuai jenis surat.',
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
                         ..._buildPayloadRows(request),
                       ],
                     ),
@@ -250,7 +250,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                           subtitle:
                               'Dokumen pendukung dari warga dan file hasil surat final.',
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 10),
                         if (detail.attachments.isEmpty)
                           Text(
                             'Belum ada lampiran pendukung.',
@@ -333,7 +333,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
                             subtitle:
                                 'Tindakan yang tersedia sesuai role dan status surat saat ini.',
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 10),
                           if (canEditForRevision)
                             SizedBox(
                               width: double.infinity,

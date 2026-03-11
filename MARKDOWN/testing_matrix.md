@@ -32,7 +32,7 @@ Status implementasi per area:
 
 ### A. `warga + free`
 
-- login berhasil
+- login berhasil 
 - tidak melihat menu admin
 - hanya melihat data diri sendiri dan KK sendiri
 - tidak bisa membuat pengumuman

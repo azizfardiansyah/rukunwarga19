@@ -10,6 +10,7 @@ import '../../../core/services/chat_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/chat_providers.dart';
@@ -52,10 +53,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final showBootstrap = bootstrapData != null;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         title: const Text('Chat'),
         actions: [
           IconButton(
@@ -80,73 +78,50 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               gradientColors: const [AppTheme.accentColor, Color(0xFFE0B56C)],
             )
           : null,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFFF2F7F5),
-              Colors.white.withValues(alpha: 0.98),
-              const Color(0xFFF7FBF9),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              children: [
-                _buildHero(
-                  authName:
-                      auth.user?.getStringValue('name').trim().isNotEmpty == true
-                      ? auth.user!.getStringValue('name').trim()
-                      : 'Pengguna',
-                  roleLabel: AppConstants.roleLabel(auth.role),
-                  areaLabel: bootstrapData?.area.scopeLabel ?? '',
-                  data: bootstrapData,
-                ),
-                const SizedBox(height: 8),
-                _buildSearchField(),
-                const SizedBox(height: 8),
-                _buildSectionSelector(),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: showBootstrap
-                      ? RefreshIndicator(
-                          onRefresh: _refresh,
-                          child: switch (_section) {
-                            _ChatSection.inbox => _buildConversationList(
-                                items: bootstrapData.inbox,
-                                emptyTitle: 'Belum ada inbox layanan',
-                                emptySubtitle:
-                                    'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
-                                emptyIcon: Icons.mark_chat_unread_outlined,
-                              ),
-                            _ChatSection.groups => _buildConversationList(
-                                items: bootstrapData.groups,
-                                emptyTitle: 'Belum ada grup wilayah',
-                                emptySubtitle:
-                                    'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
-                                emptyIcon: Icons.groups_2_outlined,
-                              ),
-                            _ChatSection.announcements =>
-                              _buildAnnouncementPreview(announcementsAsync),
-                          },
-                        )
-                      : bootstrapAsync.when(
-                          data: (data) => RefreshIndicator(
-                            onRefresh: _refresh,
-                            child: switch (_section) {
-                              _ChatSection.inbox => _buildConversationList(
-                            items: data.inbox,
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+        child: Column(
+          children: [
+            _buildHero(
+              authName:
+                  auth.user?.getStringValue('name').trim().isNotEmpty == true
+                  ? auth.user!.getStringValue('name').trim()
+                  : 'Pengguna',
+              roleLabel: AppConstants.roleLabel(auth.role),
+              areaLabel: bootstrapData?.area.scopeLabel ?? '',
+              data: bootstrapData,
+            ),
+            const SizedBox(height: 8),
+            AppSearchBar(
+              hintText: switch (_section) {
+                _ChatSection.inbox => 'Cari nama, isi chat, atau percakapan...',
+                _ChatSection.groups => 'Cari grup, isi chat, atau RT/RW...',
+                _ChatSection.announcements => 'Cari judul, isi, atau pembuat...',
+              },
+              value: _searchCtrl.text,
+              onChanged: (value) {
+                _searchCtrl.text = value;
+                setState(() {});
+              },
+              controller: _searchCtrl,
+            ),
+            const SizedBox(height: 8),
+            _buildSectionSelector(),
+            const SizedBox(height: 8),
+            Expanded(
+              child: showBootstrap
+                  ? RefreshIndicator(
+                      onRefresh: _refresh,
+                      child: switch (_section) {
+                        _ChatSection.inbox => _buildConversationList(
+                            items: bootstrapData.inbox,
                             emptyTitle: 'Belum ada inbox layanan',
                             emptySubtitle:
                                 'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
                             emptyIcon: Icons.mark_chat_unread_outlined,
                           ),
                         _ChatSection.groups => _buildConversationList(
-                            items: data.groups,
+                            items: bootstrapData.groups,
                             emptyTitle: 'Belum ada grup wilayah',
                             emptySubtitle:
                                 'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
@@ -155,70 +130,53 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         _ChatSection.announcements =>
                           _buildAnnouncementPreview(announcementsAsync),
                       },
-                          ),
-                          loading: () =>
-                              const Center(child: CircularProgressIndicator()),
-                          error: (error, _) => Center(
-                            child: AppTheme.glassContainer(
-                              opacity: 0.76,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    ErrorClassifier.classify(error).message,
-                                    style: AppTheme.bodyMedium,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 10),
-                                  ElevatedButton(
-                                    onPressed: _refresh,
-                                    child: const Text('Coba Lagi'),
-                                  ),
-                                ],
+                    )
+                  : bootstrapAsync.when(
+                      data: (data) => RefreshIndicator(
+                        onRefresh: _refresh,
+                        child: switch (_section) {
+                          _ChatSection.inbox => _buildConversationList(
+                        items: data.inbox,
+                        emptyTitle: 'Belum ada inbox layanan',
+                        emptySubtitle:
+                            'Inbox akan muncul otomatis saat warga butuh bantuan atau saat Anda membuka chat layanan.',
+                        emptyIcon: Icons.mark_chat_unread_outlined,
+                      ),
+                    _ChatSection.groups => _buildConversationList(
+                        items: data.groups,
+                        emptyTitle: 'Belum ada grup wilayah',
+                        emptySubtitle:
+                            'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
+                        emptyIcon: Icons.groups_2_outlined,
+                      ),
+                    _ChatSection.announcements =>
+                      _buildAnnouncementPreview(announcementsAsync),
+                  },
+                      ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (error, _) => Center(
+                        child: AppSurfaceCard(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                ErrorClassifier.classify(error).message,
+                                style: AppTheme.bodyMedium,
+                                textAlign: TextAlign.center,
                               ),
-                            ),
+                              const SizedBox(height: 10),
+                              FilledButton(
+                                onPressed: _refresh,
+                                child: const Text('Coba Lagi'),
+                              ),
+                            ],
                           ),
                         ),
-                ),
-              ],
+                      ),
+                    ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchField() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.dividerColor),
-      ),
-      child: TextField(
-        controller: _searchCtrl,
-        onChanged: (_) => setState(() {}),
-        decoration: InputDecoration(
-          hintText: switch (_section) {
-            _ChatSection.inbox => 'Cari nama, isi chat, atau percakapan...',
-            _ChatSection.groups => 'Cari grup, isi chat, atau RT/RW...',
-            _ChatSection.announcements => 'Cari judul, isi, atau pembuat...',
-          },
-          prefixIcon: const Icon(Icons.search_rounded),
-          suffixIcon: _searchCtrl.text.isEmpty
-              ? null
-              : IconButton(
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() {});
-                  },
-                  icon: const Icon(Icons.close_rounded),
-                ),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 12,
-          ),
+          ],
         ),
       ),
     );
@@ -235,92 +193,30 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
       _ChatSection.groups => 'Forum RT dan koordinasi RW',
       _ChatSection.announcements => 'Pengumuman resmi wilayah Anda',
     };
-    final subtitle = switch (_section) {
-      _ChatSection.inbox =>
-        'Gunakan inbox untuk percakapan bantuan administrasi, dokumen, surat, dan layanan.',
-      _ChatSection.groups =>
-        'Grup dipakai untuk koordinasi operasional sesuai cakupan RT dan RW akun Anda.',
-      _ChatSection.announcements =>
-        'Pengumuman dipisahkan dari chat harian agar informasi penting tetap rapi dan mudah dicari.',
-    };
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      decoration: BoxDecoration(
-        gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryColor.withValues(alpha: 0.18),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              roleLabel,
-              style: AppTheme.caption.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            authName,
-            style: AppTheme.heading2.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          if (areaLabel.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              areaLabel,
-              style: AppTheme.bodySmall.copyWith(
-                color: Colors.white.withValues(alpha: 0.86),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Text(title, style: AppTheme.heading2.copyWith(color: Colors.white)),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: AppTheme.bodyMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.92),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _StatChip(
-                icon: Icons.mark_chat_read_rounded,
-                label: 'Inbox',
-                value: '${data?.inbox.length ?? 0}',
-                unreadCount: data?.inboxUnreadCount ?? 0,
-              ),
-              const SizedBox(width: 8),
-              _StatChip(
-                icon: Icons.groups_rounded,
-                label: 'Grup',
-                value: '${data?.groups.length ?? 0}',
-                unreadCount: data?.groupUnreadCount ?? 0,
-              ),
-            ],
-          ),
-        ],
-      ),
+    return AppHeroPanel(
+      eyebrow: roleLabel,
+      icon: switch (_section) {
+        _ChatSection.inbox => Icons.mark_chat_read_outlined,
+        _ChatSection.groups => Icons.groups_outlined,
+        _ChatSection.announcements => Icons.campaign_outlined,
+      },
+      title: title,
+      subtitle: areaLabel.isEmpty ? authName : '$authName • $areaLabel',
+      chips: [
+        AppHeroBadge(
+          icon: Icons.mark_chat_read_rounded,
+          label: 'Inbox ${data?.inbox.length ?? 0}',
+          foregroundColor: AppTheme.primaryColor,
+          backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
+        ),
+        AppHeroBadge(
+          icon: Icons.groups_rounded,
+          label: 'Grup ${data?.groups.length ?? 0}',
+          foregroundColor: AppTheme.primaryColor,
+          backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
+        ),
+      ],
     );
   }
 
@@ -969,59 +865,4 @@ class _SectionPill extends StatelessWidget {
   }
 }
 
-class _StatChip extends StatelessWidget {
-  const _StatChip({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.unreadCount = 0,
-  });
 
-  final IconData icon;
-  final String label;
-  final String value;
-  final int unreadCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 8),
-          Text(
-            '$label $value',
-            style: AppTheme.caption.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (unreadCount > 0) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.24),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                unreadCount > 99 ? '99+' : '$unreadCount',
-                style: AppTheme.caption.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}

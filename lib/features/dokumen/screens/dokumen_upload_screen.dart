@@ -8,6 +8,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class DokumenUploadScreen extends ConsumerStatefulWidget {
@@ -89,8 +90,8 @@ class _DokumenUploadScreenState extends ConsumerState<DokumenUploadScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Upload Dokumen')),
-      body: Padding(
-        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

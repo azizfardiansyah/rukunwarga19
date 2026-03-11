@@ -44,7 +44,7 @@ class OrganizationSectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: AppTheme.cardDecoration(),
-      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -56,13 +56,13 @@ class OrganizationSectionCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: AppTheme.bodyLarge.copyWith(
+                      style: AppTheme.bodyMedium.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     if (subtitle?.isNotEmpty ?? false) ...[
-                      const SizedBox(height: 4),
-                      Text(subtitle!, style: AppTheme.bodySmall),
+                      const SizedBox(height: 2),
+                      Text(subtitle!, style: AppTheme.caption.copyWith(color: AppTheme.textTertiary)),
                     ],
                   ],
                 ),
@@ -70,7 +70,7 @@ class OrganizationSectionCard extends StatelessWidget {
               action ?? const SizedBox.shrink(),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           child,
         ],
       ),

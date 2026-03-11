@@ -11,6 +11,7 @@ import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 import '../../auth/providers/auth_provider.dart';
 
@@ -74,41 +75,15 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
               gradientColors: const [AppTheme.accentColor, Color(0xFFE0B56C)],
             )
           : null,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFFF2F7F5),
-              Colors.white.withValues(alpha: 0.98),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+      body: AppPageBackground(
         child: announcementAsync.when(
           data: (data) {
             if (data.items.isEmpty) {
               return Center(
-                child: AppTheme.glassContainer(
-                  opacity: 0.72,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.campaign_outlined,
-                        size: 40,
-                        color: AppTheme.textSecondary,
-                      ),
-                      const SizedBox(height: 10),
-                      Text('Belum ada pengumuman', style: AppTheme.heading3),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Pengumuman RT/RW resmi akan tampil di sini.',
-                        style: AppTheme.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
+                child: AppEmptyState(
+                  icon: Icons.campaign_outlined,
+                  title: 'Belum ada pengumuman',
+                  message: 'Pengumuman RT/RW resmi akan tampil di sini.',
                 ),
               );
             }
@@ -116,7 +91,7 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
             return RefreshIndicator(
               onRefresh: () async => ref.invalidate(announcementListProvider),
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 90),
+                padding: const EdgeInsets.fromLTRB(0, 4, 0, 90),
                 itemCount: data.items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
@@ -128,11 +103,21 @@ class _AnnouncementScreenState extends ConsumerState<AnnouncementScreen> {
           },
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                ErrorClassifier.classify(error).message,
-                textAlign: TextAlign.center,
+            child: AppSurfaceCard(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    ErrorClassifier.classify(error).message,
+                    style: AppTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  FilledButton(
+                    onPressed: () => ref.invalidate(announcementListProvider),
+                    child: const Text('Coba Lagi'),
+                  ),
+                ],
               ),
             ),
           ),
@@ -264,13 +249,8 @@ class _AnnouncementCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AppSurfaceCard(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.dividerColor),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

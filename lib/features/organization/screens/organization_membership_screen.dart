@@ -69,12 +69,7 @@ class _OrganizationMembershipScreenState
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingLarge,
-              ),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: _unitFilter,

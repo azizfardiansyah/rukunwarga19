@@ -11,6 +11,7 @@ import '../../../core/services/finance_service.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/models/finance_model.dart';
 import '../providers/finance_providers.dart';
 import '../widgets/finance_widgets.dart';
@@ -68,15 +69,10 @@ class FinanceDetailScreen extends ConsumerWidget {
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingLarge,
-              ),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
               children: [
                 _DetailHero(detail: detail),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 FinanceSectionCard(
                   title: 'Informasi transaksi',
                   subtitle:
@@ -126,7 +122,7 @@ class FinanceDetailScreen extends ConsumerWidget {
                   ),
                 ),
                 if ((transaction.description ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   FinanceSectionCard(
                     title: 'Deskripsi',
                     child: Text(
@@ -136,7 +132,7 @@ class FinanceDetailScreen extends ConsumerWidget {
                   ),
                 ],
                 if ((transaction.proofFile ?? '').isNotEmpty) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   FinanceSectionCard(
                     title: 'Bukti transaksi',
                     subtitle: 'Lampiran bukti yang tersimpan di ledger.',
@@ -160,7 +156,7 @@ class FinanceDetailScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 FinanceSectionCard(
                   title: 'Approval trail',
                   subtitle:
@@ -192,7 +188,7 @@ class FinanceDetailScreen extends ConsumerWidget {
                     canSubmitDraft ||
                     canApprove ||
                     canPublish) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   FinanceSectionCard(
                     title: 'Tindakan',
                     subtitle:
@@ -509,54 +505,30 @@ class _DetailHero extends StatelessWidget {
     final amountColor = transaction.isIncoming
         ? AppTheme.successColor
         : AppTheme.errorColor;
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingLarge),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            amountColor.withValues(alpha: 0.92),
-            amountColor.withValues(alpha: 0.68),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return AppHeroPanel(
+      icon: transaction.isIncoming
+          ? Icons.south_west_rounded
+          : Icons.north_east_rounded,
+      title: transaction.title,
+      subtitle: Formatters.rupiah(transaction.amount),
+      eyebrow: detail.orgUnit?.name,
+      chips: [
+        AppHeroBadge(
+          label: financeDirectionLabel(transaction.direction),
+          foregroundColor: amountColor,
+          backgroundColor: amountColor.withValues(alpha: 0.08),
         ),
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            transaction.title,
-            style: AppTheme.heading2.copyWith(color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            Formatters.rupiah(transaction.amount),
-            style: AppTheme.heading1.copyWith(color: Colors.white),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FinanceBadge(
-                label: financeDirectionLabel(transaction.direction),
-                color: Colors.white,
-              ),
-              FinanceBadge(
-                label: financeApprovalStatusLabel(transaction.approvalStatus),
-                color: Colors.white,
-              ),
-              FinanceBadge(
-                label: financePublishStatusLabel(transaction.publishStatus),
-                color: Colors.white,
-              ),
-              if ((detail.orgUnit?.name ?? '').isNotEmpty)
-                FinanceBadge(label: detail.orgUnit!.name, color: Colors.white),
-            ],
-          ),
-        ],
-      ),
+        AppHeroBadge(
+          label: financeApprovalStatusLabel(transaction.approvalStatus),
+          foregroundColor: AppTheme.statusColor(transaction.approvalStatus),
+          backgroundColor: AppTheme.statusColor(transaction.approvalStatus).withValues(alpha: 0.08),
+        ),
+        AppHeroBadge(
+          label: financePublishStatusLabel(transaction.publishStatus),
+          foregroundColor: financePublishStatusColor(transaction.publishStatus),
+          backgroundColor: financePublishStatusColor(transaction.publishStatus).withValues(alpha: 0.08),
+        ),
+      ],
     );
   }
 }

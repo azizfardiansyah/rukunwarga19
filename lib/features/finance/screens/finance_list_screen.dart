@@ -6,6 +6,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/finance_model.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/finance_providers.dart';
 import '../widgets/finance_widgets.dart';
@@ -86,15 +87,10 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingLarge,
-              ),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
               children: [
                 _FinanceHero(overview: overview),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 FinanceSectionCard(
                   title: 'Filter transaksi',
                   subtitle:
@@ -210,7 +206,7 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 if (transactions.isEmpty)
                   const FinanceSectionCard(
                     title: 'Daftar transaksi',
@@ -292,42 +288,31 @@ class _FinanceHero extends StatelessWidget {
         .where((item) => item.isPublished)
         .length;
 
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingLarge),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF284B63), Color(0xFF3C6E71)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return AppHeroPanel(
+      eyebrow: 'Ledger',
+      icon: Icons.account_balance_wallet_outlined,
+      title: 'Ledger Keuangan',
+      subtitle: 'Transaksi per unit, approval maker-checker, dan publish kas.',
+      chips: [
+        AppHeroBadge(
+          icon: Icons.send_rounded,
+          label: 'Submitted $submitted',
+          foregroundColor: AppTheme.primaryColor,
+          backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.08),
         ),
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Ledger Keuangan',
-            style: AppTheme.heading2.copyWith(color: Colors.white),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Pantau transaksi per unit, approval maker-checker, dan publish pengumuman kas.',
-            style: AppTheme.bodySmall.copyWith(
-              color: Colors.white.withValues(alpha: 0.86),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FinanceBadge(label: 'SUBMITTED $submitted', color: Colors.white),
-              FinanceBadge(label: 'APPROVED $approved', color: Colors.white),
-              FinanceBadge(label: 'PUBLISHED $published', color: Colors.white),
-            ],
-          ),
-        ],
-      ),
+        AppHeroBadge(
+          icon: Icons.check_circle_outline_rounded,
+          label: 'Approved $approved',
+          foregroundColor: AppTheme.successColor,
+          backgroundColor: AppTheme.successColor.withValues(alpha: 0.08),
+        ),
+        AppHeroBadge(
+          icon: Icons.campaign_rounded,
+          label: 'Published $published',
+          foregroundColor: AppTheme.accentColor,
+          backgroundColor: AppTheme.accentColor.withValues(alpha: 0.08),
+        ),
+      ],
     );
   }
 }

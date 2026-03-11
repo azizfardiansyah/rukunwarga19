@@ -12,6 +12,10 @@ import '../../../core/services/surat_service.dart';
 import '../../../core/utils/area_access.dart';
 import '../../surat/providers/surat_providers.dart';
 
+// ═══════════════════════════════════════════════════════════════════
+// DATA MODELS
+// ═══════════════════════════════════════════════════════════════════
+
 class DashboardStats {
   const DashboardStats({required this.totalWarga, required this.totalKk});
 
@@ -19,7 +23,40 @@ class DashboardStats {
   final int totalKk;
 }
 
-// Tambahkan provider untuk cek data warga user
+/// Represents a single menu entry with grouping info
+class _MenuEntry {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final Color tone;
+  final VoidCallback onTap;
+
+  const _MenuEntry({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.tone,
+    required this.onTap,
+  });
+}
+
+/// A group of menu entries under a section header
+class _MenuGroup {
+  final String title;
+  final IconData icon;
+  final List<_MenuEntry> items;
+
+  const _MenuGroup({
+    required this.title,
+    required this.icon,
+    required this.items,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROVIDERS
+// ═══════════════════════════════════════════════════════════════════
+
 final hasWargaDataProvider = FutureProvider<bool>((ref) async {
   final auth = ref.watch(authProvider);
   debugPrint(
@@ -33,7 +70,6 @@ final hasWargaDataProvider = FutureProvider<bool>((ref) async {
   return result.items.isNotEmpty;
 });
 
-// Tambahkan provider untuk cek data kartu keluarga user
 final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
   final auth = ref.watch(authProvider);
   debugPrint(
@@ -75,6 +111,10 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   );
 });
 
+// ═══════════════════════════════════════════════════════════════════
+// DASHBOARD SCREEN
+// ═══════════════════════════════════════════════════════════════════
+
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -84,6 +124,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   bool _hasNavigatedToKkForm = false;
+  bool _isGridView = true; // default: grid view (compact cards)
 
   void _navigateToKkFormIfNeeded(bool hasKartuKeluarga) {
     if (_hasNavigatedToKkForm || !mounted || hasKartuKeluarga) return;
@@ -92,6 +133,139 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     _hasNavigatedToKkForm = true;
     debugPrint('[DEBUG] No KK data - navigating to KK form');
     context.go(Routes.kkForm);
+  }
+
+  /// Build grouped menu entries based on user role
+  List<_MenuGroup> _buildMenuGroups({
+    required bool isWarga,
+    required bool showSelfWargaSetup,
+    required bool showSelfKkSetup,
+    required bool canOpenFinance,
+    required bool canOpenOrganization,
+  }) {
+    // ── Group 1: Data Penduduk ──
+    final dataItems = <_MenuEntry>[
+      if (!isWarga)
+        _MenuEntry(
+          icon: Icons.people_rounded,
+          label: 'Data Warga',
+          subtitle: 'Kelola data penduduk',
+          tone: AppTheme.primaryColor,
+          onTap: () => context.go(Routes.warga),
+        ),
+      if (showSelfWargaSetup)
+        _MenuEntry(
+          icon: Icons.person_add_alt_1_rounded,
+          label: 'Lengkapi Warga',
+          subtitle: 'Isi data diri Anda',
+          tone: AppTheme.primaryColor,
+          onTap: () => context.push(Routes.wargaForm),
+        ),
+      if (!isWarga)
+        _MenuEntry(
+          icon: Icons.family_restroom_rounded,
+          label: 'Kartu Keluarga',
+          subtitle: 'Data KK warga',
+          tone: AppTheme.infoColor,
+          onTap: () {
+            final hasKK = ref
+                .read(hasKartuKeluargaProvider)
+                .maybeWhen(data: (d) => d, orElse: () => false);
+            hasKK
+                ? context.push(Routes.kartuKeluarga)
+                : context.go(Routes.kkForm);
+          },
+        ),
+      if (showSelfKkSetup)
+        _MenuEntry(
+          icon: Icons.add_home_work_rounded,
+          label: 'Lengkapi KK',
+          subtitle: 'Isi data Kartu Keluarga',
+          tone: AppTheme.infoColor,
+          onTap: () => context.go(Routes.kkForm),
+        ),
+      _MenuEntry(
+        icon: Icons.badge_rounded,
+        label: 'Dokumen',
+        subtitle: 'Arsip dokumen warga',
+        tone: AppTheme.accentColor,
+        onTap: () => context.push(Routes.dokumen),
+      ),
+    ];
+
+    // ── Group 2: Layanan ──
+    final layananItems = <_MenuEntry>[
+      _MenuEntry(
+        icon: Icons.mail_rounded,
+        label: 'Surat Pengantar',
+        subtitle: 'Ajukan & pantau surat',
+        tone: const Color(0xFF6366F1),
+        onTap: () => context.push(Routes.surat),
+      ),
+      _MenuEntry(
+        icon: Icons.payments_rounded,
+        label: 'Iuran',
+        subtitle: 'Tagihan & pembayaran',
+        tone: AppTheme.primaryDark,
+        onTap: () => context.push(Routes.iuran),
+      ),
+      if (canOpenFinance)
+        _MenuEntry(
+          icon: Icons.account_balance_wallet_rounded,
+          label: 'Keuangan',
+          subtitle: 'Arus kas & transaksi',
+          tone: const Color(0xFF0891B2),
+          onTap: () => context.push(Routes.finance),
+        ),
+    ];
+
+    // ── Group 3: Lainnya ──
+    final lainnyaItems = <_MenuEntry>[
+      if (canOpenOrganization)
+        _MenuEntry(
+          icon: Icons.account_tree_rounded,
+          label: 'Organisasi',
+          subtitle: 'Struktur & pengurus',
+          tone: const Color(0xFF7C3AED),
+          onTap: () => context.push(Routes.organization),
+        ),
+      _MenuEntry(
+        icon: Icons.campaign_rounded,
+        label: 'Pengumuman',
+        subtitle: 'Info & berita warga',
+        tone: const Color(0xFFDB2777),
+        onTap: () => context.push(Routes.announcements),
+      ),
+      if (!isWarga)
+        _MenuEntry(
+          icon: Icons.insights_rounded,
+          label: 'Laporan',
+          subtitle: 'Statistik & ringkasan',
+          tone: const Color(0xFF475569),
+          onTap: () => context.push(Routes.laporan),
+        ),
+    ];
+
+    return [
+      if (dataItems.isNotEmpty)
+        _MenuGroup(
+          title: 'Data Penduduk',
+          icon: Icons.folder_shared_outlined,
+          items: dataItems,
+        ),
+      if (layananItems.isNotEmpty)
+        _MenuGroup(
+          title: 'Layanan',
+          icon: Icons.handshake_outlined,
+          items: layananItems,
+        ),
+      if (lainnyaItems.isNotEmpty)
+        _MenuGroup(
+          title: 'Lainnya',
+          icon: Icons.more_horiz_rounded,
+          items: lainnyaItems,
+        ),
+    ];
   }
 
   @override
@@ -111,12 +285,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final canOpenFinance = authState.isOperator || authState.isSysadmin;
     final suratSummaryAsync = ref.watch(suratDashboardSummaryProvider);
 
-    // Listen for hasKartuKeluarga changes and navigate if needed
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
       next.whenData(_navigateToKkFormIfNeeded);
     });
 
-    // Also check current value on first build
     final hasKkAsync = ref.watch(hasKartuKeluargaProvider);
     hasKkAsync.whenData(_navigateToKkFormIfNeeded);
     final hasKkData = hasKkAsync.maybeWhen(
@@ -131,350 +303,491 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final showSelfKkSetup = isWarga && !hasKkData;
     final showSetupMenu = showSelfWargaSetup || showSelfKkSetup;
 
+    final menuGroups = _buildMenuGroups(
+      isWarga: isWarga,
+      showSelfWargaSetup: showSelfWargaSetup,
+      showSelfKkSetup: showSelfKkSetup,
+      canOpenFinance: canOpenFinance,
+      canOpenOrganization: canOpenOrganization,
+    );
+
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          // Modern gradient AppBar
-          SliverAppBar(
-            expandedHeight: 160,
-            floating: false,
-            pinned: true,
-            backgroundColor: AppTheme.primaryColor,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: AppTheme.headerGradient,
+      backgroundColor: AppTheme.backgroundColor,
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // ── Header hero with stats ──
+          _buildHeader(
+            authState: authState,
+            userName: userName,
+            roleLabel: roleLabel,
+            isWarga: isWarga,
+            statsAsync: statsAsync,
+            suratSummaryAsync: suratSummaryAsync,
+          ),
+
+          // ── Setup hint ──
+          if (showSetupMenu) _buildSetupHint(showSelfKkSetup: showSelfKkSetup),
+
+          // ── Menu section header with view toggle ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Menu',
+                    style: AppTheme.heading3.copyWith(
+                      fontSize: 16,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
                 ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.end,
+                // View toggle
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _ViewToggleButton(
+                        icon: Icons.grid_view_rounded,
+                        isActive: _isGridView,
+                        onTap: () => setState(() => _isGridView = true),
+                      ),
+                      _ViewToggleButton(
+                        icon: Icons.view_list_rounded,
+                        isActive: !_isGridView,
+                        onTap: () => setState(() => _isGridView = false),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── Menu groups ──
+          const SizedBox(height: 12),
+          for (final group in menuGroups) ...[_buildGroupSection(group)],
+
+          // ── Surat summary (admin only) ──
+          if (!isWarga)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: suratSummaryAsync.when(
+                data: (summary) => _SuratSummaryCard(
+                  summary: summary,
+                  onOpenFocus: (focus) =>
+                      context.push('${Routes.laporan}?focus=$focus'),
+                ),
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
+              ),
+            ),
+
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Header — compact, with real avatar
+  // ─────────────────────────────────────────────────────────
+  Widget _buildHeader({
+    required AuthState authState,
+    required String userName,
+    required String roleLabel,
+    required bool isWarga,
+    required AsyncValue<DashboardStats> statsAsync,
+    required AsyncValue<SuratDashboardSummary> suratSummaryAsync,
+  }) {
+    // Build avatar URL from PocketBase user record
+    final user = authState.user;
+    final avatarFile = user?.getStringValue('avatar') ?? '';
+    final avatarUrl = (avatarFile.isNotEmpty && user != null)
+        ? getFileUrl(user, avatarFile)
+        : null;
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: AppTheme.headerGradient,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 8, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ── Row 1: Avatar + Name + Role + Notification ──
+              Row(
+                children: [
+                  // Avatar with network image or fallback initial
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.white.withValues(alpha: 0.2),
+                    backgroundImage: avatarUrl != null
+                        ? NetworkImage(avatarUrl)
+                        : null,
+                    child: avatarUrl == null
+                        ? Text(
+                            userName.isNotEmpty
+                                ? userName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  // Name + role badge inline
+                  Expanded(
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(3),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  width: 2,
-                                ),
-                              ),
-                              child: CircleAvatar(
-                                radius: 24,
-                                backgroundColor: Colors.white.withValues(
-                                  alpha: 0.2,
-                                ),
-                                child: Text(
-                                  userName.isNotEmpty
-                                      ? userName[0].toUpperCase()
-                                      : '?',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
+                        Flexible(
+                          child: Text(
+                            userName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
                             ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Selamat datang,',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.75,
-                                      ),
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    userName,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            roleLabel,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                roleLabel,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                  // Notification icon
+                  SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: IconButton(
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(
+                        Icons.notifications_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: () => context.push(Routes.notifikasi),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(
-                  Icons.notifications_outlined,
-                  color: Colors.white,
-                ),
-                onPressed: () => context.push(Routes.notifikasi),
-              ),
-            ],
-          ),
-
-          SliverPadding(
-            padding: const EdgeInsets.all(AppTheme.paddingMedium),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                if (!isWarga) ...[
-                  Row(
+              // ── Row 2: Inline stats (admin only) ──
+              if (!isWarga) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
                     children: [
-                      _StatCard(
-                        icon: Icons.people_rounded,
-                        label: 'Warga',
+                      _InlineStat(
                         value: statsAsync.maybeWhen(
-                          data: (stats) => stats.totalWarga.toString(),
-                          orElse: () => '...',
+                          data: (s) => s.totalWarga.toString(),
+                          orElse: () => '—',
                         ),
-                        color: AppTheme.primaryColor,
+                        label: 'Warga',
                         onTap: () =>
                             context.push('${Routes.laporan}?focus=warga_total'),
                       ),
-                      const SizedBox(width: 10),
-                      _StatCard(
-                        icon: Icons.family_restroom_rounded,
-                        label: 'KK',
+                      _statDivider(),
+                      _InlineStat(
                         value: statsAsync.maybeWhen(
-                          data: (stats) => stats.totalKk.toString(),
-                          orElse: () => '...',
+                          data: (s) => s.totalKk.toString(),
+                          orElse: () => '—',
                         ),
-                        color: AppTheme.secondaryColor,
+                        label: 'KK',
                         onTap: () =>
                             context.push('${Routes.laporan}?focus=kk_total'),
                       ),
-                      const SizedBox(width: 10),
-                      _StatCard(
-                        icon: Icons.description_rounded,
-                        label: 'Surat Pengantar',
+                      _statDivider(),
+                      _InlineStat(
                         value: suratSummaryAsync.maybeWhen(
-                          data: (summary) => summary.total.toString(),
-                          orElse: () => '...',
+                          data: (s) => s.total.toString(),
+                          orElse: () => '—',
                         ),
-                        color: AppTheme.accentColor,
+                        label: 'Surat',
                         onTap: () =>
                             context.push('${Routes.laporan}?focus=surat_total'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
-                ],
-
-                // Menu Grid
-                Text('Menu', style: AppTheme.heading3),
-                const SizedBox(height: 12),
-                GridView.count(
-                  crossAxisCount: 3,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  children: [
-                    if (!isWarga)
-                      _MenuCard(
-                        icon: Icons.people_rounded,
-                        label: 'Data Warga',
-                        tone: AppTheme.primaryColor,
-                        onTap: () => context.go(Routes.warga),
-                      ),
-                    if (showSelfWargaSetup)
-                      _MenuCard(
-                        icon: Icons.person_add_alt_1_rounded,
-                        label: 'Lengkapi Warga',
-                        tone: AppTheme.primaryColor,
-                        onTap: () => context.push(Routes.wargaForm),
-                      ),
-                    if (!isWarga)
-                      _MenuCard(
-                        icon: Icons.family_restroom_rounded,
-                        label: 'Kartu Keluarga',
-                        tone: AppTheme.secondaryColor,
-                        onTap: () {
-                          final hasKK = ref
-                              .read(hasKartuKeluargaProvider)
-                              .maybeWhen(
-                                data: (hasData) => hasData,
-                                orElse: () => false,
-                              );
-                          if (hasKK) {
-                            context.push(Routes.kartuKeluarga);
-                          } else {
-                            context.go(Routes.kkForm);
-                          }
-                        },
-                      ),
-                    if (showSelfKkSetup)
-                      _MenuCard(
-                        icon: Icons.add_home_work_rounded,
-                        label: 'Lengkapi KK',
-                        tone: AppTheme.secondaryColor,
-                        onTap: () => context.go(Routes.kkForm),
-                      ),
-                    _MenuCard(
-                      icon: Icons.badge_rounded,
-                      label: 'Dokumen',
-                      tone: AppTheme.accentColor,
-                      onTap: () => context.push(Routes.dokumen),
-                    ),
-                    _MenuCard(
-                      icon: Icons.description_rounded,
-                      label: 'Surat Pengantar',
-                      tone: const Color(0xFF64748B),
-                      onTap: () => context.push(Routes.surat),
-                    ),
-                    _MenuCard(
-                      icon: Icons.payments_rounded,
-                      label: 'Iuran',
-                      tone: AppTheme.primaryDark,
-                      onTap: () => context.push(Routes.iuran),
-                    ),
-                    if (canOpenFinance)
-                      _MenuCard(
-                        icon: Icons.account_balance_wallet_rounded,
-                        label: 'Keuangan',
-                        tone: const Color(0xFF284B63),
-                        onTap: () => context.push(Routes.finance),
-                      ),
-                    if (canOpenOrganization)
-                      _MenuCard(
-                        icon: Icons.account_tree_rounded,
-                        label: 'Organisasi',
-                        tone: const Color(0xFF355C7D),
-                        onTap: () => context.push(Routes.organization),
-                      ),
-                    _MenuCard(
-                      icon: Icons.campaign_rounded,
-                      label: 'Pengumuman',
-                      tone: const Color(0xFF8D6E63),
-                      onTap: () => context.push(Routes.announcements),
-                    ),
-                    if (!isWarga)
-                      _MenuCard(
-                        icon: Icons.insights_rounded,
-                        label: 'Laporan',
-                        tone: const Color(0xFF475569),
-                        onTap: () => context.push(Routes.laporan),
-                      ),
-                  ],
                 ),
-                if (!isWarga) ...[
-                  const SizedBox(height: 18),
-                  suratSummaryAsync.when(
-                    data: (summary) => _SuratSummaryCard(
-                      summary: summary,
-                      onOpenFocus: (focus) =>
-                          context.push('${Routes.laporan}?focus=$focus'),
-                    ),
-                    loading: () => const SizedBox.shrink(),
-                    error: (_, _) => const SizedBox.shrink(),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statDivider() {
+    return Container(
+      width: 1,
+      height: 24,
+      color: Colors.white.withValues(alpha: 0.15),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Setup hint banner
+  // ─────────────────────────────────────────────────────────
+  Widget _buildSetupHint({required bool showSelfKkSetup}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.warningColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppTheme.warningColor.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: AppTheme.warningColor,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                showSelfKkSetup
+                    ? 'Lengkapi data KK terlebih dahulu.'
+                    : 'Lengkapi data warga Anda.',
+                style: AppTheme.bodySmall.copyWith(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // Menu group section (renders grid or list based on toggle)
+  // ─────────────────────────────────────────────────────────
+  Widget _buildGroupSection(_MenuGroup group) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section label
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Row(
+              children: [
+                Icon(group.icon, size: 13, color: AppTheme.textTertiary),
+                const SizedBox(width: 5),
+                Text(
+                  group.title.toUpperCase(),
+                  style: AppTheme.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    fontSize: 10,
+                    color: AppTheme.textTertiary,
                   ),
-                ],
-                if (showSetupMenu) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(
-                        AppTheme.radiusMedium,
-                      ),
-                      border: Border.all(
-                        color: AppTheme.primaryColor.withValues(alpha: 0.14),
-                      ),
-                    ),
-                    child: Text(
-                      showSelfKkSetup
-                          ? 'Akun baru ini belum punya data KK. Lengkapi KK dulu, lalu lanjut isi data warga.'
-                          : 'Data warga Anda belum lengkap. Isi data warga agar akun bisa dipakai penuh.',
-                      style: AppTheme.bodySmall.copyWith(
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ]),
+                ),
+              ],
             ),
           ),
+          // Grid or list
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: _isGridView
+                ? _buildGrid(group.items, key: ValueKey('grid_${group.title}'))
+                : _buildList(group.items, key: ValueKey('list_${group.title}')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Grid layout (3 columns) ───
+  Widget _buildGrid(List<_MenuEntry> items, {Key? key}) {
+    final rows = <Widget>[];
+    for (int i = 0; i < items.length; i += 3) {
+      final rowItems = items.sublist(i, (i + 3).clamp(0, items.length));
+      rows.add(
+        Row(
+          children: [
+            for (int j = 0; j < 3; j++) ...[
+              if (j > 0) const SizedBox(width: 10),
+              Expanded(
+                child: j < rowItems.length
+                    ? _GridCard(entry: rowItems[j])
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ],
+        ),
+      );
+      if (i + 3 < items.length) rows.add(const SizedBox(height: 10));
+    }
+    return Column(key: key, children: rows);
+  }
+
+  // ─── List layout (detailed rows) ───
+  Widget _buildList(List<_MenuEntry> items, {Key? key}) {
+    return Container(
+      key: key,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        children: [
+          for (int i = 0; i < items.length; i++) ...[
+            _ListRow(entry: items[i]),
+            if (i < items.length - 1)
+              Divider(
+                height: 0,
+                thickness: 0.5,
+                indent: 52,
+                color: AppTheme.dividerColor.withValues(alpha: 0.4),
+              ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _StatCard extends StatelessWidget {
+// ═══════════════════════════════════════════════════════════════════
+// VIEW TOGGLE BUTTON
+// ═══════════════════════════════════════════════════════════════════
+class _ViewToggleButton extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-  final VoidCallback? onTap;
+  final bool isActive;
+  final VoidCallback onTap;
 
-  const _StatCard({
+  const _ViewToggleButton({
     required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-    this.onTap,
+    required this.isActive,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: AppTheme.cardDecoration(),
-            child: Column(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: isActive ? AppTheme.primaryColor : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          icon,
+          size: 17,
+          color: isActive ? Colors.white : AppTheme.textTertiary,
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GRID CARD — compact 3-column card (icon + label)
+// ═══════════════════════════════════════════════════════════════════
+class _GridCard extends StatelessWidget {
+  final _MenuEntry entry;
+
+  const _GridCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: entry.onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: entry.tone.withValues(alpha: 0.12)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      entry.tone.withValues(alpha: 0.12),
+                      entry.tone.withValues(alpha: 0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  child: Icon(icon, color: color, size: 22),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-                const SizedBox(height: 10),
-                Text(value, style: AppTheme.heading2.copyWith(color: color)),
-                Text(label, style: AppTheme.caption),
-              ],
-            ),
+                child: Icon(entry.icon, size: 21, color: entry.tone),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                entry.label,
+                style: AppTheme.caption.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                  fontSize: 11,
+                  height: 1.2,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
         ),
       ),
@@ -482,6 +795,120 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// LIST ROW — detailed row (icon + label + subtitle + chevron)
+// ═══════════════════════════════════════════════════════════════════
+class _ListRow extends StatelessWidget {
+  final _MenuEntry entry;
+
+  const _ListRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: entry.onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: entry.tone.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(entry.icon, size: 18, color: entry.tone),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      entry.label,
+                      style: AppTheme.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13.5,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      entry.subtitle,
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.textTertiary,
+                        fontSize: 11,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppTheme.textTertiary,
+                size: 18,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INLINE STAT — compact stat inside header
+// ═══════════════════════════════════════════════════════════════════
+class _InlineStat extends StatelessWidget {
+  const _InlineStat({required this.value, required this.label, this.onTap});
+
+  final String value;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+                height: 1.1,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SURAT SUMMARY — compact horizontal chips
+// ═══════════════════════════════════════════════════════════════════
 class _SuratSummaryCard extends StatelessWidget {
   const _SuratSummaryCard({required this.summary, required this.onOpenFocus});
 
@@ -491,73 +918,68 @@ class _SuratSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: AppTheme.cardDecoration(),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.analytics_outlined,
-                  color: AppTheme.primaryColor,
-                ),
+              Icon(
+                Icons.mail_outline_rounded,
+                size: 16,
+                color: AppTheme.primaryColor,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Ringkasan Surat Pengantar', style: AppTheme.heading3),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Pantau antrean surat dan progres penyelesaiannya.',
-                      style: AppTheme.bodySmall,
-                    ),
-                  ],
+              const SizedBox(width: 6),
+              Text(
+                'Ringkasan Surat',
+                style: AppTheme.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                  fontSize: 11,
+                  color: AppTheme.textSecondary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+          const SizedBox(height: 10),
+          Row(
             children: [
-              _summaryChip(
+              _chip(
                 'Total',
-                summary.total.toString(),
+                summary.total,
                 AppTheme.primaryColor,
                 () => onOpenFocus('surat_total'),
               ),
-              _summaryChip(
-                'Perlu Aksi',
-                summary.actionRequired.toString(),
+              const SizedBox(width: 5),
+              _chip(
+                'Aksi',
+                summary.actionRequired,
                 AppTheme.accentColor,
                 () => onOpenFocus('surat_action'),
               ),
-              _summaryChip(
+              const SizedBox(width: 5),
+              _chip(
                 'Revisi',
-                summary.needRevision.toString(),
+                summary.needRevision,
                 AppTheme.warningColor,
                 () => onOpenFocus('surat_revision'),
               ),
-              _summaryChip(
+              const SizedBox(width: 5),
+              _chip(
                 'Selesai',
-                summary.completed.toString(),
+                summary.completed,
                 AppTheme.successColor,
                 () => onOpenFocus('surat_completed'),
               ),
-              _summaryChip(
-                'Ditolak',
-                summary.rejected.toString(),
+              const SizedBox(width: 5),
+              _chip(
+                'Tolak',
+                summary.rejected,
                 AppTheme.errorColor,
                 () => onOpenFocus('surat_rejected'),
               ),
@@ -568,98 +990,30 @@ class _SuratSummaryCard extends StatelessWidget {
     );
   }
 
-  Widget _summaryChip(
-    String label,
-    String value,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        width: 108,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.14)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(value, style: AppTheme.heading3.copyWith(color: color)),
-            const SizedBox(height: 4),
-            Text(label, style: AppTheme.caption),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MenuCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color tone;
-
-  const _MenuCard({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    required this.tone,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
+  Widget _chip(String label, int value, Color color, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                tone.withValues(alpha: 0.92),
-                tone.withValues(alpha: 0.78),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-            boxShadow: [
-              BoxShadow(
-                color: tone.withValues(alpha: 0.18),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
+            color: color.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(8),
           ),
-          padding: const EdgeInsets.all(12),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(14),
+              Text(
+                value.toString(),
+                style: TextStyle(
+                  color: color,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
-                child: Icon(icon, size: 22, color: Colors.white),
               ),
-              const SizedBox(height: 12),
               Text(
                 label,
-                style: AppTheme.bodySmall.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
+                style: AppTheme.caption.copyWith(fontSize: 9, color: color),
               ),
             ],
           ),

@@ -36,13 +36,13 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
               subtitle:
                   'Pantau perubahan status surat dan tindakan pengurus secara realtime di satu tempat.',
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             AppSearchBar(
               hintText: 'Cari notifikasi surat',
               value: _query,
               onChanged: (value) => setState(() => _query = value),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Expanded(
               child: notificationsAsync.when(
                 data: (items) {

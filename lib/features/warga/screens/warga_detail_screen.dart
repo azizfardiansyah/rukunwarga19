@@ -83,7 +83,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Detail Warga')),
       body: AppPageBackground(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
         child: FutureBuilder<_WargaDetailData>(
           future: _loadDetail(),
           builder: (context, snapshot) {
@@ -141,7 +141,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                     canEdit: canEdit,
                     onEdit: canEdit ? _openEdit : null,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   _buildSection(
                     icon: Icons.badge_rounded,
                     title: 'Identitas',
@@ -163,7 +163,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                         ),
                         _InfoRow(label: 'Agama', value: warga.agama),
                         _InfoRow(
-                          label: 'Status Pernikahan',
+                          label: 'Status',
                           value: warga.statusPernikahan,
                         ),
                         _InfoRow(
@@ -174,10 +174,12 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                         ),
                         _InfoRow(
                           label: 'Pekerjaan',
-                          value: warga.pekerjaan.isEmpty ? '-' : warga.pekerjaan,
+                          value: warga.pekerjaan.isEmpty
+                              ? '-'
+                              : warga.pekerjaan,
                         ),
                         _InfoRow(
-                          label: 'Golongan Darah',
+                          label: 'Gol. Darah',
                           value: warga.golonganDarah.isEmpty
                               ? '-'
                               : warga.golonganDarah,
@@ -186,7 +188,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   _buildSection(
                     icon: Icons.home_rounded,
                     title: 'Alamat & Kontak',
@@ -205,13 +207,15 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                         ),
                         _InfoRow(
                           label: 'Email',
-                          value: (warga.email ?? '').isEmpty ? '-' : warga.email!,
+                          value: (warga.email ?? '').isEmpty
+                              ? '-'
+                              : warga.email!,
                           isLast: true,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   _buildSection(
                     icon: Icons.photo_library_rounded,
                     title: 'Dokumen & Foto',
@@ -221,28 +225,28 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                           children: [
                             Expanded(
                               child: _PhotoCard(
-                                title: 'Avatar User',
+                                title: 'Avatar',
                                 subtitle: avatarUrl == null
-                                    ? 'Belum ada avatar'
-                                    : 'Dari collection users',
+                                    ? 'Belum ada'
+                                    : 'Dari akun user',
                                 imageUrl: avatarUrl,
                                 placeholderIcon: Icons.account_circle_rounded,
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: _PhotoCard(
                                 title: 'Foto Warga',
                                 subtitle: fotoWargaUrl == null
-                                    ? 'Belum ada foto warga'
-                                    : 'Dokumen warga',
+                                    ? 'Belum ada'
+                                    : 'Dokumen',
                                 imageUrl: fotoWargaUrl,
                                 placeholderIcon: Icons.person_rounded,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         _PhotoCard(
                           title: 'Foto KTP',
                           subtitle: fotoKtpUrl == null
@@ -256,7 +260,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                     ),
                   ),
                   if (canEdit) ...[
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     FilledButton.icon(
                       onPressed: _openEdit,
                       icon: const Icon(Icons.edit_rounded),
@@ -269,10 +273,6 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
           },
         ),
       ),
-      floatingActionButton: FloatingActionButton.small(
-        onPressed: () => context.pop(),
-        child: const Icon(Icons.arrow_back_rounded),
-      ),
     );
   }
 
@@ -282,106 +282,98 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
     required bool canEdit,
     required VoidCallback? onEdit,
   }) {
-    return AppTheme.glassContainer(
-      opacity: 0.78,
-      padding: EdgeInsets.zero,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              AppTheme.primaryColor.withValues(alpha: 0.95),
-              AppTheme.primaryLight.withValues(alpha: 0.92),
-              AppTheme.secondaryColor.withValues(alpha: 0.88),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor.withValues(alpha: 0.95),
+            AppTheme.primaryLight.withValues(alpha: 0.90),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _AvatarCircle(
-              size: 84,
-              imageUrl: avatarUrl,
-              fallbackText: Formatters.inisial(warga.namaLengkap),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _headerChip(
-                              icon: warga.jenisKelamin == 'Perempuan'
-                                  ? Icons.female_rounded
-                                  : Icons.male_rounded,
-                              text: warga.jenisKelamin,
-                            ),
-                            if (warga.golonganDarah.isNotEmpty)
-                              _headerChip(
-                                icon: Icons.water_drop_rounded,
-                                text: warga.golonganDarah,
-                              ),
-                            _headerChip(
-                              icon: Icons.home_work_rounded,
-                              text: 'RT ${warga.rt}/RW ${warga.rw}',
-                            ),
-                          ],
-                        ),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AvatarCircle(
+            size: 62,
+            imageUrl: avatarUrl,
+            fallbackText: Formatters.inisial(warga.namaLengkap),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Chips row
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _headerChip(
+                      icon: warga.jenisKelamin == 'Perempuan'
+                          ? Icons.female_rounded
+                          : Icons.male_rounded,
+                      text: warga.jenisKelamin,
+                    ),
+                    _headerChip(
+                      icon: Icons.home_work_rounded,
+                      text: 'RT ${warga.rt}/${warga.rw}',
+                    ),
+                    if (warga.golonganDarah.isNotEmpty)
+                      _headerChip(
+                        icon: Icons.water_drop_rounded,
+                        text: warga.golonganDarah,
                       ),
-                      if (canEdit)
-                        IconButton(
-                          onPressed: onEdit,
-                          tooltip: 'Edit warga',
-                          icon: const Icon(Icons.edit_rounded),
-                          style: IconButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            backgroundColor: Colors.white.withValues(
-                              alpha: 0.16,
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            warga.namaLengkap,
+                            style: AppTheme.heading3.copyWith(
+                              color: Colors.white,
+                              fontSize: 18,
                             ),
                           ),
+                          const SizedBox(height: 3),
+                          Text(
+                            Formatters.formatNik(warga.nik),
+                            style: AppTheme.caption.copyWith(
+                              color: Colors.white.withValues(alpha: 0.85),
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (canEdit)
+                      IconButton(
+                        onPressed: onEdit,
+                        tooltip: 'Edit warga',
+                        icon: const Icon(Icons.edit_rounded, size: 18),
+                        style: IconButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.white.withValues(alpha: 0.16),
+                          padding: const EdgeInsets.all(8),
+                          minimumSize: const Size(36, 36),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    warga.namaLengkap,
-                    style: AppTheme.heading2.copyWith(
-                      color: Colors.white,
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    Formatters.formatNik(warga.nik),
-                    style: AppTheme.bodySmall.copyWith(
-                      color: Colors.white.withValues(alpha: 0.88),
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    canEdit
-                        ? 'Foto utama mengikuti avatar user bila tersedia.'
-                        : 'Detail data warga dan dokumen identitas.',
-                    style: AppTheme.caption.copyWith(
-                      color: Colors.white.withValues(alpha: 0.82),
-                    ),
-                  ),
-                ],
-              ),
+                      ),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -392,24 +384,25 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
     required Widget child,
   }) {
     return AppSurfaceCard(
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, size: 18, color: AppTheme.primaryColor),
+                child: Icon(icon, size: 16, color: AppTheme.primaryColor),
               ),
-              const SizedBox(width: 10),
-              Text(title, style: AppTheme.heading3),
+              const SizedBox(width: 8),
+              Text(title, style: AppTheme.heading3.copyWith(fontSize: 15)),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           child,
         ],
       ),
@@ -418,29 +411,28 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
 
   Widget _headerChip({required IconData icon, required String text}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: Colors.white),
+          const SizedBox(width: 4),
           Text(
             text,
             style: AppTheme.caption.copyWith(
               color: Colors.white,
               fontWeight: FontWeight.w700,
+              fontSize: 10,
             ),
           ),
         ],
       ),
     );
   }
-
 }
 
 class _InfoRow extends StatelessWidget {
@@ -456,32 +448,29 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: EdgeInsets.only(bottom: isLast ? 0 : 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
-      ),
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 118,
+            width: 100,
             child: Text(
               label,
-              style: AppTheme.bodySmall.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textSecondary,
+              style: AppTheme.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textTertiary,
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               value,
-              style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+              style: AppTheme.bodyMedium.copyWith(
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -508,24 +497,27 @@ class _PhotoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.74),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+        color: const Color(0xFFF8FAFB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+            style: AppTheme.caption.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
+            ),
           ),
-          const SizedBox(height: 2),
-          Text(subtitle, style: AppTheme.caption),
-          const SizedBox(height: 10),
+          const SizedBox(height: 1),
+          Text(subtitle, style: AppTheme.caption.copyWith(fontSize: 10)),
+          const SizedBox(height: 6),
           ClipRRect(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(10),
             child: AspectRatio(
               aspectRatio: wide ? 16 / 9 : 1,
               child: imageUrl == null
@@ -533,8 +525,8 @@ class _PhotoCard extends StatelessWidget {
                       color: AppTheme.backgroundColor,
                       child: Icon(
                         placeholderIcon,
-                        size: 42,
-                        color: AppTheme.textSecondary.withValues(alpha: 0.5),
+                        size: 32,
+                        color: AppTheme.textSecondary.withValues(alpha: 0.4),
                       ),
                     )
                   : Image.network(
@@ -544,8 +536,8 @@ class _PhotoCard extends StatelessWidget {
                         color: AppTheme.backgroundColor,
                         child: Icon(
                           placeholderIcon,
-                          size: 42,
-                          color: AppTheme.textSecondary.withValues(alpha: 0.5),
+                          size: 32,
+                          color: AppTheme.textSecondary.withValues(alpha: 0.4),
                         ),
                       ),
                     ),
@@ -578,7 +570,7 @@ class _AvatarCircle extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.18),
         shape: BoxShape.circle,
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.4),
+          color: Colors.white.withValues(alpha: 0.35),
           width: 2,
         ),
       ),
@@ -600,7 +592,7 @@ class _AvatarCircle extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         fallbackText,
-        style: AppTheme.heading2.copyWith(color: Colors.white),
+        style: AppTheme.heading3.copyWith(color: Colors.white),
       ),
     );
   }

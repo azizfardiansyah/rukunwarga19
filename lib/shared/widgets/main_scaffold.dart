@@ -149,77 +149,71 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
     return Scaffold(
       body: widget.child,
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: DecoratedBox(
-              decoration: AppTheme.glassDecoration(
-                opacity: 0.82,
-                borderRadius: 24,
-                blur: 10,
-                borderColor: Colors.white.withValues(alpha: 0.5),
-              ),
-              child: NavigationBar(
-                selectedIndex: selectedIndex,
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                onDestinationSelected: (index) {
-                  switch (index) {
-                    case 0:
-                      context.go(Routes.dashboard);
-                      break;
-                    case 1:
-                      context.go(Routes.warga);
-                      break;
-                    case 2:
-                      context.go(Routes.chat);
-                      break;
-                    case 3:
-                      context.go(Routes.settings);
-                      break;
-                  }
-                },
-                destinations: [
-                  const NavigationDestination(
-                    icon: Icon(Icons.dashboard_outlined),
-                    selectedIcon: Icon(Icons.dashboard),
-                    label: 'Dashboard',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.people_outlined),
-                    selectedIcon: Icon(Icons.people),
-                    label: 'Warga',
-                  ),
-                  NavigationDestination(
-                    icon: unreadCount > 0
-                        ? Badge(
-                            label: Text(
-                              unreadCount > 99 ? '99+' : '$unreadCount',
-                            ),
-                            child: const Icon(Icons.chat_outlined),
-                          )
-                        : const Icon(Icons.chat_outlined),
-                    selectedIcon: unreadCount > 0
-                        ? Badge(
-                            label: Text(
-                              unreadCount > 99 ? '99+' : '$unreadCount',
-                            ),
-                            child: const Icon(Icons.chat),
-                          )
-                        : const Icon(Icons.chat),
-                    label: 'Chat',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings),
-                    label: 'Settings',
-                  ),
-                ],
-              ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            top: BorderSide(
+              color: AppTheme.dividerColor.withValues(alpha: 0.5),
+              width: 0.5,
             ),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: NavigationBar(
+            selectedIndex: selectedIndex,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            height: 68,
+            onDestinationSelected: (index) {
+              switch (index) {
+                case 0:
+                  context.go(Routes.dashboard);
+                  break;
+                case 1:
+                  context.go(Routes.warga);
+                  break;
+                case 2:
+                  context.go(Routes.chat);
+                  break;
+                case 3:
+                  context.go(Routes.settings);
+                  break;
+              }
+            },
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.space_dashboard_outlined),
+                selectedIcon: Icon(Icons.space_dashboard),
+                label: 'Dashboard',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.people_outline_rounded),
+                selectedIcon: Icon(Icons.people_rounded),
+                label: 'Warga',
+              ),
+              NavigationDestination(
+                icon: unreadCount > 0
+                    ? Badge(
+                        label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                        child: const Icon(Icons.chat_bubble_outline_rounded),
+                      )
+                    : const Icon(Icons.chat_bubble_outline_rounded),
+                selectedIcon: unreadCount > 0
+                    ? Badge(
+                        label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+                        child: const Icon(Icons.chat_bubble_rounded),
+                      )
+                    : const Icon(Icons.chat_bubble_rounded),
+                label: 'Chat',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded),
+                label: 'Settings',
+              ),
+            ],
           ),
         ),
       ),

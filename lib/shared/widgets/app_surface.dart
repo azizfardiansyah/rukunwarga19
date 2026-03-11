@@ -6,7 +6,7 @@ class AppPageBackground extends StatelessWidget {
   const AppPageBackground({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.fromLTRB(14, 8, 14, 14),
   });
 
   final Widget child;
@@ -15,22 +15,9 @@ class AppPageBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            const Color(0xFFF2F7F5),
-            Colors.white.withValues(alpha: 0.98),
-            const Color(0xFFF7FBF9),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
+      decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
       child: SafeArea(
-        child: Padding(
-          padding: padding,
-          child: child,
-        ),
+        child: Padding(padding: padding, child: child),
       ),
     );
   }
@@ -40,7 +27,7 @@ class AppSurfaceCard extends StatelessWidget {
   const AppSurfaceCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.all(12),
     this.margin,
   });
 
@@ -65,29 +52,40 @@ class AppEmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.message,
+    this.action,
   });
 
   final IconData icon;
   final String title;
   final String message;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: AppTheme.glassContainer(
-        opacity: 0.78,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 44, color: AppTheme.textSecondary),
-            const SizedBox(height: 12),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, size: 30, color: AppTheme.textTertiary),
+            ),
+            const SizedBox(height: 16),
             Text(title, style: AppTheme.heading3, textAlign: TextAlign.center),
             const SizedBox(height: 6),
             Text(
               message,
-              style: AppTheme.bodyMedium,
+              style: AppTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
+            if (action != null) ...[const SizedBox(height: 16), action!],
           ],
         ),
       ),
@@ -150,77 +148,66 @@ class AppHeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primaryColor.withValues(alpha: 0.18),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+    // Compact minimalist inline header
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (icon != null) ...[
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: AppTheme.primaryColor, size: 18),
           ),
+          const SizedBox(width: 10),
         ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null) ...[
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                style: AppTheme.bodyMedium.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
                 ),
               ),
-              child: Icon(icon, color: Colors.white, size: 28),
-            ),
-            const SizedBox(width: 14),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if ((eyebrow ?? '').isNotEmpty) ...[
-                  AppHeroBadge(
-                    label: eyebrow!,
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.white.withValues(alpha: 0.16),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                Text(
-                  title,
-                  style: AppTheme.heading2.copyWith(
-                    color: Colors.white,
-                    height: 1.15,
-                  ),
-                ),
-                const SizedBox(height: 8),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 1),
                 Text(
                   subtitle,
-                  style: AppTheme.bodyMedium.copyWith(
-                    color: Colors.white.withValues(alpha: 0.86),
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.textTertiary,
                   ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                if (chips.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Wrap(spacing: 8, runSpacing: 8, children: chips),
-                ],
               ],
+            ],
+          ),
+        ),
+        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        if ((eyebrow ?? '').isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              eyebrow!,
+              style: AppTheme.caption.copyWith(
+                color: AppTheme.primaryColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 12),
-            trailing!,
-          ],
         ],
-      ),
+      ],
     );
   }
 }
@@ -242,7 +229,7 @@ class AppHeroBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
@@ -251,14 +238,15 @@ class AppHeroBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 14, color: foregroundColor),
-            const SizedBox(width: 6),
+            Icon(icon, size: 12, color: foregroundColor),
+            const SizedBox(width: 4),
           ],
           Text(
             label,
             style: AppTheme.caption.copyWith(
               color: foregroundColor,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
+              fontSize: 10,
             ),
           ),
         ],
@@ -283,26 +271,39 @@ class AppSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+    return Container(
+      decoration: AppTheme.cardDecoration(borderRadius: AppTheme.radiusMedium),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
       child: TextField(
         controller: controller,
         decoration: InputDecoration(
           hintText: hintText,
-          prefixIcon: const Icon(Icons.search_rounded),
+          hintStyle: AppTheme.bodySmall.copyWith(color: AppTheme.textTertiary),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: AppTheme.textTertiary,
+            size: 18,
+          ),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
           fillColor: Colors.transparent,
           filled: true,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
           suffixIcon: value.isEmpty
               ? null
               : IconButton(
                   onPressed: () => onChanged(''),
-                  icon: const Icon(Icons.close_rounded),
+                  icon: Icon(
+                    Icons.close_rounded,
+                    color: AppTheme.textTertiary,
+                    size: 16,
+                  ),
                 ),
         ),
         onChanged: onChanged,
+        style: AppTheme.bodyMedium.copyWith(fontSize: 13),
       ),
     );
   }

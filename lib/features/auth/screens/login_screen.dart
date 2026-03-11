@@ -32,10 +32,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).login(
-            _emailController.text.trim(),
-            _passwordController.text,
-          );
+      await ref
+          .read(authProvider.notifier)
+          .login(_emailController.text.trim(), _passwordController.text);
     } catch (e) {
       if (mounted) {
         ErrorClassifier.showErrorSnackBar(context, e);
@@ -61,14 +60,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     // Logo & Title (above card)
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
+                        color: Colors.white.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
                       ),
                       child: const Icon(
                         Icons.location_city_rounded,
-                        size: 56,
+                        size: 48,
                         color: Colors.white,
                       ),
                     ),
@@ -76,8 +78,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const Text(
                       'RukunWarga',
                       style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
                         color: Colors.white,
                         letterSpacing: -0.5,
                       ),
@@ -87,12 +89,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     Text(
                       'Sistem Manajemen Rukun Warga',
                       style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontWeight: FontWeight.w400,
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 28),
 
                     // Glassmorphism login card
                     AppTheme.glassContainer(
@@ -122,7 +125,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 labelText: 'Email',
                                 prefixIcon: const Icon(Icons.email_outlined),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
                                 ),
                               ),
                               validator: (value) {
@@ -145,7 +150,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 labelText: 'Password',
                                 prefixIcon: const Icon(Icons.lock_outlined),
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                  borderRadius: BorderRadius.circular(
+                                    AppTheme.radiusMedium,
+                                  ),
                                 ),
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -155,7 +162,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   onPressed: () {
                                     setState(
-                                        () => _obscurePassword = !_obscurePassword);
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
+                                    );
                                   },
                                 ),
                               ),
@@ -208,7 +217,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   onPressed: () => context.go(Routes.register),
                                   child: const Text(
                                     'Daftar',
-                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ],

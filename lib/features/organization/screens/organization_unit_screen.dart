@@ -67,12 +67,7 @@ class _OrganizationUnitScreenState
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingMedium,
-                AppTheme.paddingLarge,
-              ),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
               children: [
                 Wrap(
                   spacing: 8,
@@ -109,7 +104,7 @@ class _OrganizationUnitScreenState
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Container(
                         decoration: AppTheme.cardDecoration(),
-                        padding: const EdgeInsets.all(AppTheme.paddingMedium),
+                        padding: const EdgeInsets.all(12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [

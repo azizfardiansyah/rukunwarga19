@@ -112,9 +112,9 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
         child: Column(
           children: [
             _buildHero(canVerify, activeSection),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _buildSectionSelector(canVerify, activeSection),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             Expanded(
               child: dokumenAsync.when(
                 data: (data) => RefreshIndicator(

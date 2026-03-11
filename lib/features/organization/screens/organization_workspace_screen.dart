@@ -6,6 +6,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
@@ -39,17 +40,12 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
           },
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
-              AppTheme.paddingMedium,
-              AppTheme.paddingMedium,
-              AppTheme.paddingMedium,
-              AppTheme.paddingLarge,
-            ),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
             children: [
               _WorkspaceHero(overview: overview),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _StatsGrid(overview: overview),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               OrganizationSectionCard(
                 title: 'Navigasi organisasi',
                 subtitle:
@@ -74,7 +70,7 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               OrganizationSectionCard(
                 title: 'Detail workspace',
                 subtitle: 'Informasi inti workspace aktif dan pemilik seat.',
@@ -110,7 +106,7 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               OrganizationSectionCard(
                 title: 'Operator aktif',
                 subtitle:
@@ -246,49 +242,25 @@ class _WorkspaceHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final workspace = overview.profile.workspace;
-    return Container(
-      padding: const EdgeInsets.all(AppTheme.paddingLarge),
-      decoration: BoxDecoration(
-        gradient: AppTheme.headerGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            workspace.name,
-            style: AppTheme.heading2.copyWith(color: Colors.white),
+    return AppHeroPanel(
+      eyebrow: workspace.status.toUpperCase(),
+      icon: Icons.apartment_outlined,
+      title: workspace.name,
+      subtitle: 'Kode ${workspace.code} • RW ${workspace.rw}',
+      chips: [
+        if ((workspace.desaKelurahan ?? '').isNotEmpty)
+          AppHeroBadge(
+            label: workspace.desaKelurahan!,
+            foregroundColor: AppTheme.textSecondary,
+            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.06),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Kode ${workspace.code} • RW ${workspace.rw}',
-            style: AppTheme.bodyMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.86),
-            ),
+        if ((workspace.kecamatan ?? '').isNotEmpty)
+          AppHeroBadge(
+            label: workspace.kecamatan!,
+            foregroundColor: AppTheme.textSecondary,
+            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.06),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OrganizationBadge(
-                label: workspace.status.toUpperCase(),
-                color: Colors.white,
-              ),
-              if ((workspace.desaKelurahan ?? '').isNotEmpty)
-                OrganizationBadge(
-                  label: workspace.desaKelurahan!,
-                  color: Colors.white,
-                ),
-              if ((workspace.kecamatan ?? '').isNotEmpty)
-                OrganizationBadge(
-                  label: workspace.kecamatan!,
-                  color: Colors.white,
-                ),
-            ],
-          ),
-        ],
-      ),
+      ],
     );
   }
 }

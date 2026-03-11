@@ -56,15 +56,15 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
             return Column(
               children: [
                 _buildHero(auth, data),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 AppSearchBar(
                   hintText: 'Cari jenis surat, nama warga, atau keperluan',
                   value: _query,
                   onChanged: (value) => setState(() => _query = value),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 _buildStatusFilters(),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: () async => ref.invalidate(suratListProvider),

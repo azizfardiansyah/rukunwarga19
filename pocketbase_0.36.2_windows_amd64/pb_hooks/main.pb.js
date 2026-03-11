@@ -1215,6 +1215,11 @@ routerAdd(
       .toLowerCase();
     const isProduction =
       envValue === "1" || envValue === "true" || envValue === "yes";
+    const serverKey = String($os.getenv("RW_MIDTRANS_SERVER_KEY") || "").trim();
+    const checkoutReady = serverKey.length > 0;
+    const checkoutMessage = checkoutReady
+      ? ""
+      : "Server Key Midtrans belum dikonfigurasi pada environment PocketBase.";
 
     let plans = [];
     try {
@@ -1264,6 +1269,8 @@ routerAdd(
 
     return e.json(200, {
       environment: isProduction ? "production" : "sandbox",
+      checkoutReady: checkoutReady,
+      checkoutMessage: checkoutMessage,
       plans: plans,
     });
   },

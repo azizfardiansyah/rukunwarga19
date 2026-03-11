@@ -75,13 +75,15 @@ class ErrorClassifier {
   /// Klasifikasi error dari PocketBase
   static ClassifiedError _classifyPocketBaseError(ClientException error) {
     final statusCode = error.statusCode;
+    final extractedMessage = _extractPocketBaseMessage(error);
+    final normalizedMessage = (extractedMessage ?? '').toLowerCase();
 
     switch (statusCode) {
       case 400:
         return ClassifiedError(
           type: ErrorType.validation,
           message: 'Data tidak valid',
-          detail: _extractPocketBaseMessage(error),
+          detail: extractedMessage,
         );
       case 401:
         return const ClassifiedError(
@@ -109,16 +111,27 @@ class ErrorClassifier {
         );
       default:
         if (statusCode >= 500) {
+          if (normalizedMessage.contains('midtrans') &&
+              (normalizedMessage.contains('server key') ||
+                  normalizedMessage.contains('belum dikonfigurasi'))) {
+            return ClassifiedError(
+              type: ErrorType.server,
+              message: 'Konfigurasi pembayaran belum siap',
+              detail: extractedMessage,
+            );
+          }
           return ClassifiedError(
             type: ErrorType.server,
             message: 'Kesalahan server',
-            detail: 'Server error ($statusCode). Coba lagi nanti',
+            detail: (extractedMessage ?? '').trim().isNotEmpty
+                ? extractedMessage
+                : 'Server error ($statusCode). Coba lagi nanti',
           );
         }
         return ClassifiedError(
           type: ErrorType.unknown,
           message: 'Terjadi kesalahan',
-          detail: _extractPocketBaseMessage(error),
+          detail: extractedMessage,
         );
     }
   }
@@ -142,7 +155,7 @@ class ErrorClassifier {
       if (data.containsKey('message')) {
         return data['message']?.toString();
       }
-        } catch (_) {}
+    } catch (_) {}
     return error.toString();
   }
 
@@ -160,10 +173,7 @@ class ErrorClassifier {
           ),
           if (classified.detail != null) ...[
             const SizedBox(height: 4),
-            Text(
-              classified.detail!,
-              style: const TextStyle(fontSize: 12),
-            ),
+            Text(classified.detail!, style: const TextStyle(fontSize: 12)),
           ],
         ],
       ),

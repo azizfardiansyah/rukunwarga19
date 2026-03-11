@@ -67,6 +67,41 @@ class SubscriptionPlan {
   }
 }
 
+class SubscriptionCatalog {
+  const SubscriptionCatalog({
+    required this.plans,
+    required this.environment,
+    required this.checkoutReady,
+    this.checkoutMessage,
+  });
+
+  final List<SubscriptionPlan> plans;
+  final String environment;
+  final bool checkoutReady;
+  final String? checkoutMessage;
+
+  factory SubscriptionCatalog.fromJson(Map<String, dynamic> json) {
+    final rawPlans = json['plans'] as List<dynamic>? ?? const [];
+    final hasCheckoutReady = json.containsKey('checkoutReady');
+    final checkoutReady = json['checkoutReady'] as bool? ?? false;
+    final checkoutMessage = json['checkoutMessage'] as String?;
+    return SubscriptionCatalog(
+      plans: rawPlans
+          .map(
+            (item) => SubscriptionPlan.fromJson(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
+          .toList(growable: false),
+      environment: json['environment'] as String? ?? 'sandbox',
+      checkoutReady: hasCheckoutReady ? checkoutReady : false,
+      checkoutMessage: hasCheckoutReady
+          ? checkoutMessage
+          : 'Status kesiapan checkout Midtrans belum dikirim server. Restart PocketBase agar hook subscription terbaru aktif.',
+    );
+  }
+}
+
 class SubscriptionCheckout {
   const SubscriptionCheckout({
     required this.id,
@@ -177,29 +212,21 @@ class SubscriptionPaymentService {
   static const String _checkoutPath =
       '/api/rukunwarga/payments/subscription/snap';
 
-  Future<List<SubscriptionPlan>> getPlans() async {
+  Future<SubscriptionCatalog> getCatalog() async {
     try {
       final response = await _pb
           .send<Map<String, dynamic>>(_plansPath)
           .timeout(_requestTimeout);
-      final rawPlans = response['plans'] as List<dynamic>? ?? const [];
-
-      return rawPlans
-          .map(
-            (item) => SubscriptionPlan.fromJson(
-              Map<String, dynamic>.from(item as Map),
-            ),
-          )
-          .toList();
+      return SubscriptionCatalog.fromJson(response);
     } on TimeoutException {
-      return _loadPlansFromCollection();
+      return _loadCatalogFromCollection();
     } on ClientException catch (error) {
       if (error.statusCode == 401 || error.statusCode == 403) {
         rethrow;
       }
-      return _loadPlansFromCollection();
+      return _loadCatalogFromCollection();
     } catch (_) {
-      return _loadPlansFromCollection();
+      return _loadCatalogFromCollection();
     }
   }
 
@@ -230,7 +257,7 @@ class SubscriptionPaymentService {
     return SubscriptionCheckout.fromJson(response);
   }
 
-  Future<List<SubscriptionPlan>> _loadPlansFromCollection() async {
+  Future<SubscriptionCatalog> _loadCatalogFromCollection() async {
     final currentRole = AppConstants.effectiveLegacyRole(
       role: _pb.authStore.record?.getStringValue('role'),
       systemRole: _pb.authStore.record?.getStringValue('system_role'),
@@ -245,7 +272,7 @@ class SubscriptionPaymentService {
         .getFullList(filter: 'is_active = true', sort: 'sort_order,created')
         .timeout(_requestTimeout);
 
-    return records
+    final plans = records
         .map(_planFromRecord)
         .where(
           (plan) => AppConstants.canPurchaseRole(
@@ -253,7 +280,15 @@ class SubscriptionPaymentService {
             targetRole: plan.targetRole,
           ),
         )
-        .toList();
+        .toList(growable: false);
+
+    return SubscriptionCatalog(
+      plans: plans,
+      environment: 'unknown',
+      checkoutReady: false,
+      checkoutMessage:
+          'Status checkout tidak dapat diverifikasi dari server. Pastikan PocketBase memakai hook subscription terbaru lalu restart server.',
+    );
   }
 
   SubscriptionPlan _planFromRecord(RecordModel record) {
