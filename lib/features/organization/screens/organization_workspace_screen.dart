@@ -4,25 +4,28 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
-import '../../../core/utils/error_classifier.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
 
-class OrganizationWorkspaceScreen extends ConsumerWidget {
-  const OrganizationWorkspaceScreen({super.key});
+class OrganizationManageScreen extends ConsumerWidget {
+  const OrganizationManageScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
     if (!auth.isSysadmin && !auth.hasRwWideAccess) {
-      return const OrganizationAccessDenied();
+      return const OrganizationAccessDenied(
+        appBarTitle: 'Kelola Organisasi',
+        title: 'Akses kelola organisasi tidak tersedia',
+      );
     }
 
     final overviewAsync = ref.watch(organizationOverviewProvider);
     return OrganizationScreenShell(
-      title: 'Organisasi',
+      title: 'Kelola Organisasi',
       actions: [
         IconButton(
           tooltip: 'Refresh',
@@ -41,21 +44,20 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
             children: [
-              _WorkspaceHero(overview: overview),
+              _ManageHero(overview: overview),
               const SizedBox(height: 10),
               _StatsGrid(overview: overview),
               const SizedBox(height: 10),
               OrganizationSectionCard(
-                title: 'Navigasi organisasi',
+                title: 'Sub-menu pengelolaan',
                 subtitle:
-                    'Kelola unit, struktur pengurus, dan membership.',
+                    'Input struktur organisasi dilakukan lewat unit dan pengurus.',
                 child: Column(
                   children: [
                     _NavTile(
                       icon: Icons.account_tree_outlined,
                       title: 'Kelola Unit',
-                      subtitle:
-                          'Atur RT, DKM, Posyandu, dan unit custom.',
+                      subtitle: 'Input RT, DKM, Posyandu, dan unit custom.',
                       onTap: () => context.push(Routes.organizationUnits),
                     ),
                     const Divider(height: 1),
@@ -63,65 +65,18 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
                       icon: Icons.badge_outlined,
                       title: 'Kelola Pengurus',
                       subtitle:
-                          'Assign jabatan, masa bakti, primary membership.',
+                          'Input jabatan pengurus, masa bakti, dan statusnya.',
                       onTap: () => context.push(Routes.organizationMemberships),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 10),
-              OrganizationSectionCard(
-                title: 'Detail workspace',
-                subtitle: 'Informasi inti workspace aktif.',
-                action: overview.profile.canManageWorkspace
-                    ? FilledButton.icon(
-                        onPressed: () => _editWorkspace(context, ref, overview),
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Edit'),
-                      )
-                    : null,
-                child: Column(
-                  children: [
-                    _DetailRow(
-                      label: 'Nama',
-                      value: overview.profile.workspace.name,
-                    ),
-                    _DetailRow(
-                      label: 'Kode',
-                      value: overview.profile.workspace.code,
-                    ),
-                    _DetailRow(
-                      label: 'RW',
-                      value: '${overview.profile.workspace.rw}',
-                    ),
-                    _DetailRow(
-                      label: 'Status',
-                      value: overview.profile.workspace.status,
-                    ),
-                    _DetailRow(
-                      label: 'Owner',
-                      value: overview.ownerActor?.displayName ?? '-',
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              OrganizationSectionCard(
-                title: 'Operator aktif',
+              const OrganizationSectionCard(
+                title: 'Batas Modul',
                 subtitle:
-                    'Seat operator di workspace.',
-                child: overview.workspaceActors.isEmpty
-                    ? const OrganizationEmptyState(
-                        icon: Icons.group_off_outlined,
-                        title: 'Belum ada operator',
-                        message:
-                            'Tambahkan workspace member aktif.',
-                      )
-                    : Column(
-                        children: overview.workspaceActors
-                            .map((actor) => _ActorTile(actor: actor))
-                            .toList(growable: false),
-                      ),
+                    'Yang jadi master sysadmin hanya daftar jabatan. Data organisasi lain adalah hasil input operasional.',
+                child: _ScopeNote(),
               ),
             ],
           ),
@@ -140,111 +95,27 @@ class OrganizationWorkspaceScreen extends ConsumerWidget {
       ),
     );
   }
-
-  Future<void> _editWorkspace(
-    BuildContext context,
-    WidgetRef ref,
-    OrganizationOverviewData overview,
-  ) async {
-    final nameCtrl = TextEditingController(
-      text: overview.profile.workspace.name,
-    );
-    String status = overview.profile.workspace.status;
-    final saved =
-        await showDialog<bool>(
-          context: context,
-          builder: (context) {
-            return StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  title: const Text('Edit Workspace'),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextFormField(
-                          controller: nameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Nama workspace',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: status,
-                          decoration: const InputDecoration(
-                            labelText: 'Status',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'active',
-                              child: Text('Active'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'inactive',
-                              child: Text('Inactive'),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            setState(() => status = value ?? 'active');
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Batal'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Simpan'),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        ) ??
-        false;
-
-    if (!saved || !context.mounted) {
-      return;
-    }
-
-    try {
-      await ref
-          .read(organizationServiceProvider)
-          .updateWorkspace(name: nameCtrl.text.trim(), status: status);
-      ref.read(organizationRefreshTickProvider.notifier).bump();
-      if (!context.mounted) {
-        return;
-      }
-      ErrorClassifier.showSuccessSnackBar(
-        context,
-        'Workspace berhasil diperbarui.',
-      );
-    } catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-      ErrorClassifier.showErrorSnackBar(context, error);
-    }
-  }
 }
 
-class _WorkspaceHero extends StatelessWidget {
-  const _WorkspaceHero({required this.overview});
+class _ManageHero extends StatelessWidget {
+  const _ManageHero({required this.overview});
 
   final OrganizationOverviewData overview;
 
   @override
   Widget build(BuildContext context) {
     final workspace = overview.profile.workspace;
+    final locationParts = [
+      workspace.desaKelurahan,
+      workspace.kecamatan,
+      workspace.kabupatenKota,
+    ].whereType<String>().where((part) => part.trim().isNotEmpty).toList();
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: AppTheme.cardDecoration(),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(8),
@@ -260,7 +131,7 @@ class _WorkspaceHero extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
-              Icons.apartment_outlined,
+              Icons.account_tree_outlined,
               color: AppTheme.primaryColor,
               size: 20,
             ),
@@ -276,32 +147,24 @@ class _WorkspaceHero extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: AppTheme.textPrimary,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  'Kode ${workspace.code} • RW ${workspace.rw}',
+                  'Input unit dan susunan pengurus RW ${workspace.rw}',
                   style: AppTheme.caption.copyWith(
                     color: AppTheme.textTertiary,
                   ),
                 ),
+                if (locationParts.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    locationParts.join(' • '),
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
               ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              workspace.status.toUpperCase(),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.primaryColor,
-              ),
             ),
           ),
         ],
@@ -320,65 +183,147 @@ class _StatsGrid extends StatelessWidget {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final cardWidth = (screenWidth - 28 - 10) / 2;
     final stats = [
-      ('Seat aktif', '${overview.workspaceActors.length}', Icons.groups_rounded),
-      ('Unit', '${overview.orgUnits.length}', Icons.account_tree_outlined),
       (
-        'Pengurus',
-        '${overview.orgMemberships.where((item) => item.isActive).length}',
-        Icons.badge_outlined,
+        'RT',
+        '${overview.unitsByType(AppConstants.unitTypeRt).length}',
+        Icons.holiday_village_outlined,
       ),
       (
-        'Unit resmi',
-        '${overview.orgUnits.where((item) => item.isOfficial).length}',
-        Icons.apartment_outlined,
+        'DKM',
+        '${overview.unitsByType(AppConstants.unitTypeDkm).length}',
+        Icons.mosque_outlined,
       ),
+      (
+        'Posyandu',
+        '${overview.unitsByType(AppConstants.unitTypePosyandu).length}',
+        Icons.favorite_border_rounded,
+      ),
+      ('Pengurus', '${overview.orgMemberships.length}', Icons.badge_outlined),
     ];
 
     return Wrap(
       spacing: 10,
       runSpacing: 10,
-      children: stats.map((item) {
-        return SizedBox(
-          width: cardWidth,
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: AppTheme.cardDecoration(),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(item.$3, color: AppTheme.primaryColor, size: 16),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.$2,
-                        style: AppTheme.bodyMedium.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.textPrimary,
-                        ),
+      children: stats
+          .map(
+            (item) => SizedBox(
+              width: cardWidth,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: AppTheme.cardDecoration(),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      Text(
-                        item.$1,
-                        style: AppTheme.caption,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      child: Icon(
+                        item.$3,
+                        color: AppTheme.primaryColor,
+                        size: 16,
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.$2,
+                            style: AppTheme.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            item.$1,
+                            style: AppTheme.caption,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class _ScopeNote extends StatelessWidget {
+  const _ScopeNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [
+        _ScopeLine(
+          title: 'jabatan_master',
+          subtitle: 'Konfigurasi awal oleh sysadmin sebagai master jabatan.',
+        ),
+        SizedBox(height: 8),
+        _ScopeLine(
+          title: 'org_units',
+          subtitle: 'Hasil input dari menu Kelola Unit.',
+        ),
+        SizedBox(height: 8),
+        _ScopeLine(
+          title: 'org_memberships',
+          subtitle: 'Hasil input dari menu Kelola Pengurus.',
+        ),
+      ],
+    );
+  }
+}
+
+class _ScopeLine extends StatelessWidget {
+  const _ScopeLine({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.only(top: 4),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withValues(alpha: 0.7),
+            shape: BoxShape.circle,
           ),
-        );
-      }).toList(growable: false),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTheme.bodySmall.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: AppTheme.caption.copyWith(color: AppTheme.textTertiary),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -443,106 +388,6 @@ class _NavTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ActorTile extends StatelessWidget {
-  const _ActorTile({required this.actor});
-
-  final OrganizationWorkspaceActor actor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
-            child: Text(
-              actor.displayName.isNotEmpty
-                  ? actor.displayName[0].toUpperCase()
-                  : '?',
-              style: AppTheme.caption.copyWith(
-                color: AppTheme.primaryColor,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  actor.displayName,
-                  style: AppTheme.bodySmall.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textPrimary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  actor.email,
-                  style: AppTheme.caption,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: [
-                    OrganizationBadge(label: actor.member.planCode.toUpperCase()),
-                    if (actor.member.isOwner)
-                      const OrganizationBadge(
-                        label: 'OWNER',
-                        color: AppTheme.accentColor,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 70,
-            child: Text(label, style: AppTheme.caption),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value.isEmpty ? '-' : value,
-              style: AppTheme.bodySmall.copyWith(
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -27,6 +27,7 @@ class _OrganizationUnitScreenState
     final auth = ref.watch(authProvider);
     if (!auth.isSysadmin && !auth.hasRwWideAccess) {
       return const OrganizationAccessDenied(
+        appBarTitle: 'Kelola Unit',
         title: 'Akses kelola unit tidak tersedia',
       );
     }
@@ -174,8 +175,8 @@ class _OrganizationUnitScreenState
                                 ),
                                 OrganizationBadge(
                                   label: unit.isOfficial
-                                      ? 'OFFICIAL'
-                                      : 'CUSTOM',
+                                      ? 'RESMI'
+                                      : 'TAMBAHAN',
                                   color: unit.isOfficial
                                       ? AppTheme.primaryDark
                                       : AppTheme.accentColor,
@@ -184,10 +185,10 @@ class _OrganizationUnitScreenState
                             ),
                             const SizedBox(height: 6),
                             _InfoLine(
-                              label: 'Parent',
+                              label: 'Induk',
                               value: parentNames[unit.parentUnitId] ?? '-',
                             ),
-                            _InfoLine(label: 'Scope', value: _scopeLabel(unit)),
+                            _InfoLine(label: 'Wilayah', value: _scopeLabel(unit)),
                           ],
                         ),
                       ),
@@ -497,7 +498,7 @@ String _scopeLabel(OrgUnitModel unit) {
     parts.add('RT ${unit.scopeRt}');
   }
   if (parts.isEmpty) {
-    return 'Workspace';
+    return 'RW aktif';
   }
   return parts.join(' • ');
 }
@@ -513,7 +514,7 @@ String _unitTypeLabel(String type) {
     case AppConstants.unitTypePosyandu:
       return 'Posyandu';
     case AppConstants.unitTypeCustom:
-      return 'Custom';
+      return 'Tambahan';
     case 'all':
     default:
       return 'Semua';

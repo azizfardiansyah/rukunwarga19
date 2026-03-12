@@ -370,20 +370,26 @@ class WorkspaceAccessProfile {
         featureFlag: AppConstants.featureFinancePublish,
       );
 
+  bool get _hasRwWideOrganizationAdminAccess =>
+      member.isOperator && AppConstants.hasRwWidePlanAccess(member.planCode);
+
   bool get canManageWorkspace =>
       member.isSysadmin ||
+      _hasRwWideOrganizationAdminAccess ||
       orgMemberships.any(
         (membership) => membership.isActive && membership.canManageWorkspace,
       );
 
   bool get canManageUnit =>
       member.isSysadmin ||
+      _hasRwWideOrganizationAdminAccess ||
       orgMemberships.any(
         (membership) => membership.isActive && membership.canManageUnit,
       );
 
   bool get canManageMembership =>
       member.isSysadmin ||
+      _hasRwWideOrganizationAdminAccess ||
       orgMemberships.any(
         (membership) => membership.isActive && membership.canManageMembership,
       );

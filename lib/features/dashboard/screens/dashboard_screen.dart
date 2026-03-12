@@ -226,7 +226,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _MenuEntry(
           icon: Icons.account_tree_rounded,
           label: 'Organisasi',
-          subtitle: 'Struktur & pengurus',
+          subtitle: 'Pengurus RW, RT, DKM, dan Posyandu',
           tone: AppTheme.toneCharcoal,
           onTap: () => context.push(Routes.organization),
         ),
@@ -281,8 +281,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               : 'User');
     final roleLabel = AppConstants.roleLabel(authState.role);
     final isWarga = !authState.isOperator && !authState.isSysadmin;
-    final canOpenOrganization =
-        authState.isSysadmin || authState.hasRwWideAccess;
+    final canOpenOrganization = authState.isAuthenticated;
     final canOpenFinance = authState.isOperator || authState.isSysadmin;
     final suratSummaryAsync = ref.watch(suratDashboardSummaryProvider);
 

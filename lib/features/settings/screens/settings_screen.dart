@@ -165,12 +165,11 @@ class SettingsScreen extends ConsumerWidget {
               if (canOpenOrganization)
                 _SettingsActionTile(
                   icon: Icons.account_tree_outlined,
-                  title: 'Organisasi & Pengurus',
-                  subtitle:
-                      'Kelola workspace, unit organisasi, dan penugasan jabatan',
+                  title: 'Kelola Organisasi',
+                  subtitle: 'Input unit organisasi dan penugasan pengurus',
                   badgeLabel: 'RW Scope',
                   badgeColor: AppTheme.primaryColor,
-                  onTap: () => context.push(Routes.organization),
+                  onTap: () => context.push(Routes.organizationManage),
                 ),
             ],
           ),

@@ -26,6 +26,7 @@ class _OrganizationMembershipScreenState
     final auth = ref.watch(authProvider);
     if (!auth.isSysadmin && !auth.hasRwWideAccess) {
       return const OrganizationAccessDenied(
+        appBarTitle: 'Kelola Pengurus',
         title: 'Akses kelola pengurus tidak tersedia',
       );
     }
@@ -76,7 +77,10 @@ class _OrganizationMembershipScreenState
                   decoration: const InputDecoration(
                     labelText: 'Filter unit',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   items: [
                     const DropdownMenuItem<String>(
@@ -100,7 +104,7 @@ class _OrganizationMembershipScreenState
                     icon: Icons.badge_outlined,
                     title: 'Belum ada pengurus',
                     message:
-                        'Assign jabatan ke member workspace.',
+                        'Tambahkan susunan pengurus untuk unit yang dipilih.',
                   )
                 else
                   ...memberships.map(
@@ -204,9 +208,7 @@ class _OrganizationMembershipScreenState
         overview.jabatanMaster.isEmpty) {
       ErrorClassifier.showErrorSnackBar(
         context,
-        const FormatException(
-          'Workspace member, unit, atau jabatan belum siap.',
-        ),
+        const FormatException('Daftar akun, unit, atau jabatan belum siap.'),
       );
       return;
     }
@@ -271,7 +273,7 @@ class _OrganizationMembershipScreenState
                       DropdownButtonFormField<String>(
                         initialValue: workspaceMemberId,
                         decoration: const InputDecoration(
-                          labelText: 'Member workspace',
+                          labelText: 'Nama pengurus / akun',
                         ),
                         items: overview.workspaceActors
                             .map(
@@ -478,7 +480,7 @@ class _MembershipCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      actor?.displayName ?? 'Member tidak dikenal',
+                      actor?.displayName ?? 'Akun tidak dikenal',
                       style: AppTheme.bodySmall.copyWith(
                         fontWeight: FontWeight.w800,
                         color: AppTheme.textPrimary,
@@ -524,7 +526,7 @@ class _MembershipCard extends StatelessWidget {
               ),
               if (membership.isPrimary)
                 const OrganizationBadge(
-                  label: 'PRIMARY',
+                  label: 'UTAMA',
                   color: AppTheme.primaryDark,
                 ),
               if ((membership.periodLabel ?? '').isNotEmpty)

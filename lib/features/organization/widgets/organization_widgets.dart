@@ -121,11 +121,7 @@ class OrganizationEmptyState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: AppTheme.caption,
-          ),
+          Text(message, textAlign: TextAlign.center, style: AppTheme.caption),
         ],
       ),
     );
@@ -135,18 +131,20 @@ class OrganizationEmptyState extends StatelessWidget {
 class OrganizationAccessDenied extends StatelessWidget {
   const OrganizationAccessDenied({
     super.key,
+    this.appBarTitle = 'Organisasi',
     this.title = 'Akses organisasi tidak tersedia',
     this.message =
-        'Screen ini hanya tersedia untuk operator RW atau sysadmin dengan workspace aktif.',
+        'Screen ini hanya tersedia untuk pengurus atau admin yang memiliki hak kelola organisasi.',
   });
 
+  final String appBarTitle;
   final String title;
   final String message;
 
   @override
   Widget build(BuildContext context) {
     return OrganizationScreenShell(
-      title: 'Organisasi',
+      title: appBarTitle,
       child: OrganizationEmptyState(
         icon: Icons.lock_outline_rounded,
         title: title,

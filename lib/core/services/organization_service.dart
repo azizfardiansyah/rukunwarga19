@@ -363,17 +363,7 @@ class OrganizationService {
     return members
         .map((member) {
           final user = userById[member.userId];
-          final nameCandidates = [
-            user?.getStringValue('nama'),
-            user?.getStringValue('name'),
-            user?.getStringValue('email').split('@').first,
-          ];
-          final displayName = nameCandidates
-              .map((value) => (value ?? '').trim())
-              .firstWhere(
-                (value) => value.isNotEmpty,
-                orElse: () => member.userId,
-              );
+          final displayName = _organizationUserDisplayName(user, member.userId);
           return OrganizationWorkspaceActor(
             member: member,
             displayName: displayName,
@@ -393,4 +383,26 @@ String _orFilter(String field, List<String> ids) {
 
 String _escapeFilterValue(String value) {
   return value.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+}
+
+String _organizationUserDisplayName(RecordModel? user, String fallbackId) {
+  final nameCandidates = [
+    user?.getStringValue('name'),
+    user?.getStringValue('nama'),
+    user?.getStringValue('username'),
+  ];
+
+  for (final candidate in nameCandidates) {
+    final normalized = (candidate ?? '').trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+  }
+
+  final email = user?.getStringValue('email').trim() ?? '';
+  if (email.isNotEmpty) {
+    return email.split('@').first;
+  }
+
+  return fallbackId;
 }
