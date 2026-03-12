@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/chat_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/pocketbase_service.dart';
 import '../../core/utils/area_access.dart';
@@ -27,12 +28,14 @@ class MainScaffold extends ConsumerStatefulWidget {
 class _MainScaffoldState extends ConsumerState<MainScaffold> {
   Future<void> Function()? _unsubscribeConversations;
   Future<void> Function()? _unsubscribeMessages;
-  Future<void> Function()? _unsubscribeMembers;
   Future<void> Function()? _unsubscribeAnnouncements;
   Future<void> Function()? _unsubscribeSurat;
   Future<void> Function()? _unsubscribeSuratLogs;
-  Timer? _refreshDebounce;
+  Timer? _chatRefreshDebounce;
+  Timer? _announcementRefreshDebounce;
+  Timer? _suratRefreshDebounce;
   final Set<String> _seenSuratLogIds = <String>{};
+  final Set<String> _seenAnnouncementNotificationKeys = <String>{};
 
   @override
   void initState() {
@@ -44,37 +47,53 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     await _disposeRealtime();
     _unsubscribeConversations = await pb
         .collection(AppConstants.colConversations)
-        .subscribe('*', (_) => _scheduleRefresh());
+        .subscribe('*', (_) => _scheduleChatRefresh());
     _unsubscribeMessages = await pb
         .collection(AppConstants.colMessages)
-        .subscribe('*', (_) => _scheduleRefresh());
-    _unsubscribeMembers = await pb
-        .collection(AppConstants.colConversationMembers)
-        .subscribe('*', (_) => _scheduleRefresh());
+        .subscribe('*', (_) => _scheduleChatRefresh());
     _unsubscribeAnnouncements = await pb
         .collection(AppConstants.colAnnouncements)
-        .subscribe('*', (_) => _scheduleRefresh());
+        .subscribe('*', (event) => _handleAnnouncementEvent(event));
     _unsubscribeSurat = await pb
         .collection(AppConstants.colSurat)
-        .subscribe('*', (_) => _scheduleRefresh());
+        .subscribe('*', (_) => _scheduleSuratRefresh());
     _unsubscribeSuratLogs = await pb
         .collection(AppConstants.colSuratLogs)
         .subscribe('*', (event) => _handleSuratLogEvent(event));
   }
 
-  void _scheduleRefresh() {
-    _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 200), () {
+  void _scheduleChatRefresh() {
+    _chatRefreshDebounce?.cancel();
+    _chatRefreshDebounce = Timer(const Duration(milliseconds: 240), () {
       if (!mounted) {
         return;
       }
       ref.read(chatRefreshTickProvider.notifier).bump();
+    });
+  }
+
+  void _scheduleAnnouncementRefresh() {
+    _announcementRefreshDebounce?.cancel();
+    _announcementRefreshDebounce = Timer(const Duration(milliseconds: 240), () {
+      if (!mounted) {
+        return;
+      }
+      ref.read(announcementRefreshTickProvider.notifier).bump();
+    });
+  }
+
+  void _scheduleSuratRefresh() {
+    _suratRefreshDebounce?.cancel();
+    _suratRefreshDebounce = Timer(const Duration(milliseconds: 240), () {
+      if (!mounted) {
+        return;
+      }
       ref.read(suratRefreshTickProvider.notifier).bump();
     });
   }
 
   Future<void> _handleSuratLogEvent(dynamic event) async {
-    _scheduleRefresh();
+    _scheduleSuratRefresh();
 
     final action = '${event.action ?? ''}'.toLowerCase();
     final record = event.record;
@@ -111,16 +130,66 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     } catch (_) {}
   }
 
+  Future<void> _handleAnnouncementEvent(dynamic event) async {
+    _scheduleAnnouncementRefresh();
+
+    final record = event.record;
+    final action = '${event.action ?? ''}'.toLowerCase();
+    if (record == null || (action != 'create' && action != 'update')) {
+      return;
+    }
+    if (record.data['is_published'] != true) {
+      return;
+    }
+
+    final auth = ref.read(authProvider);
+    if (auth.user == null || record.getStringValue('author') == auth.user!.id) {
+      return;
+    }
+
+    final notificationKey =
+        '${record.id}:${record.getStringValue('updated').trim().isNotEmpty ? record.getStringValue('updated').trim() : record.getStringValue('created').trim()}';
+    if (_seenAnnouncementNotificationKeys.contains(notificationKey)) {
+      return;
+    }
+
+    try {
+      final canAccess = await ref
+          .read(chatServiceProvider)
+          .canAccessAnnouncementRecord(record);
+      if (!canAccess) {
+        return;
+      }
+
+      _seenAnnouncementNotificationKeys.add(notificationKey);
+      final title = record.getStringValue('title').trim();
+      final body = record.getStringValue('content').trim();
+      await NotificationService().showPengumumanNotification(
+        title: 'Pengumuman Baru',
+        body: body.isEmpty
+            ? title
+            : '${title.isEmpty ? 'Info warga' : title} - ${_truncateAnnouncementBody(body)}',
+        payload: Routes.announcementDetail.replaceFirst(':id', record.id),
+      );
+    } catch (_) {}
+  }
+
+  String _truncateAnnouncementBody(String body) {
+    final trimmed = body.trim();
+    if (trimmed.length <= 72) {
+      return trimmed;
+    }
+    return '${trimmed.substring(0, 69)}...';
+  }
+
   Future<void> _disposeRealtime() async {
     await _unsubscribeConversations?.call();
     await _unsubscribeMessages?.call();
-    await _unsubscribeMembers?.call();
     await _unsubscribeAnnouncements?.call();
     await _unsubscribeSurat?.call();
     await _unsubscribeSuratLogs?.call();
     _unsubscribeConversations = null;
     _unsubscribeMessages = null;
-    _unsubscribeMembers = null;
     _unsubscribeAnnouncements = null;
     _unsubscribeSurat = null;
     _unsubscribeSuratLogs = null;
@@ -136,7 +205,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
 
   @override
   void dispose() {
-    _refreshDebounce?.cancel();
+    _chatRefreshDebounce?.cancel();
+    _announcementRefreshDebounce?.cancel();
+    _suratRefreshDebounce?.cancel();
     _disposeRealtime();
     super.dispose();
   }

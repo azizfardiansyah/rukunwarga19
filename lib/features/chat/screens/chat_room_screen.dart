@@ -89,19 +89,98 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     _unsubscribeConversation = await pb
         .collection(AppConstants.colConversations)
         .subscribe(widget.conversationId, (_) => _scheduleRefresh());
-    _unsubscribeMembers = await pb
-        .collection(AppConstants.colConversationMembers)
-        .subscribe('*', (event) {
-          final record = event.record;
-          if (record == null ||
-              record.getStringValue('conversation') != widget.conversationId) {
-            return;
-          }
-          if (record.getStringValue('user') == _currentUserId) {
-            return;
-          }
-          _scheduleRefresh();
-        }, filter: 'conversation = "${widget.conversationId}"');
+    try {
+      _unsubscribeMembers = await pb
+          .collection(AppConstants.colConversationMembers)
+          .subscribe(
+            '*',
+            _handleMemberRealtimeEvent,
+            filter: 'conversation = "${widget.conversationId}"',
+          );
+    } catch (_) {
+      _unsubscribeMembers = null;
+    }
+  }
+
+  void _handleMemberRealtimeEvent(dynamic event) {
+    final record = event.record;
+    if (record == null ||
+        record.getStringValue('conversation') != widget.conversationId) {
+      return;
+    }
+    if (record.getStringValue('user') == _currentUserId) {
+      return;
+    }
+    final action = '${event.action ?? ''}'.toLowerCase();
+    if (action == 'delete') {
+      _scheduleRefresh();
+      return;
+    }
+    if (_applyParticipantRealtimeUpdate(record)) {
+      return;
+    }
+    _scheduleRefresh();
+  }
+
+  bool _applyParticipantRealtimeUpdate(dynamic record) {
+    final current = _data;
+    if (current == null || !mounted || _isDisposed) {
+      return false;
+    }
+    final userId = record.getStringValue('user');
+    if (userId.isEmpty) {
+      return false;
+    }
+    final index = current.participants.indexWhere(
+      (participant) => participant.userId == userId,
+    );
+    if (index < 0) {
+      return false;
+    }
+
+    final existing = current.participants[index];
+    final nextLastSeenAt =
+        _readRecordDateTime(record, 'last_seen_at') ?? existing.lastSeenAt;
+    final nextTypingAt = record.data.containsKey('typing_at')
+        ? _readRecordDateTime(record, 'typing_at')
+        : existing.typingAt;
+    final hasChanged =
+        existing.lastSeenAt?.millisecondsSinceEpoch !=
+            nextLastSeenAt?.millisecondsSinceEpoch ||
+        existing.typingAt?.millisecondsSinceEpoch !=
+            nextTypingAt?.millisecondsSinceEpoch;
+    if (!hasChanged) {
+      return true;
+    }
+
+    final participants = List<ChatParticipantModel>.from(current.participants);
+    participants[index] = ChatParticipantModel(
+      userId: existing.userId,
+      displayName: existing.displayName,
+      avatarUrl: existing.avatarUrl,
+      lastSeenAt: nextLastSeenAt,
+      typingAt: nextTypingAt,
+      isCurrentUser: existing.isCurrentUser,
+    );
+    final nextData = ChatMessagesData(
+      conversation: current.conversation,
+      messages: current.messages,
+      participants: participants,
+    );
+    setState(() {
+      _data = nextData;
+    });
+    _chatService.cacheMessagesData(nextData);
+    return true;
+  }
+
+  DateTime? _readRecordDateTime(dynamic record, String field) {
+    final raw = record.data[field];
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(value);
   }
 
   void _scheduleRefresh() {
@@ -335,7 +414,6 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   }
 
   Future<void> _showComposerActions() async {
-    final auth = ref.read(authProvider);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -353,30 +431,22 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                   _pickAttachment();
                 },
               ),
-              if (AppConstants.planIncludesFeature(
-                planCode: auth.planCode,
-                featureFlag: AppConstants.featurePolling,
-              ))
-                _MessageActionTile(
-                  icon: Icons.poll_rounded,
-                  label: 'Polling',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showPollComposer();
-                  },
-                ),
-              if (AppConstants.planIncludesFeature(
-                planCode: auth.planCode,
-                featureFlag: AppConstants.featureVoiceNote,
-              ))
-                _MessageActionTile(
-                  icon: Icons.mic_rounded,
-                  label: 'Voice Note',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _pickVoiceNote();
-                  },
-                ),
+              _MessageActionTile(
+                icon: Icons.poll_rounded,
+                label: 'Polling',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showPollComposer();
+                },
+              ),
+              _MessageActionTile(
+                icon: Icons.mic_rounded,
+                label: 'Voice Note',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickVoiceNote();
+                },
+              ),
             ],
           ),
         ),
@@ -1290,29 +1360,37 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     final activePinnedMessage = pinnedMessages.isEmpty
         ? null
         : pinnedMessages.first;
+    final showParticipantAvatars =
+        conversation != null && !conversation.isPrivate;
     final roomAvatarUrl = _resolveRoomAvatarUrl(conversation);
     final roomHeaderBadgeLabel = _conversationHeaderBadgeLabel(conversation);
-    final auth = ref.watch(authProvider);
-    final currentUser = auth.user;
-    final currentUserAvatarFile = currentUser?.getStringValue('avatar') ?? '';
-    final currentUserAvatarUrl =
-        currentUser != null && currentUserAvatarFile.isNotEmpty
-        ? getFileUrl(currentUser, currentUserAvatarFile)
-        : null;
 
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        toolbarHeight: 88,
+        toolbarHeight: 84,
         backgroundColor: Colors.transparent,
         shadowColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         titleSpacing: 0,
         flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: AppTheme.headerGradient,
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF171414), Color(0xFF2B2121), Color(0xFF3C2A2A)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(28),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
         ),
         title: Row(
@@ -1339,7 +1417,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                     conversation?.name ?? 'Chat',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTheme.heading3.copyWith(
+                    style: AppTheme.bodyLarge.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1349,7 +1427,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                       _conversationHeaderSubtitle(conversation),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppTheme.bodySmall.copyWith(
+                      style: AppTheme.caption.copyWith(
                         color: Colors.white.withValues(alpha: 0.82),
                       ),
                     ),
@@ -1399,23 +1477,46 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              const Color(0xFFF2F7F5),
-              Colors.white.withValues(alpha: 0.98),
-              const Color(0xFFF7FBF9),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+      body: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFF6F1EC), Color(0xFFFCFBF9), Color(0xFFF2ECE6)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
           ),
-        ),
-        child: Column(
-          children: [
+          Positioned(
+            top: -72,
+            right: -36,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppTheme.primaryColor.withValues(alpha: 0.06),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 120,
+            left: -54,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppTheme.accentColor.withValues(alpha: 0.05),
+              ),
+            ),
+          ),
+          Column(
+            children: [
             if (_isSearchMode)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
                 child: _RoomSearchField(
                   controller: _roomSearchCtrl,
                   resultCount: visibleMessages.length,
@@ -1424,7 +1525,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
             if (activePinnedMessage != null &&
                 _roomSearchCtrl.text.trim().isEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
                 child: _PinnedMessageBanner(
                   message: activePinnedMessage,
                   pinnedCount: pinnedMessages.length,
@@ -1490,14 +1591,17 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                       child: ListView.builder(
                         controller: _scrollController,
                         physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                         itemCount: visibleMessages.length,
                         itemBuilder: (context, index) {
                           final message = visibleMessages[index];
                           return _MessageBubble(
                             message: message,
                             roomAvatarUrl: roomAvatarUrl,
-                            currentUserAvatarUrl: currentUserAvatarUrl,
+                            showPeerAvatar:
+                                showParticipantAvatars && !message.isMine,
+                            showSenderContext:
+                                showParticipantAvatars && !message.isMine,
                             onOpenAttachment: message.hasAttachment
                                 ? () => _openAttachment(message)
                                 : null,
@@ -1518,7 +1622,10 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
               child: Container(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Colors.white.withValues(alpha: 0.96),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
                   border: Border(
                     top: BorderSide(
                       color: AppTheme.dividerColor.withValues(alpha: 0.8),
@@ -1575,6 +1682,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                           onPressed: _isSending || _editingMessage != null
                               ? null
                               : _showComposerActions,
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFFF3E7E2),
+                            foregroundColor: AppTheme.primaryColor,
+                            padding: const EdgeInsets.all(14),
+                          ),
                           icon: const Icon(Icons.add_rounded),
                         ),
                         const SizedBox(width: 8),
@@ -1596,45 +1708,63 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                                   ? 'Tulis pesan... gunakan @ untuk mention'
                                   : 'Tulis pesan...',
                               filled: true,
-                              fillColor: const Color(0xFFF7FAF9),
+                              fillColor: Colors.white,
                               border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                borderSide: BorderSide.none,
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor.withValues(
+                                    alpha: 0.8,
+                                  ),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide(
+                                  color: AppTheme.dividerColor.withValues(
+                                    alpha: 0.8,
+                                  ),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: const BorderSide(
+                                  color: AppTheme.primaryColor,
+                                  width: 1.2,
+                                ),
                               ),
                               contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
+                                horizontal: 16,
                                 vertical: 12,
                               ),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: _isSending ? null : _sendMessage,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppTheme.primaryColor,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                        SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: FilledButton(
+                            onPressed: _isSending ? null : _sendMessage,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppTheme.primaryColor,
+                              shape: const CircleBorder(),
+                              padding: EdgeInsets.zero,
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
-                          child: _isSending
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                            child: _isSending
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(
+                                    _editingMessage != null
+                                        ? Icons.check_rounded
+                                        : Icons.send_rounded,
                                   ),
-                                )
-                              : Icon(
-                                  _editingMessage != null
-                                      ? Icons.check_rounded
-                                      : Icons.send_rounded,
-                                ),
+                          ),
                         ),
                       ],
                     ),
@@ -1642,8 +1772,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1886,8 +2017,9 @@ class _ComposerHint extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAF9),
-        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFFFBF6F1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
       child: Row(
         children: [
@@ -1934,15 +2066,15 @@ class _PinnedMessageBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.accentColor.withValues(alpha: 0.45)),
+        color: Colors.white.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.92)),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.accentColor.withValues(alpha: 0.14),
-            blurRadius: 18,
+            color: AppTheme.secondaryColor.withValues(alpha: 0.05),
+            blurRadius: 14,
             offset: const Offset(0, 8),
           ),
         ],
@@ -1950,19 +2082,28 @@ class _PinnedMessageBanner extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 4,
+            height: 42,
             decoration: BoxDecoration(
-              color: AppTheme.accentColor.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(14),
+              color: AppTheme.accentColor,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: AppTheme.accentColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(
               Icons.push_pin_rounded,
               color: AppTheme.accentColor,
-              size: 18,
+              size: 16,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2035,8 +2176,9 @@ class _AttachmentDraftPreview extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAF9),
-        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFFFBF6F1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2111,9 +2253,16 @@ class _RoomSearchField extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.dividerColor),
+        color: Colors.white.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.9)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.secondaryColor.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -2154,8 +2303,9 @@ class _MentionSuggestionStrip extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAF9),
-        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFFFBF6F1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2254,7 +2404,7 @@ class _MessageAttachmentPreview extends StatelessWidget {
         decoration: BoxDecoration(
           color: isMine
               ? Colors.white.withValues(alpha: 0.14)
-              : const Color(0xFFF4F7F5),
+              : const Color(0xFFF8F3EE),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -2466,7 +2616,7 @@ class _VoiceMessageCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isMine
               ? Colors.white.withValues(alpha: 0.14)
-              : const Color(0xFFF4F7F5),
+              : const Color(0xFFF8F3EE),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -2548,7 +2698,7 @@ class _PollMessageCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isMine
             ? Colors.white.withValues(alpha: 0.14)
-            : const Color(0xFFF4F7F5),
+            : const Color(0xFFF8F3EE),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -2573,8 +2723,8 @@ class _PollMessageCard extends StatelessWidget {
           Text(
             poll.isOpen
                 ? poll.allowMultipleChoice
-                      ? 'Polling aktif • multi-pilihan'
-                      : 'Polling aktif • satu pilihan'
+                    ? 'Polling aktif - multi-pilihan'
+                    : 'Polling aktif - satu pilihan'
                 : 'Polling ditutup',
             style: AppTheme.caption.copyWith(
               color: textColor.withValues(alpha: 0.84),
@@ -2766,7 +2916,8 @@ class _MessageBubble extends StatelessWidget {
     required this.message,
     required this.onShowActions,
     required this.roomAvatarUrl,
-    required this.currentUserAvatarUrl,
+    required this.showPeerAvatar,
+    required this.showSenderContext,
     this.onOpenAttachment,
     this.onToggleReaction,
     this.onAddReaction,
@@ -2776,7 +2927,8 @@ class _MessageBubble extends StatelessWidget {
   final MessageModel message;
   final VoidCallback onShowActions;
   final String? roomAvatarUrl;
-  final String? currentUserAvatarUrl;
+  final bool showPeerAvatar;
+  final bool showSenderContext;
   final VoidCallback? onOpenAttachment;
   final ValueChanged<String>? onToggleReaction;
   final VoidCallback? onAddReaction;
@@ -2793,76 +2945,77 @@ class _MessageBubble extends StatelessWidget {
     final sentAtLabel = message.createdAt != null
         ? Formatters.waktu(message.createdAt!)
         : '';
+    final showHeaderRow = showSenderContext && !isMine;
+    final reactionLeftInset = !isMine && showPeerAvatar ? 44.0 : 0.0;
     final bubble = GestureDetector(
       onLongPress: onShowActions,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.76,
+          maxWidth: MediaQuery.of(context).size.width * 0.78,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
         decoration: BoxDecoration(
-          gradient: isMine
-              ? AppTheme.primaryGradient
-              : const LinearGradient(
-                  colors: [Color(0xFFFFFFFF), Color(0xFFF8FBFA)],
-                ),
+          color: isMine ? AppTheme.primaryColor : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMine ? 16 : 6),
-            bottomRight: Radius.circular(isMine ? 6 : 16),
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(isMine ? 18 : 6),
+            bottomRight: Radius.circular(isMine ? 6 : 18),
           ),
-          border: isMine
-              ? null
-              : Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.9)),
+          border: Border.all(
+            color: isMine
+                ? AppTheme.primaryDark.withValues(alpha: 0.35)
+                : AppTheme.dividerColor.withValues(alpha: 0.9),
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isMine ? 0.08 : 0.04),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
+              color: Colors.black.withValues(alpha: isMine ? 0.08 : 0.035),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    message.senderName,
-                    textAlign: isMine ? TextAlign.right : TextAlign.left,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTheme.caption.copyWith(
-                      color: isMine
-                          ? Colors.white.withValues(alpha: 0.94)
-                          : AppTheme.primaryColor,
-                      fontWeight: FontWeight.w700,
+            if (showHeaderRow) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      message.senderName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-                if (badgeLabel.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  _MessageSubscriptionBadge(
-                    label: badgeLabel,
-                    planCode: message.senderPlanCode,
-                    systemRole: message.senderSystemRole,
-                  ),
-                ],
-                if (sentAtLabel.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    sentAtLabel,
-                    style: AppTheme.caption.copyWith(
-                      color: isMine
-                          ? Colors.white.withValues(alpha: 0.84)
-                          : AppTheme.textSecondary,
+                  if (badgeLabel.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    _MessageSubscriptionBadge(
+                      label: badgeLabel,
+                      planCode: message.senderPlanCode,
+                      systemRole: message.senderSystemRole,
+                    ),
+                  ],
+                  const SizedBox(width: 2),
+                  GestureDetector(
+                    onTap: onShowActions,
+                    child: const Icon(
+                      Icons.expand_more_rounded,
+                      size: 16,
+                      color: AppTheme.textSecondary,
                     ),
                   ),
                 ],
-                const SizedBox(width: 2),
-                GestureDetector(
+              ),
+              const SizedBox(height: 3),
+            ] else
+              Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
                   onTap: onShowActions,
                   child: Icon(
                     Icons.expand_more_rounded,
@@ -2872,28 +3025,7 @@ class _MessageBubble extends StatelessWidget {
                         : AppTheme.textSecondary,
                   ),
                 ),
-                if (message.isStarred)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Icon(
-                      Icons.star_rounded,
-                      size: 14,
-                      color: bubbleTextColor,
-                    ),
-                  ),
-                if (message.isPinned) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Icon(
-                      Icons.push_pin_rounded,
-                      size: 14,
-                      color: bubbleTextColor,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            if (!isMine) const SizedBox(height: 3),
+              ),
             if (message.isForwarded) ...[
               Text(
                 'Diteruskan${(message.forwardedFromName ?? '').isNotEmpty ? ' dari ${message.forwardedFromName}' : ''}',
@@ -2917,7 +3049,7 @@ class _MessageBubble extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isMine
                       ? Colors.white.withValues(alpha: 0.14)
-                      : const Color(0xFFF4F7F5),
+                      : const Color(0xFFF8F3EE),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -2985,13 +3117,14 @@ class _MessageBubble extends StatelessWidget {
                 ),
               if (!message.isDeleted &&
                   (message.isEdited ||
+                      sentAtLabel.isNotEmpty ||
                       (isMine &&
-                          (message.deliveryStatus ?? '').isNotEmpty))) ...[
+                          (message.deliveryStatus ?? '').isNotEmpty) ||
+                      message.isStarred ||
+                      message.isPinned)) ...[
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisAlignment: isMine
-                      ? MainAxisAlignment.end
-                      : MainAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     if (message.isEdited)
                       Text(
@@ -3001,10 +3134,39 @@ class _MessageBubble extends StatelessWidget {
                           fontStyle: FontStyle.italic,
                         ),
                       ),
-                    if (message.isEdited &&
+                    if (message.isEdited) const SizedBox(width: 8),
+                    if (sentAtLabel.isNotEmpty)
+                      Text(
+                        sentAtLabel,
+                        style: AppTheme.caption.copyWith(color: metaColor),
+                      ),
+                    if (sentAtLabel.isNotEmpty &&
+                        (message.isStarred ||
+                            message.isPinned ||
+                            (isMine &&
+                                (message.deliveryStatus ?? '').isNotEmpty)))
+                      const SizedBox(width: 8),
+                    if (message.isStarred)
+                      Icon(
+                        Icons.star_rounded,
+                        size: 14,
+                        color: metaColor,
+                      ),
+                    if (message.isStarred &&
+                        (message.isPinned ||
+                            (isMine &&
+                                (message.deliveryStatus ?? '').isNotEmpty)))
+                      const SizedBox(width: 6),
+                    if (message.isPinned)
+                      Icon(
+                        Icons.push_pin_rounded,
+                        size: 14,
+                        color: metaColor,
+                      ),
+                    if (message.isPinned &&
                         isMine &&
                         (message.deliveryStatus ?? '').isNotEmpty)
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                     if (isMine && (message.deliveryStatus ?? '').isNotEmpty)
                       _MessageDeliveryStatus(
                         status: message.deliveryStatus ?? 'sent',
@@ -3037,7 +3199,7 @@ class _MessageBubble extends StatelessWidget {
                   : MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (!isMine) ...[
+                if (!isMine && showPeerAvatar) ...[
                   _ChatParticipantAvatar(
                     imageUrl: message.senderAvatarUrl ?? roomAvatarUrl,
                     label: message.senderName,
@@ -3045,21 +3207,14 @@ class _MessageBubble extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 bubble,
-                if (isMine) ...[
-                  const SizedBox(width: 8),
-                  _ChatParticipantAvatar(
-                    imageUrl: message.senderAvatarUrl ?? currentUserAvatarUrl,
-                    label: message.senderName,
-                  ),
-                ],
               ],
             ),
             if (message.hasReactions)
               Padding(
                 padding: EdgeInsets.only(
                   top: 4,
-                  left: isMine ? 0 : 40,
-                  right: isMine ? 40 : 0,
+                  left: reactionLeftInset,
+                  right: 0,
                 ),
                 child: Wrap(
                   spacing: 6,
@@ -3104,38 +3259,39 @@ class _MessageDeliveryStatus extends StatelessWidget {
   Widget build(BuildContext context) {
     final safeStatus = status.trim().toLowerCase();
     IconData icon;
-    String label;
+    String? ratioLabel;
+    final iconColor = safeStatus == 'read' ? AppTheme.accentColor : color;
 
     switch (safeStatus) {
       case 'read':
         icon = Icons.done_all_rounded;
-        label = recipientCount > 0
-            ? 'Dibaca $readCount/$recipientCount'
-            : 'Dibaca';
+        ratioLabel = recipientCount > 1 ? '$readCount/$recipientCount' : null;
         break;
       case 'delivered':
         icon = Icons.done_all_rounded;
-        label = recipientCount > 0
-            ? 'Terkirim $deliveredCount/$recipientCount'
-            : 'Terkirim';
+        ratioLabel = recipientCount > 1
+            ? '$deliveredCount/$recipientCount'
+            : null;
         break;
       default:
         icon = Icons.done_rounded;
-        label = 'Terkirim';
+        ratioLabel = null;
     }
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: AppTheme.caption.copyWith(
-            color: color,
-            fontWeight: FontWeight.w600,
+        Icon(icon, size: 14, color: iconColor),
+        if (ratioLabel != null) ...[
+          const SizedBox(width: 4),
+          Text(
+            ratioLabel,
+            style: AppTheme.caption.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -3302,15 +3458,15 @@ class _MessageSubscriptionBadge extends StatelessWidget {
           break;
         case AppConstants.planRw:
           foreground = Colors.white;
-          background = const [Color(0xFFE85B4A), Color(0xFFFF8D6D)];
+          background = const [Color(0xFFC02E25), Color(0xFFE85B4A)];
           break;
         case AppConstants.planRt:
           foreground = Colors.white;
-          background = const [Color(0xFF2E7D6D), Color(0xFF55B6A0)];
+          background = const [Color(0xFF3C3C3C), Color(0xFF6B6B6B)];
           break;
         default:
           foreground = AppTheme.textSecondary;
-          background = const [Color(0xFFE9ECEB), Color(0xFFF6F8F7)];
+          background = const [Color(0xFFF1ECE7), Color(0xFFFBF8F4)];
       }
     }
 
@@ -3342,9 +3498,15 @@ class _ChatParticipantAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final safeLabel = label.trim().isEmpty ? '?' : label.trim();
     final normalizedUrl = (imageUrl ?? '').trim();
-    return CircleAvatar(
-      radius: 16,
-      backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: AppTheme.dividerColor.withValues(alpha: 0.9),
+        ),
+      ),
       child: ClipOval(
         child: normalizedUrl.isNotEmpty
             ? Image.network(
@@ -3387,26 +3549,30 @@ class _RoomConversationAvatar extends StatelessWidget {
         .trim();
 
     if (conversation.isPrivate) {
-      return CircleAvatar(
-        radius: 20,
-        backgroundColor: Colors.white.withValues(alpha: 0.16),
+      return Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+        ),
         child: ClipOval(
           child: resolvedImageUrl.isNotEmpty
               ? Image.network(
                   resolvedImageUrl,
-                  width: 40,
-                  height: 40,
+                  width: 42,
+                  height: 42,
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => _RoomAvatarFallback(
                     label: conversation.name,
-                    size: 40,
+                    size: 42,
                     textColor: Colors.white,
                     backgroundColor: Colors.white.withValues(alpha: 0.16),
                   ),
                 )
               : _RoomAvatarFallback(
                   label: conversation.name,
-                  size: 40,
+                  size: 42,
                   textColor: Colors.white,
                   backgroundColor: Colors.white.withValues(alpha: 0.16),
                 ),
@@ -3415,16 +3581,22 @@ class _RoomConversationAvatar extends StatelessWidget {
     }
 
     return Container(
-      width: 36,
-      height: 36,
+      width: 42,
+      height: 42,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(12),
+        gradient: conversation.isGroupRt
+            ? const LinearGradient(
+                colors: [Color(0xFF2D2222), AppTheme.primaryColor],
+              )
+            : const LinearGradient(
+                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
+              ),
+        shape: BoxShape.circle,
       ),
       child: Icon(
         conversation.isGroupRt ? Icons.groups_rounded : Icons.hub_rounded,
         color: Colors.white,
-        size: 18,
+        size: 20,
       ),
     );
   }
@@ -3612,7 +3784,7 @@ class _ConversationDocumentTab extends StatelessWidget {
             style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
           ),
           subtitle: Text(
-            '${message.senderName} • ${message.createdAt != null ? Formatters.waktuRingkas(message.createdAt!) : ''}',
+            '${message.senderName} - ${message.createdAt != null ? Formatters.waktuRingkas(message.createdAt!) : ''}',
             style: AppTheme.caption,
           ),
           trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -3663,7 +3835,7 @@ class _ConversationLinkTab extends StatelessWidget {
             style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
           ),
           subtitle: Text(
-            '${item.message.senderName} • ${item.message.createdAt != null ? Formatters.waktuRingkas(item.message.createdAt!) : ''}',
+            '${item.message.senderName} - ${item.message.createdAt != null ? Formatters.waktuRingkas(item.message.createdAt!) : ''}',
             style: AppTheme.caption,
           ),
           trailing: const Icon(Icons.open_in_new_rounded, size: 18),

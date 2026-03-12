@@ -128,6 +128,7 @@ class AppConstants {
   static const String colMessageReads = 'message_reads';
   static const String colMessageReactions = 'message_reactions';
   static const String colAnnouncements = 'announcements';
+  static const String colAnnouncementViews = 'announcement_views';
   static const String colSubscriptionPlans = 'subscription_plans';
   static const String colSubscriptionTransactions = 'subscription_transactions';
   static const String colRoleRequests = 'role_requests';

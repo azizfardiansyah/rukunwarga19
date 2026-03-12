@@ -16,12 +16,45 @@ class ChatService {
 
   final Ref _ref;
   static const String _chatProfilesPath = '/api/rukunwarga/chat-users';
+  static final Map<String, _CachedChatBootstrap> _bootstrapCache = {};
+  static final Map<String, Future<ChatBootstrapData>>
+      _inflightBootstrapRequests = {};
   static final Map<String, _CachedChatMessages> _messagesCache = {};
   static final Map<String, Future<ChatMessagesData>> _inflightMessageRequests =
       {};
+  static const Duration _defaultBootstrapCacheAge = Duration(seconds: 3);
   static const Duration _defaultMessagesCacheAge = Duration(minutes: 30);
+  bool? _conversationMembersCollectionAvailable;
+  bool? _announcementViewsCollectionAvailable;
 
   AuthState get _auth => _ref.read(authProvider);
+
+  ChatBootstrapData? getCachedBootstrap({
+    Duration maxAge = _defaultBootstrapCacheAge,
+  }) {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      return null;
+    }
+    final cached = _bootstrapCache[authUser.id];
+    if (cached == null) {
+      return null;
+    }
+    if (DateTime.now().toUtc().difference(cached.cachedAt) > maxAge) {
+      _bootstrapCache.remove(authUser.id);
+      return null;
+    }
+    return cached.data;
+  }
+
+  void invalidateBootstrapCache({String? userId}) {
+    final effectiveUserId = (userId ?? _auth.user?.id ?? '').trim();
+    if (effectiveUserId.isEmpty) {
+      _bootstrapCache.clear();
+      return;
+    }
+    _bootstrapCache.remove(effectiveUserId);
+  }
 
   ChatMessagesData? getCachedMessages(
     String conversationId, {
@@ -48,7 +81,7 @@ class ChatService {
     );
   }
 
-  Future<ChatBootstrapData> bootstrap() async {
+  Future<ChatBootstrapData> bootstrap({bool forceRefresh = false}) async {
     final auth = _auth;
     final authUser = auth.user;
     if (authUser == null) {
@@ -58,6 +91,38 @@ class ChatService {
       );
     }
 
+    final cacheKey = authUser.id;
+    if (!forceRefresh) {
+      final cached = getCachedBootstrap();
+      if (cached != null) {
+        return cached;
+      }
+      final inFlight = _inflightBootstrapRequests[cacheKey];
+      if (inFlight != null) {
+        return inFlight;
+      }
+    }
+
+    final request = _bootstrapFromServer(auth: auth, authUser: authUser);
+    _inflightBootstrapRequests[cacheKey] = request;
+    try {
+      final data = await request;
+      _bootstrapCache[cacheKey] = _CachedChatBootstrap(
+        data: data,
+        cachedAt: DateTime.now().toUtc(),
+      );
+      return data;
+    } finally {
+      if (identical(_inflightBootstrapRequests[cacheKey], request)) {
+        _inflightBootstrapRequests.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<ChatBootstrapData> _bootstrapFromServer({
+    required AuthState auth,
+    required RecordModel authUser,
+  }) async {
     final area = await resolveAreaAccessContext(auth);
     final ensured = <RecordModel>[];
 
@@ -252,13 +317,15 @@ class ChatService {
       );
     }
 
-    final membership = existingMemberships.isNotEmpty
+    RecordModel? membership = existingMemberships.isNotEmpty
         ? existingMemberships.first
         : await _ensureMembership(
             conversationId: conversationId,
             userId: authUser.id,
           );
-    var participantMemberships = <RecordModel>[membership];
+    var participantMemberships = membership == null
+        ? <RecordModel>[]
+        : <RecordModel>[membership];
     try {
       participantMemberships = await _loadConversationMemberships(
         conversationId: conversationId,
@@ -309,11 +376,12 @@ class ChatService {
     } catch (_) {}
 
     var updatedMembership = membership;
-    if (_needsReadMarkerUpdate(
-      membership: membership,
-      messages: records,
-      currentUserId: authUser.id,
-    )) {
+    if (membership != null &&
+        _needsReadMarkerUpdate(
+          membership: membership,
+          messages: records,
+          currentUserId: authUser.id,
+        )) {
       try {
         updatedMembership = await _markConversationReadByMember(membership.id);
       } catch (_) {}
@@ -464,8 +532,11 @@ class ChatService {
             'last_message_at': DateTime.now().toIso8601String(),
           },
         );
+    invalidateBootstrapCache();
 
-    await _markConversationReadByMember(membership.id);
+    if (membership != null) {
+      await _markConversationReadByMember(membership.id);
+    }
 
     final relatedRecords = await _loadMessagesByIds({
       if ((replyToId ?? '').isNotEmpty) replyToId!,
@@ -499,15 +570,6 @@ class ChatService {
       throw ClientException(
         statusCode: 401,
         response: const {'message': 'Sesi telah berakhir'},
-      );
-    }
-    if (!AppConstants.planIncludesFeature(
-      planCode: auth.planCode,
-      featureFlag: AppConstants.featureVoiceNote,
-    )) {
-      throw ClientException(
-        statusCode: 403,
-        response: const {'message': 'Plan Anda belum mendukung voice note.'},
       );
     }
 
@@ -564,8 +626,11 @@ class ChatService {
             'last_message_at': DateTime.now().toIso8601String(),
           },
         );
+    invalidateBootstrapCache();
 
-    await _markConversationReadByMember(membership.id);
+    if (membership != null) {
+      await _markConversationReadByMember(membership.id);
+    }
     final senderProfiles = await _loadChatUserProfiles({authUser.id});
     return _buildMessageModel(
       record,
@@ -671,6 +736,7 @@ class ChatService {
       conversationId: updatedRecord.id,
       userId: authUser.id,
     );
+    invalidateBootstrapCache();
     return _conversationFromRecord(
       updatedRecord,
       currentUserId: authUser.id,
@@ -693,15 +759,6 @@ class ChatService {
       throw ClientException(
         statusCode: 401,
         response: const {'message': 'Sesi telah berakhir'},
-      );
-    }
-    if (!AppConstants.planIncludesFeature(
-      planCode: auth.planCode,
-      featureFlag: AppConstants.featurePolling,
-    )) {
-      throw ClientException(
-        statusCode: 403,
-        response: const {'message': 'Plan Anda belum mendukung polling.'},
       );
     }
     if (options.where((item) => item.trim().isNotEmpty).length < 2) {
@@ -787,6 +844,7 @@ class ChatService {
             'last_message_at': DateTime.now().toIso8601String(),
           },
         );
+    invalidateBootstrapCache();
 
     final senderProfiles = await _loadChatUserProfiles({authUser.id});
     final enriched = await pb
@@ -875,6 +933,9 @@ class ChatService {
       userId: authUser.id,
     );
     if (memberships.isEmpty) {
+      if (membership == null) {
+        return;
+      }
       await _markConversationReadByMember(membership.id);
       final messages = await _loadConversationMessageRecords(conversationId);
       await _syncMessageReadReceipts(
@@ -882,6 +943,7 @@ class ChatService {
         memberships: [membership],
         currentUserId: authUser.id,
       );
+      invalidateBootstrapCache();
       return;
     }
     for (final item in memberships) {
@@ -893,6 +955,7 @@ class ChatService {
       memberships: memberships,
       currentUserId: authUser.id,
     );
+    invalidateBootstrapCache();
   }
 
   Future<void> markConversationUnread(String conversationId) async {
@@ -910,16 +973,20 @@ class ChatService {
       userId: authUser.id,
     );
     if (memberships.isEmpty) {
-      await pb
-          .collection(AppConstants.colConversationMembers)
-          .update(membership.id, body: {'last_read_at': null});
+      if (membership == null) {
+        return;
+      }
+      await _updateConversationMember(
+        membership.id,
+        body: {'last_read_at': null},
+      );
+      invalidateBootstrapCache();
       return;
     }
     for (final item in memberships) {
-      await pb
-          .collection(AppConstants.colConversationMembers)
-          .update(item.id, body: {'last_read_at': null});
+      await _updateConversationMember(item.id, body: {'last_read_at': null});
     }
+    invalidateBootstrapCache();
   }
 
   Future<void> touchPresence(String conversationId) async {
@@ -931,12 +998,13 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    await pb
-        .collection(AppConstants.colConversationMembers)
-        .update(
-          membership.id,
-          body: {'last_seen_at': DateTime.now().toUtc().toIso8601String()},
-        );
+    if (membership == null) {
+      return;
+    }
+    await _updateConversationMember(
+      membership.id,
+      body: {'last_seen_at': DateTime.now().toUtc().toIso8601String()},
+    );
   }
 
   Future<void> setTypingState({
@@ -951,17 +1019,18 @@ class ChatService {
       conversationId: conversationId,
       userId: authUser.id,
     );
-    await pb
-        .collection(AppConstants.colConversationMembers)
-        .update(
-          membership.id,
-          body: {
-            'typing_at': isTyping
-                ? DateTime.now().toUtc().toIso8601String()
-                : null,
-            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
-          },
-        );
+    if (membership == null) {
+      return;
+    }
+    await _updateConversationMember(
+      membership.id,
+      body: {
+        'typing_at': isTyping
+            ? DateTime.now().toUtc().toIso8601String()
+            : null,
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+      },
+    );
   }
 
   Future<void> setConversationPreference({
@@ -1001,17 +1070,18 @@ class ChatService {
       userId: authUser.id,
     );
     if (memberships.isEmpty) {
-      await pb
-          .collection(AppConstants.colConversationMembers)
-          .update(membership.id, body: body);
+      if (membership == null) {
+        return;
+      }
+      await _updateConversationMember(membership.id, body: body);
+      invalidateBootstrapCache();
       return;
     }
 
     for (final item in memberships) {
-      await pb
-          .collection(AppConstants.colConversationMembers)
-          .update(item.id, body: body);
+      await _updateConversationMember(item.id, body: body);
     }
+    invalidateBootstrapCache();
   }
 
   Future<void> toggleMessageStar(String messageId) async {
@@ -1105,6 +1175,7 @@ class ChatService {
           },
         );
     await _syncConversationPreview(_recordText(message, 'conversation'));
+    invalidateBootstrapCache();
   }
 
   Future<void> toggleMessageReaction({
@@ -1196,6 +1267,7 @@ class ChatService {
           },
         );
     await _syncConversationPreview(_recordText(message, 'conversation'));
+    invalidateBootstrapCache();
   }
 
   Future<void> forwardMessage({
@@ -1280,7 +1352,10 @@ class ChatService {
             'last_message_at': DateTime.now().toIso8601String(),
           },
         );
-    await _markConversationReadByMember(membership.id);
+    invalidateBootstrapCache();
+    if (membership != null) {
+      await _markConversationReadByMember(membership.id);
+    }
   }
 
   Future<ChatAnnouncementsData> getAnnouncements() async {
@@ -1296,45 +1371,93 @@ class ChatService {
     final area = await resolveAreaAccessContext(auth);
     final records = await pb
         .collection(AppConstants.colAnnouncements)
-        .getFullList(sort: '-created');
-    final authorNames = await _loadSenderNames(
-      records.map((record) => _recordText(record, 'author')).toSet(),
-    );
-
-    final items = records
+        .getFullList(sort: '-published_at,-created');
+    final accessible = records
         .where(
           (record) =>
               _canAccessAnnouncement(auth: auth, context: area, record: record),
         )
-        .map(
-          (record) => AnnouncementModel(
-            id: record.id,
-            title: _recordText(record, 'title'),
-            content: _recordText(record, 'content'),
-            targetType: _recordText(record, 'target_type').isEmpty
-                ? 'rw'
-                : _recordText(record, 'target_type'),
-            rt: _recordInt(record, 'rt'),
-            rw: _recordInt(record, 'rw'),
-            authorName:
-                authorNames[_recordText(record, 'author')] ?? 'Pengurus',
-            createdAt: DateTime.tryParse(_recordText(record, 'created')),
-            workspaceId: _recordText(record, 'workspace'),
-            orgUnitId: _recordText(record, 'org_unit'),
-            sourceModule: _recordText(record, 'source_module'),
-            publishState: _recordText(record, 'publish_state'),
-            publishedByMemberId: _recordText(record, 'published_by_member'),
-            attachmentName: _recordText(record, 'attachment').isEmpty
-                ? null
-                : _recordText(record, 'attachment'),
-            attachmentUrl: _fileUrl(record, 'attachment'),
-          ),
-        )
         .toList(growable: false);
+    if (accessible.isEmpty) {
+      return ChatAnnouncementsData(
+        canCreate: _canCreateAnnouncement(auth),
+        items: const [],
+      );
+    }
+
+    final authorNames = await _loadSenderNames(
+      accessible.map((record) => _recordText(record, 'author')).toSet(),
+    );
+    final recordIds = accessible.map((record) => record.id).toSet();
+    final viewCounts = await _loadAnnouncementViewCounts(recordIds);
+    final viewedIds = _shouldTrackAnnouncementView(auth)
+        ? await _loadViewedAnnouncementIds(recordIds, authUser.id)
+        : <String>{};
+    final audienceCache = <String, int>{};
+    final items = <AnnouncementModel>[];
+    for (final record in accessible) {
+      items.add(
+        await _buildAnnouncementModel(
+          auth: auth,
+          context: area,
+          record: record,
+          authorNames: authorNames,
+          viewCounts: viewCounts,
+          viewedIds: viewedIds,
+          audienceCache: audienceCache,
+        ),
+      );
+    }
+
+    items.sort((left, right) {
+      final leftTime =
+          left.publishedAt ?? left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final rightTime =
+          right.publishedAt ??
+          right.createdAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return rightTime.compareTo(leftTime);
+    });
 
     return ChatAnnouncementsData(
       canCreate: _canCreateAnnouncement(auth),
       items: items,
+    );
+  }
+
+  Future<AnnouncementModel> getAnnouncementDetail(
+    String announcementId, {
+    bool markAsViewed = true,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
+    final record = await pb
+        .collection(AppConstants.colAnnouncements)
+        .getOne(announcementId);
+    if (!_canAccessAnnouncement(auth: auth, context: area, record: record)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses pengumuman ditolak.'},
+      );
+    }
+
+    if (markAsViewed && _shouldTrackAnnouncementView(auth)) {
+      await markAnnouncementViewed(announcementId);
+    }
+
+    return _hydrateAnnouncementModel(
+      auth: auth,
+      context: area,
+      record: record,
+      currentUserId: authUser.id,
     );
   }
 
@@ -1346,6 +1469,97 @@ class ChatService {
     int? targetRw,
     String? orgUnitId,
     PlatformFile? attachment,
+    bool publishNow = true,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+    if (!_canCreateAnnouncement(auth)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Anda tidak memiliki akses fitur ini.'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    _validateAnnouncementPayload(
+      title: title,
+      content: content,
+      targetType: targetType,
+      attachment: attachment,
+    );
+    final normalizedTarget = _normalizeAnnouncementTarget(
+      auth: auth,
+      context: area,
+      targetType: targetType,
+      targetRt: targetRt,
+      targetRw: targetRw,
+    );
+    await _ensureAnnouncementUnitAccess(profile: profile, orgUnitId: orgUnitId);
+
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    final files = <http.MultipartFile>[];
+    if (attachment != null) {
+      files.add(await _multipartFromPlatformFile('attachment', attachment));
+    }
+
+    final created = await pb
+        .collection(AppConstants.colAnnouncements)
+        .create(
+          body: {
+            'workspace': profile?.workspace.id ?? '',
+            'org_unit': orgUnitId ?? '',
+            'author': authUser.id,
+            'title': title.trim(),
+            'content': content.trim(),
+            'target_type': normalizedTarget.targetType,
+            'rt': normalizedTarget.rt,
+            'rw': normalizedTarget.rw,
+            'source_module': 'manual',
+            'publish_state': publishNow ? 'published' : 'draft',
+            'published_by_member': profile?.member.id ?? '',
+            'published_at': publishNow ? nowIso : null,
+            'view_count': 0,
+            'desa_code': area.desaCode ?? '',
+            'kecamatan_code': area.kecamatanCode ?? '',
+            'kabupaten_code': area.kabupatenCode ?? '',
+            'provinsi_code': area.provinsiCode ?? '',
+            'desa_kelurahan': area.desaKelurahan ?? '',
+            'kecamatan': area.kecamatan ?? '',
+            'kabupaten_kota': area.kabupatenKota ?? '',
+            'provinsi': area.provinsi ?? '',
+            'is_published': publishNow,
+          },
+          files: files,
+        );
+
+    return _hydrateAnnouncementModel(
+      auth: auth,
+      context: area,
+      record: created,
+      currentUserId: authUser.id,
+    );
+  }
+
+  Future<AnnouncementModel> updateAnnouncement({
+    required String announcementId,
+    required String title,
+    required String content,
+    required String targetType,
+    int? targetRt,
+    int? targetRw,
+    String? orgUnitId,
+    PlatformFile? attachment,
+    bool publishNow = true,
+    bool removeAttachment = false,
   }) async {
     final auth = _auth;
     final authUser = auth.user;
@@ -1356,136 +1570,193 @@ class ChatService {
       );
     }
 
-    if (!_canCreateAnnouncement(auth)) {
+    final area = await resolveAreaAccessContext(auth);
+    final existing = await pb
+        .collection(AppConstants.colAnnouncements)
+        .getOne(announcementId);
+    if (!_canEditAnnouncement(auth: auth, context: area, record: existing)) {
       throw ClientException(
         statusCode: 403,
         response: const {
-          'message': 'Hanya admin yang dapat membuat pengumuman.',
-        },
-      );
-    }
-    if (title.trim().isEmpty) {
-      throw ClientException(
-        statusCode: 400,
-        response: const {'message': 'Judul pengumuman wajib diisi.'},
-      );
-    }
-    if (content.trim().isEmpty && attachment == null) {
-      throw ClientException(
-        statusCode: 400,
-        response: const {
-          'message': 'Isi pengumuman atau lampiran wajib diisi.',
+          'message': 'Edit hanya untuk draft atau pengumuman yang baru diterbitkan.',
         },
       );
     }
 
-    final area = await resolveAreaAccessContext(auth);
+    _validateAnnouncementPayload(
+      title: title,
+      content: content,
+      targetType: targetType,
+      attachment: attachment,
+    );
     final profile = await _ref
         .read(workspaceAccessServiceProvider)
         .getCurrentAccessProfile();
-    if (!area.hasArea && !auth.isSysadmin) {
-      throw ClientException(
-        statusCode: 400,
-        response: const {'message': 'Area admin belum lengkap.'},
-      );
-    }
+    await _ensureAnnouncementUnitAccess(profile: profile, orgUnitId: orgUnitId);
+    final normalizedTarget = _normalizeAnnouncementTarget(
+      auth: auth,
+      context: area,
+      targetType: targetType,
+      targetRt: targetRt,
+      targetRw: targetRw,
+    );
 
-    final normalizedTarget = _isRtScopedOperator(auth)
-        ? 'rt'
-        : targetType.trim().toLowerCase() == 'rt'
-        ? 'rt'
-        : 'rw';
-    final requestedRt = targetRt ?? area.rt ?? 0;
-    final rt = normalizedTarget == 'rt'
-        ? _isRtScopedOperator(auth)
-              ? (area.rt ?? 0)
-              : requestedRt
-        : 0;
-    final rw = area.rw ?? targetRw ?? 0;
-    if (!auth.isSysadmin && normalizedTarget == 'rt' && rt <= 0) {
-      throw ClientException(
-        statusCode: 400,
-        response: const {
-          'message': 'Nomor RT target tidak valid untuk pengumuman ini.',
-        },
-      );
-    }
-    if (!auth.isSysadmin && _isRtScopedOperator(auth) && rt != (area.rt ?? 0)) {
-      throw ClientException(
-        statusCode: 403,
-        response: const {
-          'message':
-              'Operator RT hanya boleh broadcast ke RT yuridiksinya sendiri.',
-        },
-      );
-    }
-    if ((orgUnitId ?? '').isNotEmpty &&
-        profile != null &&
-        !profile.member.isSysadmin &&
-        !profile.canBroadcastUnit(orgUnitId!)) {
-      throw ClientException(
-        statusCode: 403,
-        response: const {
-          'message': 'Anda tidak memiliki hak broadcast unit ini.',
-        },
-      );
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    final wasPublished = existing.data['is_published'] == true;
+    final body = <String, dynamic>{
+      'title': title.trim(),
+      'content': content.trim(),
+      'target_type': normalizedTarget.targetType,
+      'rt': normalizedTarget.rt,
+      'rw': normalizedTarget.rw,
+      'org_unit': orgUnitId ?? '',
+      'publish_state': publishNow ? 'published' : 'draft',
+      'is_published': publishNow,
+      'published_at': publishNow
+          ? (wasPublished
+                ? (_recordText(existing, 'published_at').isNotEmpty
+                      ? _recordText(existing, 'published_at')
+                      : nowIso)
+                : nowIso)
+          : null,
+      'published_by_member': profile?.member.id ?? '',
+      'workspace': _recordText(existing, 'workspace'),
+      'author': _recordText(existing, 'author'),
+      'view_count': _recordInt(existing, 'view_count'),
+      'desa_code': _recordText(existing, 'desa_code'),
+      'kecamatan_code': _recordText(existing, 'kecamatan_code'),
+      'kabupaten_code': _recordText(existing, 'kabupaten_code'),
+      'provinsi_code': _recordText(existing, 'provinsi_code'),
+      'desa_kelurahan': _recordText(existing, 'desa_kelurahan'),
+      'kecamatan': _recordText(existing, 'kecamatan'),
+      'kabupaten_kota': _recordText(existing, 'kabupaten_kota'),
+      'provinsi': _recordText(existing, 'provinsi'),
+    };
+    if (removeAttachment) {
+      body['attachment'] = [];
     }
 
     final files = <http.MultipartFile>[];
     if (attachment != null) {
       files.add(await _multipartFromPlatformFile('attachment', attachment));
     }
+    final updated = await pb
+        .collection(AppConstants.colAnnouncements)
+        .update(announcementId, body: body, files: files);
 
+    return _hydrateAnnouncementModel(
+      auth: auth,
+      context: area,
+      record: updated,
+      currentUserId: authUser.id,
+    );
+  }
+
+  Future<void> deleteAnnouncement(String announcementId) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
     final record = await pb
         .collection(AppConstants.colAnnouncements)
-        .create(
-          body: {
-            'workspace': profile?.workspace.id ?? '',
-            'org_unit': orgUnitId ?? '',
-            'author': authUser.id,
-            'title': title.trim(),
-            'content': content.trim(),
-            'target_type': normalizedTarget,
-            'rt': rt,
-            'rw': rw,
-            'source_module': 'manual',
-            'publish_state': 'published',
-            'published_by_member': profile?.member.id ?? '',
-            'desa_code': area.desaCode ?? '',
-            'kecamatan_code': area.kecamatanCode ?? '',
-            'kabupaten_code': area.kabupatenCode ?? '',
-            'provinsi_code': area.provinsiCode ?? '',
-            'desa_kelurahan': area.desaKelurahan ?? '',
-            'kecamatan': area.kecamatan ?? '',
-            'kabupaten_kota': area.kabupatenKota ?? '',
-            'provinsi': area.provinsi ?? '',
-            'is_published': true,
-          },
-          files: files,
-        );
+        .getOne(announcementId);
+    if (!_canDeleteAnnouncement(auth: auth, context: area, record: record)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Anda tidak bisa menghapus pengumuman ini.'},
+      );
+    }
 
-    return AnnouncementModel(
-      id: record.id,
-      title: _recordText(record, 'title'),
-      content: _recordText(record, 'content'),
-      targetType: _recordText(record, 'target_type').isEmpty
-          ? 'rw'
-          : _recordText(record, 'target_type'),
-      rt: _recordInt(record, 'rt'),
-      rw: _recordInt(record, 'rw'),
-      authorName:
-          await _resolveSenderName(authUser.id) ?? _userDisplayName(authUser),
-      createdAt: DateTime.tryParse(_recordText(record, 'created')),
-      workspaceId: _recordText(record, 'workspace'),
-      orgUnitId: _recordText(record, 'org_unit'),
-      sourceModule: _recordText(record, 'source_module'),
-      publishState: _recordText(record, 'publish_state'),
-      publishedByMemberId: _recordText(record, 'published_by_member'),
-      attachmentName: _recordText(record, 'attachment').isEmpty
-          ? null
-          : _recordText(record, 'attachment'),
-      attachmentUrl: _fileUrl(record, 'attachment'),
+    final viewRecords = await _loadAnnouncementViewRecords(
+      announcementIds: {announcementId},
     );
+    for (final view in viewRecords) {
+      try {
+        await pb.collection(AppConstants.colAnnouncementViews).delete(view.id);
+      } catch (_) {}
+    }
+    await pb.collection(AppConstants.colAnnouncements).delete(announcementId);
+  }
+
+  Future<AnnouncementStatsModel> getAnnouncementStats(
+    String announcementId,
+  ) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final area = await resolveAreaAccessContext(auth);
+    final record = await pb
+        .collection(AppConstants.colAnnouncements)
+        .getOne(announcementId);
+    if (!_canAccessAnnouncement(auth: auth, context: area, record: record) ||
+        !_canViewAnnouncementStats(auth: auth, context: area, record: record)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses statistik pengumuman ditolak.'},
+      );
+    }
+
+    final viewRecords = await _loadAnnouncementViewRecords(
+      announcementIds: {announcementId},
+    );
+    final firstViewedAt = viewRecords.isEmpty
+        ? null
+        : viewRecords
+              .map((item) => _recordDateTime(item, 'viewed_at') ?? _recordDateTime(item, 'created'))
+              .whereType<DateTime>()
+              .reduce((left, right) => left.isBefore(right) ? left : right);
+    final lastViewedAt = viewRecords.isEmpty
+        ? null
+        : viewRecords
+              .map((item) => _recordDateTime(item, 'viewed_at') ?? _recordDateTime(item, 'created'))
+              .whereType<DateTime>()
+              .reduce((left, right) => left.isAfter(right) ? left : right);
+    await _syncAnnouncementViewCount(
+      announcementId,
+      viewRecords.length,
+      currentCount: _recordInt(record, 'view_count'),
+    );
+
+    return AnnouncementStatsModel(
+      announcementId: announcementId,
+      totalViews: viewRecords.length,
+      targetAudienceCount: await _countAnnouncementTargetAudience(record),
+      firstViewedAt: firstViewedAt,
+      lastViewedAt: lastViewedAt,
+    );
+  }
+
+  Future<void> markAnnouncementViewed(String announcementId) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null || !_shouldTrackAnnouncementView(auth)) {
+      return;
+    }
+    await _upsertAnnouncementView(
+      announcementId: announcementId,
+      userId: authUser.id,
+    );
+  }
+
+  Future<bool> canAccessAnnouncementRecord(RecordModel record) async {
+    final auth = _auth;
+    if (auth.user == null) {
+      return false;
+    }
+    final area = await resolveAreaAccessContext(auth);
+    return _canAccessAnnouncement(auth: auth, context: area, record: record);
   }
 
   Future<_ChatScope> _buildScopeForAuthUser(
@@ -1706,15 +1977,20 @@ class ChatService {
         conversationId: conversation.id,
         userId: userId,
       );
-      result[conversation.id] = membership;
+      if (membership != null) {
+        result[conversation.id] = membership;
+      }
     }
     return result;
   }
 
-  Future<RecordModel> _ensureMembership({
+  Future<RecordModel?> _ensureMembership({
     required String conversationId,
     required String userId,
   }) async {
+    if (_conversationMembersCollectionAvailable == false) {
+      return null;
+    }
     final existing = await _loadMembershipRecords(
       conversationId: conversationId,
       userId: userId,
@@ -1723,21 +1999,31 @@ class ChatService {
       return existing.first;
     }
 
-    return pb
-        .collection(AppConstants.colConversationMembers)
-        .create(
-          body: {
-            'conversation': conversationId,
-            'user': userId,
-            'member_role': 'participant',
-            'last_read_at': null,
-            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
-            'typing_at': null,
-            'is_muted': false,
-            'is_pinned': false,
-            'is_archived': false,
-          },
-        );
+    try {
+      final created = await pb
+          .collection(AppConstants.colConversationMembers)
+          .create(
+            body: {
+              'conversation': conversationId,
+              'user': userId,
+              'member_role': 'participant',
+              'last_read_at': null,
+              'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+              'typing_at': null,
+              'is_muted': false,
+              'is_pinned': false,
+              'is_archived': false,
+            },
+          );
+      _conversationMembersCollectionAvailable = true;
+      return created;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return null;
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, int>> _loadUnreadCounts({
@@ -1748,6 +2034,10 @@ class ChatService {
     final result = <String, int>{};
     for (final conversation in conversations) {
       final membership = memberships[conversation.id];
+      if (membership == null && _conversationMembersCollectionAvailable == false) {
+        result[conversation.id] = 0;
+        continue;
+      }
       final readAt = membership == null
           ? ''
           : _recordText(membership, 'last_read_at');
@@ -1767,16 +2057,14 @@ class ChatService {
     return result;
   }
 
-  Future<RecordModel> _markConversationReadByMember(String memberId) {
-    return pb
-        .collection(AppConstants.colConversationMembers)
-        .update(
-          memberId,
-          body: {
-            'last_read_at': DateTime.now().toUtc().toIso8601String(),
-            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
-          },
-        );
+  Future<RecordModel?> _markConversationReadByMember(String memberId) {
+    return _updateConversationMember(
+      memberId,
+      body: {
+        'last_read_at': DateTime.now().toUtc().toIso8601String(),
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+      },
+    );
   }
 
   Future<bool> _canAccessConversation({
@@ -1853,24 +2141,571 @@ class ChatService {
     if (!context.hasArea) {
       return false;
     }
-    if (record.data['is_published'] != true) {
-      return false;
-    }
 
     final target = _ConversationScope.fromRecord(record);
-    if (!_matchesRegion(context, target)) {
+    if (!_matchesAnnouncementRegion(context, target)) {
       return false;
     }
     if (target.rw != (context.rw ?? 0)) {
       return false;
     }
 
-    final targetType = _recordText(record, 'target_type');
-    if (targetType == 'rw') {
-      return true;
+    final targetType = _normalizeAnnouncementTargetType(
+      _recordText(record, 'target_type'),
+    );
+    if (_isWarga(auth)) {
+      if (!_announcementIsPublished(record)) {
+        return false;
+      }
+      if (targetType == 'all' || targetType == 'rw') {
+        return true;
+      }
+      return target.rt == (context.rt ?? 0);
     }
 
-    return target.rt == (context.rt ?? 0) || _hasRwWideAccess(auth);
+    return true;
+  }
+
+  Future<AnnouncementModel> _hydrateAnnouncementModel({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required RecordModel record,
+    required String currentUserId,
+  }) async {
+    final authorNames = await _loadSenderNames({_recordText(record, 'author')});
+    final viewCounts = await _loadAnnouncementViewCounts({record.id});
+    final viewedIds = _shouldTrackAnnouncementView(auth)
+        ? await _loadViewedAnnouncementIds({record.id}, currentUserId)
+        : <String>{};
+    return _buildAnnouncementModel(
+      auth: auth,
+      context: context,
+      record: record,
+      authorNames: authorNames,
+      viewCounts: viewCounts,
+      viewedIds: viewedIds,
+      audienceCache: <String, int>{},
+    );
+  }
+
+  Future<AnnouncementModel> _buildAnnouncementModel({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required RecordModel record,
+    required Map<String, String> authorNames,
+    required Map<String, int> viewCounts,
+    required Set<String> viewedIds,
+    required Map<String, int> audienceCache,
+  }) async {
+    final audienceKey = _announcementAudienceCacheKey(record);
+    final targetAudienceCount = audienceCache[audienceKey] ??
+        await _countAnnouncementTargetAudience(record);
+    audienceCache[audienceKey] = targetAudienceCount;
+    final fallbackPublishState = _announcementIsPublished(record)
+        ? 'published'
+        : 'draft';
+
+    return AnnouncementModel(
+      id: record.id,
+      title: _recordText(record, 'title'),
+      content: _recordText(record, 'content'),
+      targetType: _normalizeAnnouncementTargetType(
+        _recordText(record, 'target_type'),
+      ),
+      rt: _recordInt(record, 'rt'),
+      rw: _recordInt(record, 'rw'),
+      authorId: _recordText(record, 'author'),
+      authorName:
+          authorNames[_recordText(record, 'author')] ?? 'Pengurus',
+      isPublished: _announcementIsPublished(record),
+      createdAt: _recordDateTime(record, 'created'),
+      updatedAt: _recordDateTime(record, 'updated'),
+      publishedAt: _recordDateTime(record, 'published_at'),
+      workspaceId: _recordText(record, 'workspace').isEmpty
+          ? null
+          : _recordText(record, 'workspace'),
+      orgUnitId: _recordText(record, 'org_unit').isEmpty
+          ? null
+          : _recordText(record, 'org_unit'),
+      sourceModule: _recordText(record, 'source_module').isEmpty
+          ? null
+          : _recordText(record, 'source_module'),
+      publishState: _recordText(record, 'publish_state').isEmpty
+          ? fallbackPublishState
+          : _recordText(record, 'publish_state'),
+      publishedByMemberId: _recordText(record, 'published_by_member').isEmpty
+          ? null
+          : _recordText(record, 'published_by_member'),
+      attachmentName: _recordText(record, 'attachment').isEmpty
+          ? null
+          : _recordText(record, 'attachment'),
+      attachmentUrl: _fileUrl(record, 'attachment'),
+      viewCount: viewCounts[record.id] ?? _recordInt(record, 'view_count'),
+      targetAudienceCount: targetAudienceCount,
+      hasViewed: viewedIds.contains(record.id),
+      isMine: _recordText(record, 'author') == (_auth.user?.id ?? ''),
+      canEdit: _canEditAnnouncement(auth: auth, context: context, record: record),
+      canDelete: _canDeleteAnnouncement(
+        auth: auth,
+        context: context,
+        record: record,
+      ),
+      canViewStats: _canViewAnnouncementStats(
+        auth: auth,
+        context: context,
+        record: record,
+      ),
+    );
+  }
+
+  bool _announcementIsPublished(RecordModel record) {
+    return record.data['is_published'] == true ||
+        _recordText(record, 'publish_state').toLowerCase() == 'published';
+  }
+
+  String _normalizeAnnouncementTargetType(String raw) {
+    final value = raw.trim().toLowerCase();
+    if (value == 'all') {
+      return 'all';
+    }
+    if (value == 'rt') {
+      return 'rt';
+    }
+    return 'rw';
+  }
+
+  bool _shouldTrackAnnouncementView(AuthState auth) => _isWarga(auth);
+
+  bool _matchesAnnouncementRegion(
+    AreaAccessContext context,
+    _ConversationScope target,
+  ) {
+    final hasTargetRegion =
+        target.desaCode.isNotEmpty ||
+        target.kecamatanCode.isNotEmpty ||
+        target.kabupatenCode.isNotEmpty ||
+        target.provinsiCode.isNotEmpty ||
+        target.desaKelurahan.isNotEmpty ||
+        target.kecamatan.isNotEmpty ||
+        target.kabupatenKota.isNotEmpty ||
+        target.provinsi.isNotEmpty;
+    if (!hasTargetRegion) {
+      return true;
+    }
+    return _matchesRegion(context, target);
+  }
+
+  bool _canEditAnnouncement({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required RecordModel record,
+  }) {
+    if (auth.user == null) {
+      return false;
+    }
+    if (auth.isSysadmin) {
+      return true;
+    }
+    if (_isWarga(auth)) {
+      return false;
+    }
+    if (_recordText(record, 'author') != auth.user!.id) {
+      return false;
+    }
+    if (!_canAccessAnnouncement(auth: auth, context: context, record: record)) {
+      return false;
+    }
+    if (!_announcementIsPublished(record)) {
+      return true;
+    }
+    final baseline =
+        _recordDateTime(record, 'published_at') ??
+        _recordDateTime(record, 'created');
+    if (baseline == null) {
+      return false;
+    }
+    return baseline.isAfter(
+      DateTime.now().toUtc().subtract(const Duration(hours: 1)),
+    );
+  }
+
+  bool _canDeleteAnnouncement({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required RecordModel record,
+  }) {
+    if (auth.user == null) {
+      return false;
+    }
+    if (auth.isSysadmin) {
+      return true;
+    }
+    if (_isWarga(auth)) {
+      return false;
+    }
+    if (!_canAccessAnnouncement(auth: auth, context: context, record: record)) {
+      return false;
+    }
+    return _recordText(record, 'author') == auth.user!.id;
+  }
+
+  bool _canViewAnnouncementStats({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required RecordModel record,
+  }) {
+    if (auth.user == null) {
+      return false;
+    }
+    if (auth.isSysadmin) {
+      return true;
+    }
+    if (_isWarga(auth) ||
+        !_canAccessAnnouncement(auth: auth, context: context, record: record)) {
+      return false;
+    }
+    if (_recordText(record, 'author') == auth.user!.id) {
+      return true;
+    }
+    return _hasRwWideAccess(auth);
+  }
+
+  void _validateAnnouncementPayload({
+    required String title,
+    required String content,
+    required String targetType,
+    PlatformFile? attachment,
+  }) {
+    final trimmedTitle = title.trim();
+    final trimmedContent = content.trim();
+    if (trimmedTitle.length < 5 || trimmedTitle.length > 100) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Judul wajib diisi dengan panjang 5-100 karakter.',
+        },
+      );
+    }
+    if (trimmedContent.length < 10 || trimmedContent.length > 1000) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Isi wajib diisi dengan panjang 10-1000 karakter.',
+        },
+      );
+    }
+    final normalizedTarget = _normalizeAnnouncementTargetType(targetType);
+    if (!{'rt', 'rw', 'all'}.contains(normalizedTarget)) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Pilih target pengumuman.'},
+      );
+    }
+    if (attachment != null) {
+      _validateAnnouncementAttachment(attachment);
+    }
+  }
+
+  void _validateAnnouncementAttachment(PlatformFile file) {
+    if (file.size > 5 * 1024 * 1024) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'File terlalu besar. Maksimal 5 MB.'},
+      );
+    }
+    final extension = '.${(file.extension ?? '').trim().toLowerCase()}';
+    if (!{'.jpg', '.jpeg', '.png', '.pdf'}.contains(extension)) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Format file harus JPG, PNG, atau PDF.',
+        },
+      );
+    }
+  }
+
+  _NormalizedAnnouncementTarget _normalizeAnnouncementTarget({
+    required AuthState auth,
+    required AreaAccessContext context,
+    required String targetType,
+    int? targetRt,
+    int? targetRw,
+  }) {
+    if (!context.hasArea && !auth.isSysadmin) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Area admin belum lengkap.'},
+      );
+    }
+    final normalizedTarget = _normalizeAnnouncementTargetType(targetType);
+    final effectiveRw = targetRw ?? context.rw ?? 0;
+    if (!auth.isSysadmin && effectiveRw <= 0) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Nomor RW target tidak valid.'},
+      );
+    }
+
+    if (_isRtScopedOperator(auth)) {
+      if (normalizedTarget == 'rt') {
+        return _NormalizedAnnouncementTarget(
+          targetType: 'rt',
+          rt: context.rt ?? 0,
+          rw: effectiveRw,
+        );
+      }
+      return _NormalizedAnnouncementTarget(
+        targetType: 'rw',
+        rt: 0,
+        rw: effectiveRw,
+      );
+    }
+
+    if (normalizedTarget == 'rt') {
+      final effectiveRt = targetRt ?? 0;
+      if (effectiveRt <= 0) {
+        throw ClientException(
+          statusCode: 400,
+          response: const {'message': 'Nomor RT target tidak valid.'},
+        );
+      }
+      return _NormalizedAnnouncementTarget(
+        targetType: 'rt',
+        rt: effectiveRt,
+        rw: effectiveRw,
+      );
+    }
+
+    return _NormalizedAnnouncementTarget(
+      targetType: normalizedTarget == 'all' ? 'all' : 'rw',
+      rt: 0,
+      rw: effectiveRw,
+    );
+  }
+
+  Future<void> _ensureAnnouncementUnitAccess({
+    required WorkspaceAccessProfile? profile,
+    required String? orgUnitId,
+  }) async {
+    if ((orgUnitId ?? '').isEmpty || profile == null || profile.member.isSysadmin) {
+      return;
+    }
+    if (!profile.canBroadcastUnit(orgUnitId!)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Anda tidak memiliki hak broadcast unit ini.'},
+      );
+    }
+  }
+
+  Future<List<RecordModel>> _loadAnnouncementViewRecords({
+    required Set<String> announcementIds,
+    String? userId,
+  }) async {
+    if (_announcementViewsCollectionAvailable == false) {
+      return const [];
+    }
+    if (announcementIds.isEmpty) {
+      return const [];
+    }
+
+    final filters = <String>[
+      '(${announcementIds.map((id) => 'announcement = "${_escapeFilterValue(id)}"').join(' || ')})',
+    ];
+    if ((userId ?? '').trim().isNotEmpty) {
+      filters.add('user = "${_escapeFilterValue(userId!.trim())}"');
+    }
+
+    try {
+      final records = await pb
+          .collection(AppConstants.colAnnouncementViews)
+          .getFullList(
+            sort: '-viewed_at,-created',
+            filter: filters.join(' && '),
+          );
+      _announcementViewsCollectionAvailable = true;
+      return records;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _announcementViewsCollectionAvailable = false;
+        return const [];
+      }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, int>> _loadAnnouncementViewCounts(
+    Set<String> announcementIds,
+  ) async {
+    final records = await _loadAnnouncementViewRecords(announcementIds: announcementIds);
+    final counts = <String, int>{};
+    for (final record in records) {
+      final announcementId = _recordText(record, 'announcement');
+      if (announcementId.isEmpty) {
+        continue;
+      }
+      counts.update(announcementId, (value) => value + 1, ifAbsent: () => 1);
+    }
+    return counts;
+  }
+
+  Future<Set<String>> _loadViewedAnnouncementIds(
+    Set<String> announcementIds,
+    String userId,
+  ) async {
+    final records = await _loadAnnouncementViewRecords(
+      announcementIds: announcementIds,
+      userId: userId,
+    );
+    return records
+        .map((record) => _recordText(record, 'announcement'))
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  }
+
+  Future<void> _upsertAnnouncementView({
+    required String announcementId,
+    required String userId,
+  }) async {
+    if (_announcementViewsCollectionAvailable == false) {
+      return;
+    }
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    try {
+      final existing = await _loadAnnouncementViewRecords(
+        announcementIds: {announcementId},
+        userId: userId,
+      );
+      if (existing.isEmpty) {
+        await pb
+            .collection(AppConstants.colAnnouncementViews)
+            .create(
+              body: {
+                'announcement': announcementId,
+                'user': userId,
+                'viewed_at': nowIso,
+              },
+            );
+      } else {
+        await pb
+            .collection(AppConstants.colAnnouncementViews)
+            .update(existing.first.id, body: {'viewed_at': nowIso});
+        for (final duplicate in existing.skip(1)) {
+          try {
+            await pb.collection(AppConstants.colAnnouncementViews).delete(
+              duplicate.id,
+            );
+          } catch (_) {}
+        }
+      }
+      final counts = await _loadAnnouncementViewCounts({announcementId});
+      await _syncAnnouncementViewCount(
+        announcementId,
+        counts[announcementId] ?? 0,
+      );
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _announcementViewsCollectionAvailable = false;
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _syncAnnouncementViewCount(
+    String announcementId,
+    int totalViews, {
+    int? currentCount,
+  }
+  ) async {
+    if (currentCount != null && currentCount == totalViews) {
+      return;
+    }
+    try {
+      if (currentCount == null) {
+        final record = await pb
+            .collection(AppConstants.colAnnouncements)
+            .getOne(announcementId);
+        if (_recordInt(record, 'view_count') == totalViews) {
+          return;
+        }
+      }
+      await pb
+          .collection(AppConstants.colAnnouncements)
+          .update(announcementId, body: {'view_count': totalViews});
+    } catch (_) {}
+  }
+
+  String _announcementAudienceCacheKey(RecordModel record) {
+    return [
+      _normalizeAnnouncementTargetType(_recordText(record, 'target_type')),
+      _recordInt(record, 'rt'),
+      _recordInt(record, 'rw'),
+      _recordText(record, 'desa_code'),
+      _recordText(record, 'kecamatan_code'),
+      _recordText(record, 'kabupaten_code'),
+      _recordText(record, 'provinsi_code'),
+      _recordText(record, 'desa_kelurahan'),
+      _recordText(record, 'kecamatan'),
+      _recordText(record, 'kabupaten_kota'),
+      _recordText(record, 'provinsi'),
+    ].join('|');
+  }
+
+  Future<int> _countAnnouncementTargetAudience(RecordModel record) async {
+    final filter = _buildAnnouncementAudienceFilter(record);
+    final rows = await pb
+        .collection(AppConstants.colWarga)
+        .getFullList(filter: filter);
+    return rows.length;
+  }
+
+  String _buildAnnouncementAudienceFilter(RecordModel record) {
+    final conditions = <String>[];
+    final rw = _recordInt(record, 'rw');
+    if (rw > 0) {
+      conditions.add('rw = $rw');
+    }
+    if (_normalizeAnnouncementTargetType(_recordText(record, 'target_type')) ==
+        'rt') {
+      final rt = _recordInt(record, 'rt');
+      if (rt > 0) {
+        conditions.add('rt = $rt');
+      }
+    }
+
+    final scope = _ConversationScope.fromRecord(record);
+    final hasCodes =
+        scope.desaCode.isNotEmpty &&
+        scope.kecamatanCode.isNotEmpty &&
+        scope.kabupatenCode.isNotEmpty &&
+        scope.provinsiCode.isNotEmpty;
+    if (hasCodes) {
+      conditions.add('no_kk.desa_code = "${_escapeFilterValue(scope.desaCode)}"');
+      conditions.add(
+        'no_kk.kecamatan_code = "${_escapeFilterValue(scope.kecamatanCode)}"',
+      );
+      conditions.add(
+        'no_kk.kabupaten_code = "${_escapeFilterValue(scope.kabupatenCode)}"',
+      );
+      conditions.add(
+        'no_kk.provinsi_code = "${_escapeFilterValue(scope.provinsiCode)}"',
+      );
+    } else if (scope.desaKelurahan.isNotEmpty &&
+        scope.kecamatan.isNotEmpty &&
+        scope.kabupatenKota.isNotEmpty &&
+        scope.provinsi.isNotEmpty) {
+      conditions.add(
+        'no_kk.desa_kelurahan ~ "${_escapeFilterValue(scope.desaKelurahan)}"',
+      );
+      conditions.add('no_kk.kecamatan ~ "${_escapeFilterValue(scope.kecamatan)}"');
+      conditions.add(
+        'no_kk.kabupaten_kota ~ "${_escapeFilterValue(scope.kabupatenKota)}"',
+      );
+      conditions.add('no_kk.provinsi ~ "${_escapeFilterValue(scope.provinsi)}"');
+    }
+
+    return conditions.join(' && ');
   }
 
   Future<bool> _canAccessScopedConversation({
@@ -2135,29 +2970,51 @@ class ChatService {
   Future<List<RecordModel>> _loadMembershipRecords({
     required String conversationId,
     required String userId,
-  }) {
-    return pb
-        .collection(AppConstants.colConversationMembers)
-        .getFullList(
-          sort: '-updated,-created',
-          filter:
-              'conversation = "${_escapeFilterValue(conversationId)}" && user = "${_escapeFilterValue(userId)}"',
-        );
+  }) async {
+    if (_conversationMembersCollectionAvailable == false) {
+      return const <RecordModel>[];
+    }
+    try {
+      final records = await pb
+          .collection(AppConstants.colConversationMembers)
+          .getFullList(
+            sort: '-updated,-created',
+            filter:
+                'conversation = "${_escapeFilterValue(conversationId)}" && user = "${_escapeFilterValue(userId)}"',
+          );
+      _conversationMembersCollectionAvailable = true;
+      return records;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return const <RecordModel>[];
+      }
+      rethrow;
+    }
   }
 
   Future<List<RecordModel>> _loadConversationMemberships({
     required String conversationId,
     String? fallbackUserId,
   }) async {
+    if (_conversationMembersCollectionAvailable == false) {
+      return const <RecordModel>[];
+    }
     try {
-      return await pb
+      final records = await pb
           .collection(AppConstants.colConversationMembers)
           .getFullList(
             sort: 'created',
             filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
           );
+      _conversationMembersCollectionAvailable = true;
+      return records;
     } on ClientException catch (error) {
       final userId = (fallbackUserId ?? _auth.user?.id ?? '').trim();
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return const <RecordModel>[];
+      }
       if (error.statusCode == 403 && userId.isNotEmpty) {
         return _loadMembershipRecords(
           conversationId: conversationId,
@@ -2166,6 +3023,34 @@ class ChatService {
       }
       rethrow;
     }
+  }
+
+  Future<RecordModel?> _updateConversationMember(
+    String memberId, {
+    required Map<String, dynamic> body,
+  }) async {
+    if (_conversationMembersCollectionAvailable == false) {
+      return null;
+    }
+    try {
+      final record = await pb
+          .collection(AppConstants.colConversationMembers)
+          .update(memberId, body: body);
+      _conversationMembersCollectionAvailable = true;
+      return record;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  bool _isMissingCollectionContext(ClientException error) {
+    final message = error.response['message']?.toString().toLowerCase() ?? '';
+    return error.statusCode == 404 &&
+        message.contains('missing collection context');
   }
 
   Future<List<RecordModel>> _loadConversationMessageRecords(
@@ -2529,12 +3414,6 @@ class ChatService {
         planCode: AppConstants.planFree,
       );
     }
-  }
-
-  Future<String?> _resolveSenderName(String userId) async {
-    final profile = await _resolveChatUserProfile(userId);
-    final name = profile?.displayName ?? '';
-    return name.isEmpty ? null : name;
   }
 
   Future<Map<String, RecordModel>> _loadMessagesByIds(Set<String> ids) async {
@@ -3059,6 +3938,13 @@ class _ChatUserProfile {
   final String planCode;
 }
 
+class _CachedChatBootstrap {
+  const _CachedChatBootstrap({required this.data, required this.cachedAt});
+
+  final ChatBootstrapData data;
+  final DateTime cachedAt;
+}
+
 class _CachedChatMessages {
   const _CachedChatMessages({required this.data, required this.cachedAt});
 
@@ -3126,6 +4012,18 @@ class _ChatScope {
       : _normalizeAreaValue(kabupatenKota);
   String get provinsiCodeOrName =>
       provinsiCode.isNotEmpty ? provinsiCode : _normalizeAreaValue(provinsi);
+}
+
+class _NormalizedAnnouncementTarget {
+  const _NormalizedAnnouncementTarget({
+    required this.targetType,
+    required this.rt,
+    required this.rw,
+  });
+
+  final String targetType;
+  final int rt;
+  final int rw;
 }
 
 class _ConversationScope {

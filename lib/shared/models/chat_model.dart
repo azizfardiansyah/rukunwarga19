@@ -465,8 +465,12 @@ class AnnouncementModel {
     required this.targetType,
     required this.rt,
     required this.rw,
+    required this.authorId,
     required this.authorName,
+    this.isPublished = true,
     this.createdAt,
+    this.updatedAt,
+    this.publishedAt,
     this.workspaceId,
     this.orgUnitId,
     this.sourceModule,
@@ -474,6 +478,13 @@ class AnnouncementModel {
     this.publishedByMemberId,
     this.attachmentName,
     this.attachmentUrl,
+    this.viewCount = 0,
+    this.targetAudienceCount = 0,
+    this.hasViewed = false,
+    this.isMine = false,
+    this.canEdit = false,
+    this.canDelete = false,
+    this.canViewStats = false,
   });
 
   final String id;
@@ -482,8 +493,12 @@ class AnnouncementModel {
   final String targetType;
   final int rt;
   final int rw;
+  final String authorId;
   final String authorName;
+  final bool isPublished;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? publishedAt;
   final String? workspaceId;
   final String? orgUnitId;
   final String? sourceModule;
@@ -491,6 +506,13 @@ class AnnouncementModel {
   final String? publishedByMemberId;
   final String? attachmentName;
   final String? attachmentUrl;
+  final int viewCount;
+  final int targetAudienceCount;
+  final bool hasViewed;
+  final bool isMine;
+  final bool canEdit;
+  final bool canDelete;
+  final bool canViewStats;
 
   factory AnnouncementModel.fromJson(Map<String, dynamic> json) {
     return AnnouncementModel(
@@ -500,8 +522,12 @@ class AnnouncementModel {
       targetType: json['targetType']?.toString() ?? 'rw',
       rt: _jsonInt(json['rt']),
       rw: _jsonInt(json['rw']),
+      authorId: json['authorId']?.toString() ?? '',
       authorName: json['authorName']?.toString() ?? 'Pengurus',
+      isPublished: json['isPublished'] != false,
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? ''),
+      publishedAt: DateTime.tryParse(json['publishedAt']?.toString() ?? ''),
       workspaceId: json['workspaceId']?.toString(),
       orgUnitId: json['orgUnitId']?.toString(),
       sourceModule: json['sourceModule']?.toString(),
@@ -509,14 +535,55 @@ class AnnouncementModel {
       publishedByMemberId: json['publishedByMemberId']?.toString(),
       attachmentName: json['attachmentName']?.toString(),
       attachmentUrl: json['attachmentUrl']?.toString(),
+      viewCount: _jsonInt(json['viewCount']),
+      targetAudienceCount: _jsonInt(json['targetAudienceCount']),
+      hasViewed: json['hasViewed'] == true,
+      isMine: json['isMine'] == true,
+      canEdit: json['canEdit'] == true,
+      canDelete: json['canDelete'] == true,
+      canViewStats: json['canViewStats'] == true,
     );
   }
 
-  String get targetLabel => targetType == 'rt'
-      ? 'RT ${rt.toString().padLeft(2, '0')}'
-      : 'RW ${rw.toString().padLeft(2, '0')}';
+  String get targetLabel {
+    switch (targetType) {
+      case 'rt':
+        return 'RT ${rt.toString().padLeft(2, '0')} / RW ${rw.toString().padLeft(2, '0')}';
+      case 'all':
+        return 'Semua Warga';
+      case 'rw':
+      default:
+        return 'RW ${rw.toString().padLeft(2, '0')}';
+    }
+  }
+
+  String get statusLabel => isPublished ? 'Published' : 'Draft';
+  bool get isDraft => !isPublished || publishState == 'draft';
+  double get readPercentage => targetAudienceCount <= 0
+      ? 0
+      : (viewCount / targetAudienceCount).clamp(0, 1).toDouble();
 
   bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
+}
+
+class AnnouncementStatsModel {
+  const AnnouncementStatsModel({
+    required this.announcementId,
+    required this.totalViews,
+    required this.targetAudienceCount,
+    this.firstViewedAt,
+    this.lastViewedAt,
+  });
+
+  final String announcementId;
+  final int totalViews;
+  final int targetAudienceCount;
+  final DateTime? firstViewedAt;
+  final DateTime? lastViewedAt;
+
+  double get percentage => targetAudienceCount <= 0
+      ? 0
+      : (totalViews / targetAudienceCount).clamp(0, 1).toDouble();
 }
 
 class ChatBootstrapData {

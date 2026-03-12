@@ -24,6 +24,9 @@ import '../features/laporan/screens/laporan_screen.dart';
 import '../features/chat/screens/chat_list_screen.dart';
 import '../features/chat/screens/chat_room_screen.dart';
 import '../features/chat/screens/announcement_screen.dart';
+import '../features/chat/screens/announcement_detail_screen.dart';
+import '../features/chat/screens/announcement_form_screen.dart';
+import '../features/chat/screens/announcement_stats_screen.dart';
 import '../features/notifikasi/screens/notifikasi_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
 import '../features/settings/screens/role_request_screen.dart';
@@ -59,6 +62,11 @@ class Routes {
   static const String chat = '/chat';
   static const String chatRoom = '/chat/:id';
   static const String announcements = '/pengumuman';
+  static const String adminAnnouncements = '/admin/pengumuman';
+  static const String announcementCreate = '/pengumuman/create';
+  static const String announcementDetail = '/pengumuman/:id';
+  static const String announcementEdit = '/pengumuman/:id/edit';
+  static const String announcementStats = '/pengumuman/:id/stats';
   static const String notifikasi = '/notifikasi';
   static const String settings = '/settings';
   static const String subscription = '/subscription';
@@ -247,6 +255,35 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.announcements,
         builder: (context, state) => const AnnouncementScreen(),
+      ),
+      GoRoute(
+        path: Routes.adminAnnouncements,
+        builder: (context, state) => const AnnouncementScreen(),
+      ),
+      GoRoute(
+        path: Routes.announcementCreate,
+        builder: (context, state) => const AnnouncementFormScreen(),
+      ),
+      GoRoute(
+        path: Routes.announcementEdit,
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AnnouncementFormScreen(announcementId: id);
+        },
+      ),
+      GoRoute(
+        path: Routes.announcementStats,
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AnnouncementStatsScreen(announcementId: id);
+        },
+      ),
+      GoRoute(
+        path: Routes.announcementDetail,
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AnnouncementDetailScreen(announcementId: id);
+        },
       ),
       GoRoute(
         path: Routes.notifikasi,

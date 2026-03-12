@@ -8,6 +8,7 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
+  final ValueNotifier<String?> launchPayload = ValueNotifier<String?>(null);
 
   bool _isInitialized = false;
 
@@ -40,8 +41,13 @@ class NotificationService {
     // Handle navigation berdasarkan payload
     final payload = response.payload;
     if (payload != null) {
+      launchPayload.value = payload;
       debugPrint('Notification tapped with payload: $payload');
     }
+  }
+
+  void clearLaunchPayload() {
+    launchPayload.value = null;
   }
 
   /// Channel ID untuk berbagai jenis notifikasi
