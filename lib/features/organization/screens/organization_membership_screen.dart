@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../shared/models/workspace_access_model.dart';
@@ -37,8 +40,10 @@ class _OrganizationMembershipScreenState
       actions: [
         IconButton(
           tooltip: 'Refresh',
-          onPressed: () =>
-              ref.read(organizationRefreshTickProvider.notifier).bump(),
+          onPressed: () async {
+            await ref.read(authProvider.notifier).refreshAuth();
+            ref.read(organizationRefreshTickProvider.notifier).bump();
+          },
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
@@ -49,6 +54,7 @@ class _OrganizationMembershipScreenState
                 context,
                 ref,
                 overviewAsync.asData!.value,
+                initialUnitId: _unitFilter == 'all' ? null : _unitFilter,
               ),
               icon: const Icon(Icons.person_add_alt_1_outlined),
               label: const Text('Tambah Pengurus'),
@@ -56,12 +62,25 @@ class _OrganizationMembershipScreenState
           : null,
       child: overviewAsync.when(
         data: (overview) {
-          final units = overview.orgUnits;
-          final memberships = _unitFilter == 'all'
-              ? overview.orgMemberships
-              : overview.orgMemberships
-                    .where((item) => item.orgUnitId == _unitFilter)
+          final units = _sortedActiveUnits(overview.orgUnits);
+          final currentUnitFilter =
+              _unitFilter == 'all' ||
+                  units.any((unit) => unit.id == _unitFilter)
+              ? _unitFilter
+              : 'all';
+          final visibleUnits = currentUnitFilter == 'all'
+              ? units
+              : units
+                    .where((unit) => unit.id == currentUnitFilter)
                     .toList(growable: false);
+          final membershipCounts = <String, int>{};
+          for (final membership in overview.orgMemberships) {
+            membershipCounts.update(
+              membership.orgUnitId,
+              (count) => count + 1,
+              ifAbsent: () => 1,
+            );
+          }
 
           return RefreshIndicator(
             onRefresh: () async {
@@ -73,7 +92,7 @@ class _OrganizationMembershipScreenState
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
               children: [
                 DropdownButtonFormField<String>(
-                  initialValue: _unitFilter,
+                  initialValue: currentUnitFilter,
                   decoration: const InputDecoration(
                     labelText: 'Filter unit',
                     isDense: true,
@@ -90,7 +109,9 @@ class _OrganizationMembershipScreenState
                     ...units.map(
                       (unit) => DropdownMenuItem<String>(
                         value: unit.id,
-                        child: Text(unit.name),
+                        child: Text(
+                          '${unit.name} (${membershipCounts[unit.id] ?? 0})',
+                        ),
                       ),
                     ),
                   ],
@@ -99,30 +120,38 @@ class _OrganizationMembershipScreenState
                   },
                 ),
                 const SizedBox(height: 10),
-                if (memberships.isEmpty)
+                if (visibleUnits.isEmpty)
                   const OrganizationEmptyState(
-                    icon: Icons.badge_outlined,
-                    title: 'Belum ada pengurus',
-                    message:
-                        'Tambahkan susunan pengurus untuk unit yang dipilih.',
+                    icon: Icons.account_tree_outlined,
+                    title: 'Belum ada unit organisasi',
+                    message: 'Tambahkan unit dulu sebelum mengisi pengurus.',
                   )
                 else
-                  ...memberships.map(
-                    (membership) => Padding(
+                  ...visibleUnits.map(
+                    (unit) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: _MembershipCard(
-                        membership: membership,
-                        actor: overview.actorByMemberId(
-                          membership.workspaceMemberId,
+                      child: _UnitMembershipSection(
+                        unit: unit,
+                        memberships: _sortMemberships(
+                          overview.orgMemberships
+                              .where((item) => item.orgUnitId == unit.id)
+                              .toList(growable: false),
                         ),
+                        actorByMemberId: overview.actorByMemberId,
                         canManage: overview.profile.canManageMembership,
-                        onEdit: () => _openMembershipDialog(
+                        onAdd: () => _openMembershipDialog(
                           context,
                           ref,
                           overview,
-                          membership,
+                          initialUnitId: unit.id,
                         ),
-                        onDeactivate: () =>
+                        onEdit: (membership) => _openMembershipDialog(
+                          context,
+                          ref,
+                          overview,
+                          existing: membership,
+                        ),
+                        onDeactivate: (membership) =>
                             _deactivateMembership(context, ref, membership.id),
                       ),
                     ),
@@ -132,10 +161,25 @@ class _OrganizationMembershipScreenState
           );
         },
         error: (error, _) => Center(
-          child: Text(
-            'Gagal memuat pengurus.\n${error.toString()}',
-            textAlign: TextAlign.center,
-            style: AppTheme.bodySmall,
+          child: Padding(
+            padding: const EdgeInsets.all(AppTheme.paddingLarge),
+            child: isOrganizationSetupMissingError(error)
+                ? OrganizationEmptyState(
+                    icon: Icons.badge_outlined,
+                    title: 'Pengurus belum bisa diinput',
+                    message:
+                        'Organisasi RW belum dibuat. Buka Kelola Organisasi untuk membuat workspace RW lebih dulu.',
+                    action: FilledButton.icon(
+                      onPressed: () => context.go(Routes.organizationManage),
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('Kelola Organisasi'),
+                    ),
+                  )
+                : Text(
+                    'Gagal memuat pengurus.\n${error.toString()}',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.bodySmall,
+                  ),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -200,11 +244,30 @@ class _OrganizationMembershipScreenState
   Future<void> _openMembershipDialog(
     BuildContext context,
     WidgetRef ref,
-    OrganizationOverviewData overview, [
+    OrganizationOverviewData overview, {
     OrgMembershipModel? existing,
-  ]) async {
-    if (overview.workspaceActors.isEmpty ||
-        overview.orgUnits.isEmpty ||
+    String? initialUnitId,
+  }) async {
+    List<OrganizationMembershipCandidate> candidates;
+    try {
+      candidates = await ref
+          .read(organizationServiceProvider)
+          .fetchMembershipCandidates();
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ErrorClassifier.showErrorSnackBar(context, error);
+      return;
+    }
+    if (!context.mounted) {
+      return;
+    }
+
+    final selectableUnits = _sortedActiveUnits(overview.orgUnits);
+
+    if (candidates.isEmpty ||
+        selectableUnits.isEmpty ||
         overview.jabatanMaster.isEmpty) {
       ErrorClassifier.showErrorSnackBar(
         context,
@@ -213,12 +276,17 @@ class _OrganizationMembershipScreenState
       return;
     }
 
-    String workspaceMemberId = existing?.workspaceMemberId.isNotEmpty == true
-        ? existing!.workspaceMemberId
-        : overview.workspaceActors.first.member.id;
+    String candidateKey = _resolveCandidateKey(
+      candidates,
+      workspaceMemberId: existing?.workspaceMemberId,
+      userId: existing?.userId,
+    );
+    final preferredUnitId = (initialUnitId ?? '').trim();
     String orgUnitId = existing?.orgUnitId.isNotEmpty == true
         ? existing!.orgUnitId
-        : overview.orgUnits.first.id;
+        : selectableUnits.any((unit) => unit.id == preferredUnitId)
+        ? preferredUnitId
+        : selectableUnits.first.id;
     String jabatanId = existing?.jabatanId ?? '';
     bool isPrimary = existing?.isPrimary ?? false;
     String status = existing?.status ?? 'active';
@@ -227,9 +295,9 @@ class _OrganizationMembershipScreenState
     DateTime? endedAt = existing?.endedAt;
 
     String resolveDefaultJabatan() {
-      final unit = overview.orgUnits.firstWhere(
+      final unit = selectableUnits.firstWhere(
         (item) => item.id == orgUnitId,
-        orElse: () => overview.orgUnits.first,
+        orElse: () => selectableUnits.first,
       );
       final options = overview.jabatanMaster
           .where((item) => item.unitType == unit.type)
@@ -250,9 +318,9 @@ class _OrganizationMembershipScreenState
           context: context,
           builder: (context) => StatefulBuilder(
             builder: (context, setState) {
-              final selectedUnit = overview.orgUnits.firstWhere(
+              final selectedUnit = selectableUnits.firstWhere(
                 (item) => item.id == orgUnitId,
-                orElse: () => overview.orgUnits.first,
+                orElse: () => selectableUnits.first,
               );
               final jabatanOptions = overview.jabatanMaster
                   .where((item) => item.unitType == selectedUnit.type)
@@ -271,20 +339,20 @@ class _OrganizationMembershipScreenState
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       DropdownButtonFormField<String>(
-                        initialValue: workspaceMemberId,
+                        initialValue: candidateKey,
                         decoration: const InputDecoration(
                           labelText: 'Nama pengurus / akun',
                         ),
-                        items: overview.workspaceActors
+                        items: candidates
                             .map(
-                              (actor) => DropdownMenuItem<String>(
-                                value: actor.member.id,
-                                child: Text(actor.displayName),
+                              (candidate) => DropdownMenuItem<String>(
+                                value: candidate.key,
+                                child: Text(candidate.displayName),
                               ),
                             )
                             .toList(growable: false),
                         onChanged: (value) {
-                          setState(() => workspaceMemberId = value ?? '');
+                          setState(() => candidateKey = value ?? candidateKey);
                         },
                       ),
                       const SizedBox(height: 12),
@@ -293,7 +361,7 @@ class _OrganizationMembershipScreenState
                         decoration: const InputDecoration(
                           labelText: 'Unit organisasi',
                         ),
-                        items: overview.orgUnits
+                        items: selectableUnits
                             .map(
                               (unit) => DropdownMenuItem<String>(
                                 value: unit.id,
@@ -413,15 +481,25 @@ class _OrganizationMembershipScreenState
         false;
 
     if (!saved || !context.mounted) {
+      periodCtrl.dispose();
       return;
     }
 
     try {
+      final selectedCandidate = candidates.firstWhere(
+        (item) => item.key == candidateKey,
+        orElse: () => candidates.first,
+      );
       await ref
           .read(organizationServiceProvider)
           .saveOrgMembership(
             membershipId: existing?.id,
-            workspaceMemberId: workspaceMemberId,
+            workspaceMemberId: selectedCandidate.workspaceMemberId,
+            userId: selectedCandidate.userId,
+            displayName: selectedCandidate.displayName,
+            email: selectedCandidate.email,
+            scopeRt: selectedCandidate.scopeRt,
+            scopeRw: selectedCandidate.scopeRw,
             orgUnitId: orgUnitId,
             jabatanId: jabatanId,
             isPrimary: isPrimary,
@@ -442,10 +520,12 @@ class _OrganizationMembershipScreenState
       );
     } catch (error) {
       if (!context.mounted) {
+        periodCtrl.dispose();
         return;
       }
       ErrorClassifier.showErrorSnackBar(context, error);
     }
+    periodCtrl.dispose();
   }
 }
 
@@ -537,7 +617,7 @@ class _MembershipCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          _MembershipInfo(label: 'Akun', value: actor?.email ?? '-'),
+          _MembershipInfo(label: 'Akun', value: _membershipAccountLabel(actor)),
           _MembershipInfo(
             label: 'Mulai',
             value: _formatDate(membership.startedAt),
@@ -550,6 +630,149 @@ class _MembershipCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _UnitMembershipSection extends StatelessWidget {
+  const _UnitMembershipSection({
+    required this.unit,
+    required this.memberships,
+    required this.actorByMemberId,
+    required this.canManage,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDeactivate,
+  });
+
+  final OrgUnitModel unit;
+  final List<OrgMembershipModel> memberships;
+  final OrganizationWorkspaceActor? Function(String memberId) actorByMemberId;
+  final bool canManage;
+  final VoidCallback onAdd;
+  final ValueChanged<OrgMembershipModel> onEdit;
+  final ValueChanged<OrgMembershipModel> onDeactivate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: AppTheme.cardDecoration(),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      unit.name,
+                      style: AppTheme.bodySmall.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text('Kode ${unit.code}', style: AppTheme.caption),
+                  ],
+                ),
+              ),
+              if (canManage)
+                TextButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
+                  label: const Text('Tambah'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              OrganizationBadge(label: _unitTypeLabel(unit.type)),
+              OrganizationBadge(
+                label: '${memberships.length} Pengurus',
+                color: AppTheme.accentColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (memberships.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.dividerColor.withValues(alpha: 0.7),
+                ),
+              ),
+              child: Text(
+                'Belum ada pengurus untuk unit ini.',
+                style: AppTheme.caption.copyWith(color: AppTheme.textTertiary),
+              ),
+            )
+          else
+            ...memberships.map(
+              (membership) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _MembershipCard(
+                  membership: membership,
+                  actor: actorByMemberId(membership.workspaceMemberId),
+                  canManage: canManage,
+                  onEdit: () => onEdit(membership),
+                  onDeactivate: () => onDeactivate(membership),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _membershipAccountLabel(OrganizationWorkspaceActor? actor) {
+  if (actor == null) {
+    return '-';
+  }
+  final email = actor.email.trim();
+  if (email.isNotEmpty) {
+    return email;
+  }
+  final displayName = actor.displayName.trim();
+  if (displayName.isNotEmpty) {
+    return displayName;
+  }
+  return '-';
+}
+
+String _resolveCandidateKey(
+  List<OrganizationMembershipCandidate> candidates, {
+  String? workspaceMemberId,
+  String? userId,
+}) {
+  final normalizedMemberId = (workspaceMemberId ?? '').trim();
+  if (normalizedMemberId.isNotEmpty) {
+    for (final candidate in candidates) {
+      if ((candidate.workspaceMemberId ?? '').trim() == normalizedMemberId) {
+        return candidate.key;
+      }
+    }
+  }
+
+  final normalizedUserId = (userId ?? '').trim();
+  if (normalizedUserId.isNotEmpty) {
+    for (final candidate in candidates) {
+      if (candidate.userId == normalizedUserId) {
+        return candidate.key;
+      }
+    }
+  }
+
+  return candidates.first.key;
 }
 
 class _MembershipInfo extends StatelessWidget {
@@ -623,4 +846,110 @@ String _formatDate(DateTime? value) {
   final month = date.month.toString().padLeft(2, '0');
   final day = date.day.toString().padLeft(2, '0');
   return '${date.year}-$month-$day';
+}
+
+List<OrgUnitModel> _sortedActiveUnits(List<OrgUnitModel> units) {
+  final result = units
+      .where((unit) => unit.status.trim().toLowerCase() == 'active')
+      .toList(growable: false);
+  result.sort(_compareOrgUnit);
+  return result;
+}
+
+List<OrgMembershipModel> _sortMemberships(
+  List<OrgMembershipModel> memberships,
+) {
+  final sorted = [...memberships];
+  sorted.sort((left, right) {
+    final statusCompare = _membershipStatusRank(
+      left.status,
+    ).compareTo(_membershipStatusRank(right.status));
+    if (statusCompare != 0) {
+      return statusCompare;
+    }
+    if (left.isPrimary != right.isPrimary) {
+      return left.isPrimary ? -1 : 1;
+    }
+    final sortOrderCompare = (left.jabatan?.sortOrder ?? 999).compareTo(
+      right.jabatan?.sortOrder ?? 999,
+    );
+    if (sortOrderCompare != 0) {
+      return sortOrderCompare;
+    }
+    final startedAtCompare = (left.startedAt ?? DateTime(2100)).compareTo(
+      right.startedAt ?? DateTime(2100),
+    );
+    if (startedAtCompare != 0) {
+      return startedAtCompare;
+    }
+    return (left.jabatan?.label ?? '').compareTo(right.jabatan?.label ?? '');
+  });
+  return sorted;
+}
+
+int _compareOrgUnit(OrgUnitModel left, OrgUnitModel right) {
+  final typeCompare = _unitTypeRank(
+    left.type,
+  ).compareTo(_unitTypeRank(right.type));
+  if (typeCompare != 0) {
+    return typeCompare;
+  }
+  final scopeRwCompare = (left.scopeRw ?? 0).compareTo(right.scopeRw ?? 0);
+  if (scopeRwCompare != 0) {
+    return scopeRwCompare;
+  }
+  final scopeRtCompare = (left.scopeRt ?? 0).compareTo(right.scopeRt ?? 0);
+  if (scopeRtCompare != 0) {
+    return scopeRtCompare;
+  }
+  return left.name.toLowerCase().compareTo(right.name.toLowerCase());
+}
+
+int _unitTypeRank(String type) {
+  switch (type.trim().toLowerCase()) {
+    case AppConstants.unitTypeRw:
+      return 0;
+    case AppConstants.unitTypeRt:
+      return 1;
+    case AppConstants.unitTypeDkm:
+      return 2;
+    case AppConstants.unitTypeKarangTaruna:
+      return 3;
+    case AppConstants.unitTypePosyandu:
+      return 4;
+    case AppConstants.unitTypeCustom:
+      return 5;
+    default:
+      return 99;
+  }
+}
+
+int _membershipStatusRank(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'active':
+      return 0;
+    case 'inactive':
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+String _unitTypeLabel(String type) {
+  switch (type.trim().toLowerCase()) {
+    case AppConstants.unitTypeRw:
+      return 'RW';
+    case AppConstants.unitTypeRt:
+      return 'RT';
+    case AppConstants.unitTypeDkm:
+      return 'DKM';
+    case AppConstants.unitTypeKarangTaruna:
+      return 'Karang Taruna';
+    case AppConstants.unitTypePosyandu:
+      return 'Posyandu';
+    case AppConstants.unitTypeCustom:
+      return 'Custom';
+    default:
+      return type.toUpperCase();
+  }
 }

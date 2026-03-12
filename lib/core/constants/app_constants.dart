@@ -1576,6 +1576,7 @@ class AppConstants {
   static const String unitTypeRw = 'rw';
   static const String unitTypeRt = 'rt';
   static const String unitTypeDkm = 'dkm';
+  static const String unitTypeKarangTaruna = 'karang_taruna';
   static const String unitTypePosyandu = 'posyandu';
   static const String unitTypeCustom = 'custom';
 

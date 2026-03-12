@@ -1,6 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:pocketbase/pocketbase.dart';
 
 import '../../../app/theme.dart';
+
+bool hasOrganizationWorkspaceBinding(RecordModel? authUser) {
+  if (authUser == null) {
+    return false;
+  }
+  final activeWorkspace = authUser.getStringValue('active_workspace').trim();
+  final activeWorkspaceMember = authUser
+      .getStringValue('active_workspace_member')
+      .trim();
+  return activeWorkspace.isNotEmpty || activeWorkspaceMember.isNotEmpty;
+}
+
+bool isOrganizationSetupMissingError(Object error) {
+  if (error is ClientException) {
+    final message = (error.response['message'] ?? '').toString().toLowerCase();
+    if (message.contains('workspace aktif belum tersedia')) {
+      return true;
+    }
+  }
+  return error.toString().toLowerCase().contains(
+    'workspace aktif belum tersedia',
+  );
+}
 
 class OrganizationScreenShell extends StatelessWidget {
   const OrganizationScreenShell({
@@ -90,11 +114,13 @@ class OrganizationEmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.message,
+    this.action,
   });
 
   final IconData icon;
   final String title;
   final String message;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -122,6 +148,7 @@ class OrganizationEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(message, textAlign: TextAlign.center, style: AppTheme.caption),
+          if (action != null) ...[const SizedBox(height: 12), action!],
         ],
       ),
     );

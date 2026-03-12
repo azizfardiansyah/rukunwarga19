@@ -262,6 +262,7 @@ async function main() {
       {
         workspace: workspace.id,
         user: seededUsers[user.key].id,
+        display_name: user.name,
         system_role: user.systemRole,
         plan_code: user.planCode,
         subscription_status: user.subscriptionStatus,

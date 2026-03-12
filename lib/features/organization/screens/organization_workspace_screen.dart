@@ -6,6 +6,8 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
+import '../../../core/utils/area_access.dart';
+import '../../../core/utils/error_classifier.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
@@ -29,8 +31,10 @@ class OrganizationManageScreen extends ConsumerWidget {
       actions: [
         IconButton(
           tooltip: 'Refresh',
-          onPressed: () =>
-              ref.read(organizationRefreshTickProvider.notifier).bump(),
+          onPressed: () async {
+            await ref.read(authProvider.notifier).refreshAuth();
+            ref.read(organizationRefreshTickProvider.notifier).bump();
+          },
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
@@ -57,7 +61,8 @@ class OrganizationManageScreen extends ConsumerWidget {
                     _NavTile(
                       icon: Icons.account_tree_outlined,
                       title: 'Kelola Unit',
-                      subtitle: 'Input RT, DKM, Posyandu, dan unit custom.',
+                      subtitle:
+                          'Input RT, DKM, Karang Taruna, Posyandu, dan unit custom.',
                       onTap: () => context.push(Routes.organizationUnits),
                     ),
                     const Divider(height: 1),
@@ -84,11 +89,23 @@ class OrganizationManageScreen extends ConsumerWidget {
         error: (error, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(AppTheme.paddingLarge),
-            child: Text(
-              'Gagal memuat organisasi.\n${error.toString()}',
-              textAlign: TextAlign.center,
-              style: AppTheme.bodySmall,
-            ),
+            child: isOrganizationSetupMissingError(error)
+                ? OrganizationEmptyState(
+                    icon: Icons.account_tree_outlined,
+                    title: 'Organisasi belum siap dikelola',
+                    message:
+                        'Organisasi RW belum dibuat. Tekan tombol di bawah untuk membuat workspace RW dan struktur awalnya.',
+                    action: FilledButton.icon(
+                      onPressed: () => _openBootstrapDialog(context, ref),
+                      icon: const Icon(Icons.add_home_work_outlined),
+                      label: const Text('Buat Organisasi RW'),
+                    ),
+                  )
+                : Text(
+                    'Gagal memuat organisasi.\n${error.toString()}',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.bodySmall,
+                  ),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -194,6 +211,11 @@ class _StatsGrid extends StatelessWidget {
         Icons.mosque_outlined,
       ),
       (
+        'Karang Taruna',
+        '${overview.unitsByType(AppConstants.unitTypeKarangTaruna).length}',
+        Icons.groups_2_outlined,
+      ),
+      (
         'Posyandu',
         '${overview.unitsByType(AppConstants.unitTypePosyandu).length}',
         Icons.favorite_border_rounded,
@@ -281,6 +303,295 @@ class _ScopeNote extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _openBootstrapDialog(BuildContext context, WidgetRef ref) async {
+  final defaults = await _resolveBootstrapDefaults(ref.read(authProvider));
+  if (!context.mounted) {
+    return;
+  }
+
+  final result = await showDialog<OrganizationBootstrapResult?>(
+    context: context,
+    builder: (_) => _OrganizationBootstrapDialog(defaults: defaults),
+  );
+
+  if (result == null || !context.mounted) {
+    return;
+  }
+
+  ref.read(organizationRefreshTickProvider.notifier).bump();
+
+  if (!context.mounted) {
+    return;
+  }
+  ErrorClassifier.showSuccessSnackBar(
+    context,
+    result.created
+        ? 'Organisasi RW berhasil dibuat.'
+        : 'Binding organisasi berhasil dipulihkan.',
+  );
+}
+
+class _OrganizationBootstrapDefaults {
+  const _OrganizationBootstrapDefaults({
+    required this.workspaceName,
+    required this.rwText,
+    required this.desaKelurahan,
+    required this.kecamatan,
+    required this.kabupatenKota,
+    required this.provinsi,
+  });
+
+  final String workspaceName;
+  final String rwText;
+  final String desaKelurahan;
+  final String kecamatan;
+  final String kabupatenKota;
+  final String provinsi;
+}
+
+class _OrganizationBootstrapDialog extends ConsumerStatefulWidget {
+  const _OrganizationBootstrapDialog({required this.defaults});
+
+  final _OrganizationBootstrapDefaults defaults;
+
+  @override
+  ConsumerState<_OrganizationBootstrapDialog> createState() =>
+      _OrganizationBootstrapDialogState();
+}
+
+class _OrganizationBootstrapDialogState
+    extends ConsumerState<_OrganizationBootstrapDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _rwCtrl;
+  late final TextEditingController _desaCtrl;
+  late final TextEditingController _kecamatanCtrl;
+  late final TextEditingController _kabupatenCtrl;
+  late final TextEditingController _provinsiCtrl;
+
+  bool _isSubmitting = false;
+  bool _isNameCustomized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.defaults.workspaceName);
+    _rwCtrl = TextEditingController(text: widget.defaults.rwText);
+    _desaCtrl = TextEditingController(text: widget.defaults.desaKelurahan);
+    _kecamatanCtrl = TextEditingController(text: widget.defaults.kecamatan);
+    _kabupatenCtrl = TextEditingController(text: widget.defaults.kabupatenKota);
+    _provinsiCtrl = TextEditingController(text: widget.defaults.provinsi);
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _rwCtrl.dispose();
+    _desaCtrl.dispose();
+    _kecamatanCtrl.dispose();
+    _kabupatenCtrl.dispose();
+    _provinsiCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final workspaceName = _nameCtrl.text.trim();
+    final rw = int.tryParse(_rwCtrl.text.trim()) ?? 0;
+
+    if (workspaceName.isEmpty || rw <= 0) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        const FormatException('Nama organisasi dan nomor RW wajib diisi.'),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      final bootstrap = await ref
+          .read(organizationServiceProvider)
+          .bootstrapOrganization(
+            workspaceName: workspaceName,
+            rw: rw,
+            desaKelurahan: _desaCtrl.text,
+            kecamatan: _kecamatanCtrl.text,
+            kabupatenKota: _kabupatenCtrl.text,
+            provinsi: _provinsiCtrl.text,
+          );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(bootstrap);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSubmitting = false);
+      ErrorClassifier.showErrorSnackBar(context, error);
+    }
+  }
+
+  void _handleNameChanged() {
+    _isNameCustomized =
+        _nameCtrl.text.trim() != _defaultBootstrapWorkspaceName(_rwCtrl.text);
+  }
+
+  void _handleRwChanged(String value) {
+    if (_isNameCustomized) {
+      return;
+    }
+    final nextName = _defaultBootstrapWorkspaceName(value);
+    _nameCtrl.value = _nameCtrl.value.copyWith(
+      text: nextName,
+      selection: TextSelection.collapsed(offset: nextName.length),
+      composing: TextRange.empty,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Buat Organisasi RW'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _nameCtrl,
+              onChanged: (_) => _handleNameChanged(),
+              decoration: const InputDecoration(
+                labelText: 'Nama organisasi',
+                hintText: 'Contoh: Jajaran Pengurus RW 19',
+              ),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _rwCtrl,
+              onChanged: _handleRwChanged,
+              decoration: const InputDecoration(
+                labelText: 'Nomor RW',
+                hintText: 'Contoh: 19',
+              ),
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _desaCtrl,
+              decoration: const InputDecoration(labelText: 'Kelurahan / Desa'),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _kecamatanCtrl,
+              decoration: const InputDecoration(labelText: 'Kecamatan'),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _kabupatenCtrl,
+              decoration: const InputDecoration(labelText: 'Kota / Kabupaten'),
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _provinsiCtrl,
+              decoration: const InputDecoration(labelText: 'Provinsi'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Batal'),
+        ),
+        FilledButton(
+          onPressed: _isSubmitting ? null : _submit,
+          child: _isSubmitting
+              ? const SizedBox(
+                  height: 16,
+                  width: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Buat'),
+        ),
+      ],
+    );
+  }
+}
+
+Future<_OrganizationBootstrapDefaults> _resolveBootstrapDefaults(
+  AuthState auth,
+) async {
+  if (auth.user == null) {
+    return _OrganizationBootstrapDefaults(
+      workspaceName: _defaultBootstrapWorkspaceName(''),
+      rwText: '',
+      desaKelurahan: '',
+      kecamatan: '',
+      kabupatenKota: '',
+      provinsi: '',
+    );
+  }
+
+  final area = await resolveAreaAccessContext(auth);
+  final rwValue = _firstPositiveInt([
+    area.rw,
+    recordNumericField(auth.user!, 'scope_rw'),
+    recordNumericField(auth.user!, 'rw'),
+  ]);
+  final rwText = rwValue == null ? '' : '$rwValue';
+
+  return _OrganizationBootstrapDefaults(
+    workspaceName: _defaultBootstrapWorkspaceName(rwText),
+    rwText: rwText,
+    desaKelurahan: _firstNonEmptyText([
+      area.desaKelurahan,
+      recordTextField(auth.user!, 'desa_kelurahan'),
+    ]),
+    kecamatan: _firstNonEmptyText([
+      area.kecamatan,
+      recordTextField(auth.user!, 'kecamatan'),
+    ]),
+    kabupatenKota: _firstNonEmptyText([
+      area.kabupatenKota,
+      recordTextField(auth.user!, 'kabupaten_kota'),
+    ]),
+    provinsi: _firstNonEmptyText([
+      area.provinsi,
+      recordTextField(auth.user!, 'provinsi'),
+    ]),
+  );
+}
+
+int? _firstPositiveInt(List<int?> values) {
+  for (final value in values) {
+    if (value != null && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+String _firstNonEmptyText(List<String?> values) {
+  for (final value in values) {
+    final normalized = (value ?? '').trim();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+  }
+  return '';
+}
+
+String _defaultBootstrapWorkspaceName(String rwText) {
+  final normalizedRw = rwText.trim();
+  if (normalizedRw.isEmpty) {
+    return 'Jajaran Pengurus RW';
+  }
+  return 'Jajaran Pengurus RW $normalizedRw';
 }
 
 class _ScopeLine extends StatelessWidget {

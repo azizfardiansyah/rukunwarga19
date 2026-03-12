@@ -320,14 +320,14 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         children: [
           Expanded(
             child: _SectionPill(
-              label: 'Inbox${(data?.inbox.length ?? 0) > 0 ? ' ${data?.inbox.length ?? 0}' : ''}',
+              label: 'Inbox',
               selected: _section == _ChatSection.inbox,
               onTap: () => setState(() => _section = _ChatSection.inbox),
             ),
           ),
           Expanded(
             child: _SectionPill(
-              label: 'Grup${(data?.groups.length ?? 0) > 0 ? ' ${data?.groups.length ?? 0}' : ''}',
+              label: 'Grup',
               selected: _section == _ChatSection.groups,
               onTap: () => setState(() => _section = _ChatSection.groups),
             ),
@@ -552,13 +552,15 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               ),
                             ),
                             const SizedBox(height: 8),
+                            final metaLabel = _conversationMetaLabel(
+                              conversation,
+                            );
                             Wrap(
                               spacing: 6,
                               runSpacing: 6,
                               children: [
-                                _ConversationMetaChip(
-                                  label: _conversationMetaLabel(conversation),
-                                ),
+                                if (metaLabel.isNotEmpty)
+                                  _ConversationMetaChip(label: metaLabel),
                                 if (conversation.isMuted)
                                   const _ConversationMetaChip(
                                     icon: Icons.notifications_off_rounded,
@@ -781,11 +783,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
 
   String _conversationMetaLabel(ConversationModel conversation) {
     final badgeLabel = (conversation.badgeLabel ?? '').trim();
-    if (badgeLabel.isNotEmpty) {
+    if (badgeLabel.isNotEmpty &&
+        badgeLabel.toLowerCase() !=
+            AppConstants.roleLabel(AppConstants.roleWarga).toLowerCase()) {
       return badgeLabel;
     }
     if (conversation.isPrivate) {
-      return conversation.subtitle;
+      return '';
     }
     if (conversation.isGroupRt) {
       return 'Grup RT ${conversation.rt.toString().padLeft(2, '0')}';

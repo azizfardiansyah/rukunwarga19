@@ -220,13 +220,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
     ];
 
-    // ── Group 3: Lainnya ──
-    final lainnyaItems = <_MenuEntry>[
+    // ── Group 3: Info Lingkungan ──
+    final lingkunganItems = <_MenuEntry>[
       if (canOpenOrganization)
         _MenuEntry(
           icon: Icons.account_tree_rounded,
           label: 'Organisasi',
-          subtitle: 'Pengurus RW, RT, DKM, dan Posyandu',
+          subtitle: 'Pengurus RW, RT, DKM, Karang Taruna, dan Posyandu',
           tone: AppTheme.toneCharcoal,
           onTap: () => context.push(Routes.organization),
         ),
@@ -237,6 +237,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         tone: AppTheme.tonePink,
         onTap: () => context.push(Routes.announcements),
       ),
+    ];
+
+    // ── Group 4: Lainnya ──
+    final lainnyaItems = <_MenuEntry>[
       if (!isWarga)
         _MenuEntry(
           icon: Icons.insights_rounded,
@@ -247,26 +251,77 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ),
     ];
 
-    return [
-      if (dataItems.isNotEmpty)
-        _MenuGroup(
-          title: 'Data Penduduk',
-          icon: Icons.folder_shared_outlined,
-          items: dataItems,
-        ),
-      if (layananItems.isNotEmpty)
-        _MenuGroup(
-          title: 'Layanan',
-          icon: Icons.handshake_outlined,
-          items: layananItems,
-        ),
-      if (lainnyaItems.isNotEmpty)
+    final groups = <_MenuGroup>[];
+
+    if (isWarga) {
+      if (lingkunganItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Info Lingkungan',
+            icon: Icons.apartment_outlined,
+            items: lingkunganItems,
+          ),
+        );
+      }
+      if (layananItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Layanan',
+            icon: Icons.handshake_outlined,
+            items: layananItems,
+          ),
+        );
+      }
+      if (dataItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Data Penduduk',
+            icon: Icons.folder_shared_outlined,
+            items: dataItems,
+          ),
+        );
+      }
+    } else {
+      if (dataItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Data Penduduk',
+            icon: Icons.folder_shared_outlined,
+            items: dataItems,
+          ),
+        );
+      }
+      if (layananItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Layanan',
+            icon: Icons.handshake_outlined,
+            items: layananItems,
+          ),
+        );
+      }
+      if (lingkunganItems.isNotEmpty) {
+        groups.add(
+          _MenuGroup(
+            title: 'Info Lingkungan',
+            icon: Icons.apartment_outlined,
+            items: lingkunganItems,
+          ),
+        );
+      }
+    }
+
+    if (lainnyaItems.isNotEmpty) {
+      groups.add(
         _MenuGroup(
           title: 'Lainnya',
           icon: Icons.more_horiz_rounded,
           items: lainnyaItems,
         ),
-    ];
+      );
+    }
+
+    return groups;
   }
 
   @override

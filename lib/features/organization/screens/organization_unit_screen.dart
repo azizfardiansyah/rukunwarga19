@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
@@ -38,8 +40,10 @@ class _OrganizationUnitScreenState
       actions: [
         IconButton(
           tooltip: 'Refresh',
-          onPressed: () =>
-              ref.read(organizationRefreshTickProvider.notifier).bump(),
+          onPressed: () async {
+            await ref.read(authProvider.notifier).refreshAuth();
+            ref.read(organizationRefreshTickProvider.notifier).bump();
+          },
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
@@ -79,6 +83,7 @@ class _OrganizationUnitScreenState
                       AppConstants.unitTypeRw,
                       AppConstants.unitTypeRt,
                       AppConstants.unitTypeDkm,
+                      AppConstants.unitTypeKarangTaruna,
                       AppConstants.unitTypePosyandu,
                       AppConstants.unitTypeCustom,
                     ])
@@ -174,9 +179,7 @@ class _OrganizationUnitScreenState
                                   color: AppTheme.statusColor(unit.status),
                                 ),
                                 OrganizationBadge(
-                                  label: unit.isOfficial
-                                      ? 'RESMI'
-                                      : 'TAMBAHAN',
+                                  label: unit.isOfficial ? 'RESMI' : 'TAMBAHAN',
                                   color: unit.isOfficial
                                       ? AppTheme.primaryDark
                                       : AppTheme.accentColor,
@@ -188,7 +191,10 @@ class _OrganizationUnitScreenState
                               label: 'Induk',
                               value: parentNames[unit.parentUnitId] ?? '-',
                             ),
-                            _InfoLine(label: 'Wilayah', value: _scopeLabel(unit)),
+                            _InfoLine(
+                              label: 'Wilayah',
+                              value: _scopeLabel(unit),
+                            ),
                           ],
                         ),
                       ),
@@ -199,10 +205,25 @@ class _OrganizationUnitScreenState
           );
         },
         error: (error, _) => Center(
-          child: Text(
-            'Gagal memuat unit.\n${error.toString()}',
-            textAlign: TextAlign.center,
-            style: AppTheme.bodySmall,
+          child: Padding(
+            padding: const EdgeInsets.all(AppTheme.paddingLarge),
+            child: isOrganizationSetupMissingError(error)
+                ? OrganizationEmptyState(
+                    icon: Icons.account_tree_outlined,
+                    title: 'Unit organisasi belum bisa diinput',
+                    message:
+                        'Organisasi RW belum dibuat. Buka Kelola Organisasi untuk membuat workspace RW lebih dulu.',
+                    action: FilledButton.icon(
+                      onPressed: () => context.go(Routes.organizationManage),
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('Kelola Organisasi'),
+                    ),
+                  )
+                : Text(
+                    'Gagal memuat unit.\n${error.toString()}',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.bodySmall,
+                  ),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -301,6 +322,10 @@ class _OrganizationUnitScreenState
                             child: Text('DKM'),
                           ),
                           DropdownMenuItem(
+                            value: AppConstants.unitTypeKarangTaruna,
+                            child: Text('Karang Taruna'),
+                          ),
+                          DropdownMenuItem(
                             value: AppConstants.unitTypePosyandu,
                             child: Text('Posyandu'),
                           ),
@@ -329,7 +354,8 @@ class _OrganizationUnitScreenState
                       TextFormField(
                         controller: codeCtrl,
                         decoration: const InputDecoration(
-                          labelText: 'Kode unit',
+                          labelText: 'Kode unit (opsional)',
+                          hintText: 'Kosongkan untuk generate otomatis',
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -433,9 +459,12 @@ class _OrganizationUnitScreenState
             unitId: existing?.id,
             type: type,
             name: nameCtrl.text.trim(),
-            code: codeCtrl.text.trim().isEmpty
-                ? _slugify(nameCtrl.text.trim())
-                : codeCtrl.text.trim(),
+            code: _resolveUnitCodeInput(
+              rawCode: codeCtrl.text,
+              name: nameCtrl.text,
+              type: type,
+              existingCode: existing?.code,
+            ),
             parentUnitId: parentUnitId,
             scopeRt: scopeRt,
             scopeRw: scopeRw,
@@ -511,6 +540,8 @@ String _unitTypeLabel(String type) {
       return 'RT';
     case AppConstants.unitTypeDkm:
       return 'DKM';
+    case AppConstants.unitTypeKarangTaruna:
+      return 'Karang Taruna';
     case AppConstants.unitTypePosyandu:
       return 'Posyandu';
     case AppConstants.unitTypeCustom:
@@ -525,4 +556,25 @@ String _slugify(String value) {
   final lower = value.trim().toLowerCase();
   final sanitized = lower.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
   return sanitized.replaceAll(RegExp(r'^_+|_+$'), '');
+}
+
+String _resolveUnitCodeInput({
+  required String rawCode,
+  required String name,
+  required String type,
+  String? existingCode,
+}) {
+  final normalizedCode = rawCode.trim();
+  if (normalizedCode.isNotEmpty) {
+    return normalizedCode;
+  }
+  final preservedCode = (existingCode ?? '').trim();
+  if (preservedCode.isNotEmpty) {
+    return preservedCode;
+  }
+  final slug = _slugify(name);
+  if (slug.isEmpty) {
+    return type.trim().toLowerCase();
+  }
+  return '${type.trim().toLowerCase()}_$slug';
 }

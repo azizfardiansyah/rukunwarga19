@@ -64,6 +64,7 @@ class WorkspaceMemberModel {
     required this.record,
     required this.workspaceId,
     required this.userId,
+    required this.displayName,
     required this.systemRole,
     required this.planCode,
     required this.subscriptionStatus,
@@ -81,6 +82,7 @@ class WorkspaceMemberModel {
   final RecordModel record;
   final String workspaceId;
   final String userId;
+  final String displayName;
   final String systemRole;
   final String planCode;
   final String subscriptionStatus;
@@ -101,6 +103,7 @@ class WorkspaceMemberModel {
       record: record,
       workspaceId: record.getStringValue('workspace'),
       userId: record.getStringValue('user'),
+      displayName: record.getStringValue('display_name').trim(),
       systemRole: AppConstants.effectiveSystemRole(
         role: legacyRole,
         systemRole: record.getStringValue('system_role'),

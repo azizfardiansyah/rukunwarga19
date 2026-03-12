@@ -8,6 +8,7 @@ import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../shared/models/workspace_access_model.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
 
@@ -16,59 +17,91 @@ class OrganizationStructureScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final overviewAsync = ref.watch(organizationOverviewProvider);
+    final auth = ref.watch(authProvider);
+    final overviewAsync = ref.watch(organizationStructureOverviewProvider);
     return OrganizationScreenShell(
       title: 'Organisasi',
       actions: [
         IconButton(
           tooltip: 'Refresh',
-          onPressed: () =>
-              ref.read(organizationRefreshTickProvider.notifier).bump(),
+          onPressed: () async {
+            await ref.read(authProvider.notifier).refreshAuth();
+            ref.read(organizationRefreshTickProvider.notifier).bump();
+          },
           icon: const Icon(Icons.refresh_rounded),
         ),
       ],
       child: overviewAsync.when(
-        data: (overview) => RefreshIndicator(
-          onRefresh: () async {
-            ref.read(organizationRefreshTickProvider.notifier).bump();
-            await ref.read(organizationOverviewProvider.future);
-          },
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
-            children: [
-              _StructureHero(
-                overview: overview,
-                canManage: _canManageOrganization(overview),
+        data: (overview) {
+          if (overview == null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppTheme.paddingLarge),
+                child: _buildUnavailableState(context, auth),
               ),
-              if (_canManageOrganization(overview)) ...[
-                const SizedBox(height: 10),
-                OrganizationSectionCard(
-                  title: 'Kelola Organisasi',
-                  subtitle:
-                      'Buka sub-menu untuk input unit organisasi dan susunan pengurus.',
-                  child: _ManageOrganizationTile(
-                    onTap: () => context.push(Routes.organizationManage),
-                  ),
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.read(organizationRefreshTickProvider.notifier).bump();
+              await ref.read(organizationStructureOverviewProvider.future);
+            },
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+              children: [
+                _StructureHero(
+                  overview: overview,
+                  canManage: _canManageOrganization(overview),
                 ),
+                if (_canManageOrganization(overview)) ...[
+                  const SizedBox(height: 10),
+                  OrganizationSectionCard(
+                    title: 'Kelola Organisasi',
+                    subtitle:
+                        'Buka sub-menu untuk input unit organisasi dan susunan pengurus.',
+                    child: _ManageOrganizationTile(
+                      onTap: () => context.push(Routes.organizationManage),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                ..._buildSections(overview),
               ],
-              const SizedBox(height: 10),
-              ..._buildSections(overview),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
         error: (error, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(AppTheme.paddingLarge),
-            child: OrganizationEmptyState(
-              icon: Icons.account_tree_outlined,
-              title: 'Struktur organisasi belum tersedia',
-              message: _errorMessage(error),
-            ),
+            child: isOrganizationSetupMissingError(error)
+                ? _buildUnavailableState(context, auth)
+                : OrganizationEmptyState(
+                    icon: Icons.account_tree_outlined,
+                    title: 'Struktur organisasi belum tersedia',
+                    message: _errorMessage(error),
+                  ),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
       ),
+    );
+  }
+
+  Widget _buildUnavailableState(BuildContext context, AuthState auth) {
+    return OrganizationEmptyState(
+      icon: Icons.account_tree_outlined,
+      title: 'Struktur organisasi belum dibuat',
+      message: auth.hasRwWideAccess || auth.isSysadmin
+          ? 'Organisasi RW belum dibuat. Buka Kelola Organisasi untuk membuat workspace RW, unit RW, dan susunan pengurus awal.'
+          : 'Struktur kepengurusan RW belum tersedia saat ini.',
+      action: auth.hasRwWideAccess || auth.isSysadmin
+          ? FilledButton.icon(
+              onPressed: () => context.push(Routes.organizationManage),
+              icon: const Icon(Icons.settings_outlined),
+              label: const Text('Kelola Organisasi'),
+            )
+          : null,
     );
   }
 
@@ -98,6 +131,16 @@ class OrganizationStructureScreen extends ConsumerWidget {
         units: _sortUnits(overview.unitsByType(AppConstants.unitTypeDkm)),
       ),
       _UnitSectionData(
+        title: 'Pengurus Karang Taruna',
+        subtitle: 'Struktur ketua dan pengurus Karang Taruna per unit.',
+        emptyTitle: 'Belum ada unit Karang Taruna',
+        emptyMessage:
+            'Pengurus Karang Taruna akan tampil setelah unit dan jabatannya dibuat.',
+        units: _sortUnits(
+          overview.unitsByType(AppConstants.unitTypeKarangTaruna),
+        ),
+      ),
+      _UnitSectionData(
         title: 'Pengurus Posyandu',
         subtitle: 'Struktur ketua dan pengurus Posyandu per unit.',
         emptyTitle: 'Belum ada unit Posyandu',
@@ -108,7 +151,7 @@ class OrganizationStructureScreen extends ConsumerWidget {
       _UnitSectionData(
         title: 'Unit Lainnya',
         subtitle:
-            'Unit tambahan di luar struktur resmi RW, RT, DKM, dan Posyandu.',
+            'Unit tambahan di luar struktur resmi RW, RT, DKM, Karang Taruna, dan Posyandu.',
         emptyTitle: 'Tidak ada unit tambahan',
         emptyMessage: 'Jika ada unit custom, strukturnya akan tampil di sini.',
         units: _sortUnits(overview.unitsByType(AppConstants.unitTypeCustom)),
@@ -273,6 +316,11 @@ class _StructureHero extends StatelessWidget {
                   label: 'DKM',
                   value:
                       '${overview.unitsByType(AppConstants.unitTypeDkm).length}',
+                ),
+                _HeroStatChip(
+                  label: 'Karang Taruna',
+                  value:
+                      '${overview.unitsByType(AppConstants.unitTypeKarangTaruna).length}',
                 ),
                 _HeroStatChip(
                   label: 'Posyandu',
@@ -510,6 +558,7 @@ class _MembershipTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final displayName = actor?.displayName ?? 'Pengurus belum dikenali';
     final jabatanLabel = membership.jabatan?.label ?? 'Jabatan belum diisi';
+    final avatarUrl = actor?.avatarUrl;
     final metadata = [
       if ((membership.periodLabel ?? '').trim().isNotEmpty)
         membership.periodLabel!,
@@ -522,13 +571,16 @@ class _MembershipTile extends StatelessWidget {
         CircleAvatar(
           radius: 18,
           backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
-          child: Text(
-            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-            style: AppTheme.caption.copyWith(
-              color: AppTheme.primaryColor,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          backgroundImage: avatarUrl == null ? null : NetworkImage(avatarUrl),
+          child: avatarUrl == null
+              ? Text(
+                  _initials(displayName),
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.primaryColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              : null,
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -641,16 +693,21 @@ List<OrgMembershipModel> _membershipsForUnit(
       return statusCompare;
     }
 
+    final jabatanCompare = _jabatanWeight(a).compareTo(_jabatanWeight(b));
+    if (jabatanCompare != 0) {
+      return jabatanCompare;
+    }
+
     final primaryCompare = (a.isPrimary ? 0 : 1).compareTo(b.isPrimary ? 0 : 1);
     if (primaryCompare != 0) {
       return primaryCompare;
     }
 
-    final jabatanCompare = (a.jabatan?.sortOrder ?? 9999).compareTo(
-      b.jabatan?.sortOrder ?? 9999,
-    );
-    if (jabatanCompare != 0) {
-      return jabatanCompare;
+    final periodCompare = _dateSortValue(
+      a.startedAt,
+    ).compareTo(_dateSortValue(b.startedAt));
+    if (periodCompare != 0) {
+      return periodCompare;
     }
 
     final actorA =
@@ -673,6 +730,31 @@ List<OrgMembershipModel> _membershipsForUnit(
 
 int _statusWeight(String status) =>
     status.trim().toLowerCase() == 'active' ? 0 : 1;
+
+int _jabatanWeight(OrgMembershipModel membership) {
+  final explicit = membership.jabatan?.sortOrder;
+  if (explicit != null && explicit > 0) {
+    return explicit;
+  }
+
+  final label = (membership.jabatan?.label ?? '').trim().toLowerCase();
+  if (label.startsWith('ketua')) return 10;
+  if (label.startsWith('wakil')) return 20;
+  if (label.startsWith('sekretaris')) return 30;
+  if (label.startsWith('bendahara')) return 40;
+  if (label.contains('admin')) return 50;
+  if (label.contains('kader')) return 60;
+  if (label.contains('pengurus')) return 70;
+  return 9999;
+}
+
+int _dateSortValue(DateTime? value) {
+  if (value == null) {
+    return 99999999;
+  }
+  final local = value.toLocal();
+  return (local.year * 10000) + (local.month * 100) + local.day;
+}
 
 String _unitSubtitle(OrgUnitModel unit) {
   final parts = <String>[
@@ -711,6 +793,23 @@ String _formatDate(DateTime? value) {
   return '$day/$month/${local.year}';
 }
 
+String _initials(String value) {
+  final parts = value
+      .split(RegExp(r'\s+'))
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+
+  if (parts.isEmpty) {
+    return '?';
+  }
+  if (parts.length == 1) {
+    return parts.first.substring(0, 1).toUpperCase();
+  }
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
+      .toUpperCase();
+}
+
 String _unitTypeLabel(String type) {
   switch (type.trim().toLowerCase()) {
     case AppConstants.unitTypeRw:
@@ -719,6 +818,8 @@ String _unitTypeLabel(String type) {
       return 'RT';
     case AppConstants.unitTypeDkm:
       return 'DKM';
+    case AppConstants.unitTypeKarangTaruna:
+      return 'Karang Taruna';
     case AppConstants.unitTypePosyandu:
       return 'Posyandu';
     case AppConstants.unitTypeCustom:

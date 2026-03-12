@@ -19,3 +19,9 @@ final organizationOverviewProvider =
       ref.watch(organizationRefreshTickProvider);
       return ref.watch(organizationServiceProvider).fetchOverview();
     });
+
+final organizationStructureOverviewProvider =
+    FutureProvider.autoDispose<OrganizationOverviewData?>((ref) async {
+      ref.watch(organizationRefreshTickProvider);
+      return ref.watch(organizationServiceProvider).fetchReadableOverview();
+    });

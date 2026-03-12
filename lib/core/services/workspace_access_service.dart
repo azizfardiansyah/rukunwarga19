@@ -164,7 +164,13 @@ class WorkspaceAccessService {
         final record = await pb
             .collection(AppConstants.colWorkspaceMembers)
             .getOne(activeMemberId);
-        return WorkspaceMemberModel.fromRecord(record);
+        final member = WorkspaceMemberModel.fromRecord(record);
+        await _saveLocalOrganizationBinding(
+          authUser: authUser,
+          workspaceId: member.workspaceId,
+          workspaceMemberId: member.id,
+        );
+        return member;
       } catch (_) {}
     }
 
@@ -181,10 +187,53 @@ class WorkspaceAccessService {
       if (result.items.isEmpty) {
         return null;
       }
-      return WorkspaceMemberModel.fromRecord(result.items.first);
+      final member = WorkspaceMemberModel.fromRecord(result.items.first);
+      await _saveLocalOrganizationBinding(
+        authUser: authUser,
+        workspaceId: member.workspaceId,
+        workspaceMemberId: member.id,
+      );
+      return member;
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _saveLocalOrganizationBinding({
+    required RecordModel authUser,
+    required String workspaceId,
+    required String workspaceMemberId,
+  }) async {
+    final currentToken = pb.authStore.token;
+    if (currentToken.isEmpty) {
+      return;
+    }
+
+    final currentWorkspace = authUser.getStringValue('active_workspace').trim();
+    final currentMember = authUser
+        .getStringValue('active_workspace_member')
+        .trim();
+    if (currentWorkspace == workspaceId && currentMember == workspaceMemberId) {
+      return;
+    }
+
+    final data = Map<String, dynamic>.from(authUser.toJson())
+      ..['active_workspace'] = workspaceId
+      ..['active_workspace_member'] = workspaceMemberId;
+    pb.authStore.save(currentToken, RecordModel.fromJson(data));
+
+    try {
+      final updated = await pb
+          .collection(AppConstants.colUsers)
+          .update(
+            authUser.id,
+            body: {
+              'active_workspace': workspaceId,
+              'active_workspace_member': workspaceMemberId,
+            },
+          );
+      pb.authStore.save(currentToken, updated);
+    } catch (_) {}
   }
 }
 
