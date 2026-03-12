@@ -15,9 +15,38 @@ class ChatService {
   ChatService(this._ref);
 
   final Ref _ref;
-  static const String _chatProfilesPath = '/api/rukunwarga/chat/profiles';
+  static const String _chatProfilesPath = '/api/rukunwarga/chat-users';
+  static final Map<String, _CachedChatMessages> _messagesCache = {};
+  static final Map<String, Future<ChatMessagesData>> _inflightMessageRequests =
+      {};
+  static const Duration _defaultMessagesCacheAge = Duration(minutes: 30);
 
   AuthState get _auth => _ref.read(authProvider);
+
+  ChatMessagesData? getCachedMessages(
+    String conversationId, {
+    Duration maxAge = _defaultMessagesCacheAge,
+  }) {
+    final cached = _messagesCache[conversationId];
+    if (cached == null) {
+      return null;
+    }
+    if (DateTime.now().toUtc().difference(cached.cachedAt) > maxAge) {
+      _messagesCache.remove(conversationId);
+      return null;
+    }
+    return cached.data;
+  }
+
+  void cacheMessagesData(ChatMessagesData data) {
+    if (data.conversation.id.trim().isEmpty) {
+      return;
+    }
+    _messagesCache[data.conversation.id] = _CachedChatMessages(
+      data: data,
+      cachedAt: DateTime.now().toUtc(),
+    );
+  }
 
   Future<ChatBootstrapData> bootstrap() async {
     final auth = _auth;
@@ -172,6 +201,27 @@ class ChatService {
   }
 
   Future<ChatMessagesData> getMessages(String conversationId) async {
+    final inFlight = _inflightMessageRequests[conversationId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final request = _fetchMessagesFromServer(conversationId);
+    _inflightMessageRequests[conversationId] = request;
+    try {
+      final data = await request;
+      cacheMessagesData(data);
+      return data;
+    } finally {
+      if (identical(_inflightMessageRequests[conversationId], request)) {
+        _inflightMessageRequests.remove(conversationId);
+      }
+    }
+  }
+
+  Future<ChatMessagesData> _fetchMessagesFromServer(
+    String conversationId,
+  ) async {
     final auth = _auth;
     final authUser = auth.user;
     if (authUser == null) {
@@ -186,21 +236,35 @@ class ChatService {
         .collection(AppConstants.colConversations)
         .getOne(conversationId);
 
-    if (!await _canAccessConversation(
+    final existingMemberships = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    final canAccessConversation = await _canAccessConversation(
       auth: auth,
       context: area,
       conversation: conversation,
-    )) {
+    );
+    if (!canAccessConversation && existingMemberships.isEmpty) {
       throw ClientException(
         statusCode: 403,
         response: const {'message': 'Akses percakapan ditolak.'},
       );
     }
 
-    final membership = await _ensureMembership(
-      conversationId: conversationId,
-      userId: authUser.id,
-    );
+    final membership = existingMemberships.isNotEmpty
+        ? existingMemberships.first
+        : await _ensureMembership(
+            conversationId: conversationId,
+            userId: authUser.id,
+          );
+    var participantMemberships = <RecordModel>[membership];
+    try {
+      participantMemberships = await _loadConversationMemberships(
+        conversationId: conversationId,
+        fallbackUserId: authUser.id,
+      );
+    } catch (_) {}
     final records = await pb
         .collection(AppConstants.colMessages)
         .getFullList(
@@ -222,6 +286,7 @@ class ChatService {
     final senderIds = <String>{
       ...records.map((record) => _recordText(record, 'sender')),
       ...relatedRecords.values.map((record) => _recordText(record, 'sender')),
+      ...participantMemberships.map((record) => _recordText(record, 'user')),
       _recordText(conversation, 'owner'),
     };
     final senderProfiles = await _loadChatUserProfiles(senderIds);
@@ -235,12 +300,53 @@ class ChatService {
       records,
       currentUserId: authUser.id,
     );
+    Map<String, List<MessageReactionModel>> reactionMap = const {};
+    try {
+      reactionMap = await _loadMessageReactions(
+        messageIds: records.map((record) => record.id).toSet(),
+        currentUserId: authUser.id,
+      );
+    } catch (_) {}
 
-    final updatedMembership = await _markConversationReadByMember(
-      membership.id,
+    var updatedMembership = membership;
+    if (_needsReadMarkerUpdate(
+      membership: membership,
+      messages: records,
+      currentUserId: authUser.id,
+    )) {
+      try {
+        updatedMembership = await _markConversationReadByMember(membership.id);
+      } catch (_) {}
+    }
+    var refreshedMemberships = participantMemberships;
+    try {
+      refreshedMemberships = await _loadConversationMemberships(
+        conversationId: conversationId,
+        fallbackUserId: authUser.id,
+      );
+    } catch (_) {}
+    try {
+      await _syncMessageReadReceipts(
+        messages: records,
+        memberships: refreshedMemberships,
+        currentUserId: authUser.id,
+      );
+    } catch (_) {}
+    Map<String, _MessageReceiptSummary> receiptSummaries = const {};
+    try {
+      receiptSummaries = await _loadMessageReceiptSummaries(
+        messages: records,
+        memberships: refreshedMemberships,
+        currentUserId: authUser.id,
+      );
+    } catch (_) {}
+    final participants = _buildConversationParticipants(
+      memberships: refreshedMemberships,
+      profiles: hydratedSenderProfiles,
+      currentUserId: authUser.id,
     );
 
-    return ChatMessagesData(
+    final result = ChatMessagesData(
       conversation: _conversationFromRecord(
         conversation,
         currentUserId: authUser.id,
@@ -255,11 +361,16 @@ class ChatService {
               currentUserId: authUser.id,
               senderProfiles: hydratedSenderProfiles,
               relatedRecords: relatedRecords,
+              receiptSummaries: receiptSummaries,
+              reactionModelsByMessage: reactionMap,
               pollsById: pollsById,
             ),
           )
           .toList(growable: false),
+      participants: participants,
     );
+    cacheMessagesData(result);
+    return result;
   }
 
   Future<MessageModel> sendMessage({
@@ -332,6 +443,11 @@ class ChatService {
     final record = await pb
         .collection(AppConstants.colMessages)
         .create(body: body, files: files);
+    await _markMessageDeliveredToRecipients(
+      conversationId: conversationId,
+      messageId: record.id,
+      senderId: authUser.id,
+    );
 
     final preview = _previewForMessage(
       text: trimmedText,
@@ -365,6 +481,8 @@ class ChatService {
       currentUserId: authUser.id,
       senderProfiles: senderProfiles,
       relatedRecords: relatedRecords,
+      receiptSummaries: const {},
+      reactionModelsByMessage: const {},
       pollsById: const {},
     );
   }
@@ -431,6 +549,11 @@ class ChatService {
           },
           files: [await _multipartFromPlatformFile('attachment', audioFile)],
         );
+    await _markMessageDeliveredToRecipients(
+      conversationId: conversationId,
+      messageId: record.id,
+      senderId: authUser.id,
+    );
 
     await pb
         .collection(AppConstants.colConversations)
@@ -449,6 +572,8 @@ class ChatService {
       currentUserId: authUser.id,
       senderProfiles: senderProfiles,
       relatedRecords: const {},
+      receiptSummaries: const {},
+      reactionModelsByMessage: const {},
       pollsById: const {},
     );
   }
@@ -616,6 +741,11 @@ class ChatService {
             'is_pinned': false,
           },
         );
+    await _markMessageDeliveredToRecipients(
+      conversationId: conversationId,
+      messageId: messageRecord.id,
+      senderId: authUser.id,
+    );
     final pollRecord = await pb
         .collection(AppConstants.colChatPolls)
         .create(
@@ -667,6 +797,8 @@ class ChatService {
       currentUserId: authUser.id,
       senderProfiles: senderProfiles,
       relatedRecords: const {},
+      receiptSummaries: const {},
+      reactionModelsByMessage: const {},
       pollsById: {
         pollRecord.id: await _loadPoll(
           pollRecord.id,
@@ -744,11 +876,23 @@ class ChatService {
     );
     if (memberships.isEmpty) {
       await _markConversationReadByMember(membership.id);
+      final messages = await _loadConversationMessageRecords(conversationId);
+      await _syncMessageReadReceipts(
+        messages: messages,
+        memberships: [membership],
+        currentUserId: authUser.id,
+      );
       return;
     }
     for (final item in memberships) {
       await _markConversationReadByMember(item.id);
     }
+    final messages = await _loadConversationMessageRecords(conversationId);
+    await _syncMessageReadReceipts(
+      messages: messages,
+      memberships: memberships,
+      currentUserId: authUser.id,
+    );
   }
 
   Future<void> markConversationUnread(String conversationId) async {
@@ -776,6 +920,48 @@ class ChatService {
           .collection(AppConstants.colConversationMembers)
           .update(item.id, body: {'last_read_at': null});
     }
+  }
+
+  Future<void> touchPresence(String conversationId) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      return;
+    }
+    final membership = await _ensureMembership(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await pb
+        .collection(AppConstants.colConversationMembers)
+        .update(
+          membership.id,
+          body: {'last_seen_at': DateTime.now().toUtc().toIso8601String()},
+        );
+  }
+
+  Future<void> setTypingState({
+    required String conversationId,
+    required bool isTyping,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      return;
+    }
+    final membership = await _ensureMembership(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await pb
+        .collection(AppConstants.colConversationMembers)
+        .update(
+          membership.id,
+          body: {
+            'typing_at': isTyping
+                ? DateTime.now().toUtc().toIso8601String()
+                : null,
+            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+          },
+        );
   }
 
   Future<void> setConversationPreference({
@@ -838,13 +1024,145 @@ class ChatService {
         );
   }
 
-  Future<void> toggleMessagePin(String messageId) async {
+  Future<void> setMessagePin({
+    required String messageId,
+    required bool isPinned,
+    Duration? duration,
+  }) async {
     final message = await _loadAccessibleMessage(messageId);
+    final body = <String, dynamic>{'is_pinned': isPinned};
+    if (isPinned) {
+      final effectiveDuration = duration ?? const Duration(days: 7);
+      body['pinned_until'] = DateTime.now()
+          .toUtc()
+          .add(effectiveDuration)
+          .toIso8601String();
+    } else {
+      body['pinned_until'] = null;
+    }
+    await pb
+        .collection(AppConstants.colMessages)
+        .update(message.id, body: body);
+  }
+
+  Future<void> toggleMessagePin(String messageId, {Duration? duration}) async {
+    final message = await _loadAccessibleMessage(messageId);
+    await setMessagePin(
+      messageId: messageId,
+      isPinned: !_isMessagePinnedRecord(message),
+      duration: duration,
+    );
+  }
+
+  Future<void> editMessage({
+    required String messageId,
+    required String text,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final trimmedText = text.trim();
+    if (trimmedText.isEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Isi pesan tidak boleh kosong.'},
+      );
+    }
+
+    final message = await _loadAccessibleMessage(messageId);
+    if (_recordText(message, 'sender') != authUser.id && !_auth.isSysadmin) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Hanya pengirim yang bisa mengedit pesan.'},
+      );
+    }
+    if (_recordText(message, 'deleted_at').isNotEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Pesan yang dihapus tidak bisa diedit.'},
+      );
+    }
+    if (_recordText(message, 'message_type') == AppConstants.msgTypePoll) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Polling tidak bisa diedit.'},
+      );
+    }
+
     await pb
         .collection(AppConstants.colMessages)
         .update(
           message.id,
-          body: {'is_pinned': !(message.data['is_pinned'] == true)},
+          body: {
+            'text': trimmedText,
+            'edited_at': DateTime.now().toUtc().toIso8601String(),
+            'edited_by': authUser.id,
+          },
+        );
+    await _syncConversationPreview(_recordText(message, 'conversation'));
+  }
+
+  Future<void> toggleMessageReaction({
+    required String messageId,
+    required String emoji,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+    final normalizedEmoji = emoji.trim();
+    if (normalizedEmoji.isEmpty) {
+      return;
+    }
+
+    await _loadAccessibleMessage(messageId);
+    final existing = await pb
+        .collection(AppConstants.colMessageReactions)
+        .getFullList(
+          filter:
+              'message = "${_escapeFilterValue(messageId)}" && user = "${_escapeFilterValue(authUser.id)}"',
+        );
+    final sameEmoji = existing.where(
+      (item) => _recordText(item, 'emoji') == normalizedEmoji,
+    );
+    if (sameEmoji.isNotEmpty) {
+      for (final record in sameEmoji) {
+        await pb.collection(AppConstants.colMessageReactions).delete(record.id);
+      }
+      for (final record in existing.where(
+        (item) => !sameEmoji.contains(item),
+      )) {
+        await pb.collection(AppConstants.colMessageReactions).delete(record.id);
+      }
+      return;
+    }
+
+    if (existing.isNotEmpty) {
+      await pb
+          .collection(AppConstants.colMessageReactions)
+          .update(existing.first.id, body: {'emoji': normalizedEmoji});
+      for (final record in existing.skip(1)) {
+        await pb.collection(AppConstants.colMessageReactions).delete(record.id);
+      }
+      return;
+    }
+
+    await pb
+        .collection(AppConstants.colMessageReactions)
+        .create(
+          body: {
+            'message': messageId,
+            'user': authUser.id,
+            'emoji': normalizedEmoji,
+          },
         );
   }
 
@@ -920,6 +1238,10 @@ class ChatService {
         response: const {'message': 'Tujuan forward tidak dapat diakses.'},
       );
     }
+    final membership = await _ensureMembership(
+      conversationId: targetConversationId,
+      userId: authUser.id,
+    );
 
     final created = await pb
         .collection(AppConstants.colMessages)
@@ -938,6 +1260,11 @@ class ChatService {
           },
           files: files,
         );
+    await _markMessageDeliveredToRecipients(
+      conversationId: targetConversationId,
+      messageId: created.id,
+      senderId: authUser.id,
+    );
 
     await pb
         .collection(AppConstants.colConversations)
@@ -953,6 +1280,7 @@ class ChatService {
             'last_message_at': DateTime.now().toIso8601String(),
           },
         );
+    await _markConversationReadByMember(membership.id);
   }
 
   Future<ChatAnnouncementsData> getAnnouncements() async {
@@ -1403,6 +1731,8 @@ class ChatService {
             'user': userId,
             'member_role': 'participant',
             'last_read_at': null,
+            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+            'typing_at': null,
             'is_muted': false,
             'is_pinned': false,
             'is_archived': false,
@@ -1442,7 +1772,10 @@ class ChatService {
         .collection(AppConstants.colConversationMembers)
         .update(
           memberId,
-          body: {'last_read_at': DateTime.now().toIso8601String()},
+          body: {
+            'last_read_at': DateTime.now().toUtc().toIso8601String(),
+            'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+          },
         );
   }
 
@@ -1589,10 +1922,10 @@ class ChatService {
     }
 
     try {
+      final query = requestedIds.join(',');
       final response = await pb.send<Map<String, dynamic>>(
-        _chatProfilesPath,
-        method: 'POST',
-        body: {'ids': requestedIds.toList(growable: false)},
+        '$_chatProfilesPath/$query',
+        method: 'GET',
       );
       final items = response['items'] as List<dynamic>? ?? const [];
       for (final item in items) {
@@ -1810,6 +2143,329 @@ class ChatService {
           filter:
               'conversation = "${_escapeFilterValue(conversationId)}" && user = "${_escapeFilterValue(userId)}"',
         );
+  }
+
+  Future<List<RecordModel>> _loadConversationMemberships({
+    required String conversationId,
+    String? fallbackUserId,
+  }) async {
+    try {
+      return await pb
+          .collection(AppConstants.colConversationMembers)
+          .getFullList(
+            sort: 'created',
+            filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
+          );
+    } on ClientException catch (error) {
+      final userId = (fallbackUserId ?? _auth.user?.id ?? '').trim();
+      if (error.statusCode == 403 && userId.isNotEmpty) {
+        return _loadMembershipRecords(
+          conversationId: conversationId,
+          userId: userId,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<RecordModel>> _loadConversationMessageRecords(
+    String conversationId,
+  ) {
+    return pb
+        .collection(AppConstants.colMessages)
+        .getFullList(
+          sort: 'created',
+          filter: 'conversation = "${_escapeFilterValue(conversationId)}"',
+        );
+  }
+
+  List<ChatParticipantModel> _buildConversationParticipants({
+    required List<RecordModel> memberships,
+    required Map<String, _ChatUserProfile> profiles,
+    required String currentUserId,
+  }) {
+    return memberships
+        .map((membership) {
+          final userId = _recordText(membership, 'user');
+          final profile = profiles[userId];
+          return ChatParticipantModel(
+            userId: userId,
+            displayName: profile?.displayName ?? 'Pengguna',
+            avatarUrl: profile?.avatarUrl,
+            lastSeenAt: _recordDateTime(membership, 'last_seen_at'),
+            typingAt: _recordDateTime(membership, 'typing_at'),
+            isCurrentUser: userId == currentUserId,
+          );
+        })
+        .where((item) => item.userId.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<void> _markMessageDeliveredToRecipients({
+    required String conversationId,
+    required String messageId,
+    required String senderId,
+  }) async {
+    final memberships = await _loadConversationMemberships(
+      conversationId: conversationId,
+    );
+    final deliveredAt = DateTime.now().toUtc().toIso8601String();
+
+    for (final membership in memberships) {
+      final userId = _recordText(membership, 'user');
+      if (userId.isEmpty || userId == senderId) {
+        continue;
+      }
+
+      final existing = await pb
+          .collection(AppConstants.colMessageReads)
+          .getFullList(
+            filter:
+                'message = "${_escapeFilterValue(messageId)}" && user = "${_escapeFilterValue(userId)}"',
+          );
+      if (existing.isNotEmpty) {
+        await pb
+            .collection(AppConstants.colMessageReads)
+            .update(existing.first.id, body: {'delivered_at': deliveredAt});
+        continue;
+      }
+
+      await pb
+          .collection(AppConstants.colMessageReads)
+          .create(
+            body: {
+              'message': messageId,
+              'user': userId,
+              'delivered_at': deliveredAt,
+              'read_at': null,
+            },
+          );
+    }
+  }
+
+  Future<void> _syncMessageReadReceipts({
+    required List<RecordModel> messages,
+    required List<RecordModel> memberships,
+    required String currentUserId,
+  }) async {
+    final ownMemberships = memberships
+        .where((item) => _recordText(item, 'user') == currentUserId)
+        .toList(growable: false);
+    if (ownMemberships.isEmpty) {
+      return;
+    }
+    final membership = ownMemberships.first;
+    final readAt = _recordDateTime(membership, 'last_read_at');
+    if (readAt == null) {
+      return;
+    }
+
+    for (final message in messages) {
+      if (_recordText(message, 'sender') == currentUserId) {
+        continue;
+      }
+      final createdAt = _recordDateTime(message, 'created');
+      if (createdAt == null || createdAt.isAfter(readAt)) {
+        continue;
+      }
+
+      final existing = await pb
+          .collection(AppConstants.colMessageReads)
+          .getFullList(
+            filter:
+                'message = "${_escapeFilterValue(message.id)}" && user = "${_escapeFilterValue(currentUserId)}"',
+          );
+      final body = {
+        'delivered_at': _recordText(message, 'created').isNotEmpty
+            ? _recordText(message, 'created')
+            : DateTime.now().toUtc().toIso8601String(),
+        'read_at': readAt.toIso8601String(),
+      };
+      if (existing.isNotEmpty) {
+        await pb
+            .collection(AppConstants.colMessageReads)
+            .update(existing.first.id, body: body);
+      } else {
+        await pb
+            .collection(AppConstants.colMessageReads)
+            .create(
+              body: {'message': message.id, 'user': currentUserId, ...body},
+            );
+      }
+    }
+  }
+
+  Future<Map<String, _MessageReceiptSummary>> _loadMessageReceiptSummaries({
+    required List<RecordModel> messages,
+    required List<RecordModel> memberships,
+    required String currentUserId,
+  }) async {
+    final result = <String, _MessageReceiptSummary>{};
+    final messageIds = messages.map((item) => item.id).toSet();
+    if (messageIds.isEmpty) {
+      return result;
+    }
+
+    final receiptRecords = await _loadMessageReceiptRecords(messageIds);
+    final receiptMap = <String, List<RecordModel>>{};
+    for (final record in receiptRecords) {
+      final messageId = _recordText(record, 'message');
+      if (messageId.isEmpty) {
+        continue;
+      }
+      receiptMap.putIfAbsent(messageId, () => <RecordModel>[]).add(record);
+    }
+
+    final participantUserIds = memberships
+        .map((item) => _recordText(item, 'user'))
+        .where((item) => item.isNotEmpty)
+        .toSet();
+
+    for (final message in messages) {
+      final senderId = _recordText(message, 'sender');
+      final recipientCount = participantUserIds
+          .where((id) => id != senderId)
+          .length;
+      final receipts = receiptMap[message.id] ?? const <RecordModel>[];
+      final deliveredCount = receipts
+          .where((item) => _recordText(item, 'delivered_at').isNotEmpty)
+          .map((item) => _recordText(item, 'user'))
+          .where((id) => id.isNotEmpty && id != senderId)
+          .toSet()
+          .length;
+      final readCount = receipts
+          .where((item) => _recordText(item, 'read_at').isNotEmpty)
+          .map((item) => _recordText(item, 'user'))
+          .where((id) => id.isNotEmpty && id != senderId)
+          .toSet()
+          .length;
+
+      final status = recipientCount <= 0
+          ? 'sent'
+          : readCount >= recipientCount
+          ? 'read'
+          : deliveredCount >= recipientCount
+          ? 'delivered'
+          : 'sent';
+
+      result[message.id] = _MessageReceiptSummary(
+        recipientCount: recipientCount,
+        deliveredCount: deliveredCount,
+        readCount: readCount,
+        status: status,
+      );
+    }
+
+    return result;
+  }
+
+  Future<List<RecordModel>> _loadMessageReceiptRecords(
+    Set<String> messageIds,
+  ) async {
+    final result = <RecordModel>[];
+    final ids = messageIds.toList(growable: false);
+    for (var start = 0; start < ids.length; start += 15) {
+      final chunk = ids.skip(start).take(15).toList(growable: false);
+      if (chunk.isEmpty) {
+        continue;
+      }
+      final filter = chunk
+          .map((id) => 'message = "${_escapeFilterValue(id)}"')
+          .join(' || ');
+      result.addAll(
+        await pb
+            .collection(AppConstants.colMessageReads)
+            .getFullList(filter: filter),
+      );
+    }
+    return result;
+  }
+
+  Future<Map<String, List<MessageReactionModel>>> _loadMessageReactions({
+    required Set<String> messageIds,
+    required String currentUserId,
+  }) async {
+    final result = <String, List<MessageReactionModel>>{};
+    if (messageIds.isEmpty) {
+      return result;
+    }
+
+    final records = <RecordModel>[];
+    final ids = messageIds.toList(growable: false);
+    for (var start = 0; start < ids.length; start += 15) {
+      final chunk = ids.skip(start).take(15).toList(growable: false);
+      if (chunk.isEmpty) {
+        continue;
+      }
+      final filter = chunk
+          .map((id) => 'message = "${_escapeFilterValue(id)}"')
+          .join(' || ');
+      records.addAll(
+        await pb
+            .collection(AppConstants.colMessageReactions)
+            .getFullList(filter: filter),
+      );
+    }
+
+    final grouped = <String, Map<String, _ReactionBucket>>{};
+    for (final record in records) {
+      final messageId = _recordText(record, 'message');
+      final emoji = _recordText(record, 'emoji');
+      if (messageId.isEmpty || emoji.isEmpty) {
+        continue;
+      }
+      final byEmoji = grouped.putIfAbsent(
+        messageId,
+        () => <String, _ReactionBucket>{},
+      );
+      final bucket = byEmoji.putIfAbsent(emoji, () => _ReactionBucket());
+      bucket.count += 1;
+      if (_recordText(record, 'user') == currentUserId) {
+        bucket.reactedByMe = true;
+      }
+    }
+
+    for (final entry in grouped.entries) {
+      final reactions =
+          entry.value.entries
+              .map(
+                (item) => MessageReactionModel(
+                  emoji: item.key,
+                  count: item.value.count,
+                  reactedByMe: item.value.reactedByMe,
+                ),
+              )
+              .toList(growable: false)
+            ..sort((left, right) {
+              final countCompare = right.count.compareTo(left.count);
+              if (countCompare != 0) {
+                return countCompare;
+              }
+              return left.emoji.compareTo(right.emoji);
+            });
+      result[entry.key] = reactions;
+    }
+
+    return result;
+  }
+
+  bool _needsReadMarkerUpdate({
+    required RecordModel membership,
+    required List<RecordModel> messages,
+    required String currentUserId,
+  }) {
+    final lastReadAt = _recordDateTime(membership, 'last_read_at');
+    for (final message in messages.reversed) {
+      if (_recordText(message, 'sender') == currentUserId) {
+        continue;
+      }
+      final createdAt = _recordDateTime(message, 'created');
+      if (createdAt == null) {
+        continue;
+      }
+      return lastReadAt == null || createdAt.isAfter(lastReadAt);
+    }
+    return false;
   }
 
   String _normalizePersonName(String value) {
@@ -2034,6 +2690,8 @@ class ChatService {
     required String currentUserId,
     required Map<String, _ChatUserProfile> senderProfiles,
     required Map<String, RecordModel> relatedRecords,
+    required Map<String, _MessageReceiptSummary> receiptSummaries,
+    required Map<String, List<MessageReactionModel>> reactionModelsByMessage,
     required Map<String, ChatPollModel> pollsById,
   }) {
     final replyId = _recordText(record, 'reply_to');
@@ -2044,6 +2702,8 @@ class ChatService {
     final voiceDuration = _recordInt(record, 'voice_duration_seconds');
     final senderId = _recordText(record, 'sender');
     final senderProfile = senderProfiles[senderId];
+    final pinnedUntil = _recordDateTime(record, 'pinned_until');
+    final receiptSummary = receiptSummaries[record.id];
 
     return MessageModel(
       id: record.id,
@@ -2056,7 +2716,7 @@ class ChatService {
           : _recordText(record, 'message_type'),
       isMine: senderId == currentUserId,
       isStarred: record.data['is_starred'] == true,
-      isPinned: record.data['is_pinned'] == true,
+      isPinned: _isMessagePinnedRecord(record, pinnedUntil: pinnedUntil),
       isDeleted: isDeleted,
       attachmentName: isDeleted || _recordText(record, 'attachment').isEmpty
           ? null
@@ -2081,6 +2741,8 @@ class ChatService {
                     ?.displayName ??
                 'Pengguna',
       createdAt: DateTime.tryParse(_recordText(record, 'created')),
+      editedAt: _recordDateTime(record, 'edited_at'),
+      pinnedUntil: pinnedUntil,
       voiceDurationSeconds: voiceDuration > 0 ? voiceDuration : null,
       pollId: _recordText(record, 'poll').isEmpty
           ? null
@@ -2091,6 +2753,13 @@ class ChatService {
       senderAvatarUrl: senderProfile?.avatarUrl,
       senderPlanCode: senderProfile?.planCode,
       senderSystemRole: senderProfile?.systemRole,
+      deliveryStatus: senderId == currentUserId
+          ? receiptSummary?.status ?? 'sent'
+          : null,
+      deliveredCount: receiptSummary?.deliveredCount ?? 0,
+      readCount: receiptSummary?.readCount ?? 0,
+      recipientCount: receiptSummary?.recipientCount ?? 0,
+      reactions: reactionModelsByMessage[record.id] ?? const [],
       poll: pollsById[_recordText(record, 'poll')],
     );
   }
@@ -2390,6 +3059,34 @@ class _ChatUserProfile {
   final String planCode;
 }
 
+class _CachedChatMessages {
+  const _CachedChatMessages({required this.data, required this.cachedAt});
+
+  final ChatMessagesData data;
+  final DateTime cachedAt;
+}
+
+class _MessageReceiptSummary {
+  const _MessageReceiptSummary({
+    required this.recipientCount,
+    required this.deliveredCount,
+    required this.readCount,
+    required this.status,
+  });
+
+  final int recipientCount;
+  final int deliveredCount;
+  final int readCount;
+  final String status;
+}
+
+class _ReactionBucket {
+  _ReactionBucket();
+
+  int count = 0;
+  bool reactedByMe = false;
+}
+
 class _ChatScope {
   const _ChatScope({
     required this.userId,
@@ -2490,6 +3187,25 @@ int _recordInt(RecordModel record, String field) {
     return raw;
   }
   return int.tryParse(_recordText(record, field)) ?? 0;
+}
+
+DateTime? _recordDateTime(RecordModel record, String field) {
+  final raw = _recordText(record, field);
+  if (raw.isEmpty) {
+    return null;
+  }
+  return DateTime.tryParse(raw)?.toUtc();
+}
+
+bool _isMessagePinnedRecord(RecordModel record, {DateTime? pinnedUntil}) {
+  if (record.data['is_pinned'] != true) {
+    return false;
+  }
+  final expiresAt = pinnedUntil ?? _recordDateTime(record, 'pinned_until');
+  if (expiresAt == null) {
+    return true;
+  }
+  return expiresAt.isAfter(DateTime.now().toUtc());
 }
 
 String _normalizeAreaValue(String? value) {

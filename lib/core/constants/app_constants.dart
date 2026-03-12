@@ -126,6 +126,7 @@ class AppConstants {
   static const String colConversationMembers = 'conversation_members';
   static const String colMessages = 'messages';
   static const String colMessageReads = 'message_reads';
+  static const String colMessageReactions = 'message_reactions';
   static const String colAnnouncements = 'announcements';
   static const String colSubscriptionPlans = 'subscription_plans';
   static const String colSubscriptionTransactions = 'subscription_transactions';

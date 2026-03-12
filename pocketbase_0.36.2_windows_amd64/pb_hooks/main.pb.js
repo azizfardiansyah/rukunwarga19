@@ -2002,120 +2002,75 @@ routerAdd(
 );
 
 routerAdd(
-  "POST",
-  "/api/rukunwarga/chat/profiles",
+  "GET",
+  "/api/rukunwarga/chat-users/{ids}",
   (e) => {
-    requireUserAuth(e);
-
-    const requestBody = {};
-    e.bindBody(requestBody);
-
-    const ids = Array.isArray(requestBody.ids) ? requestBody.ids : [];
+    const rawIds = String(e.request.pathValue("ids") || "");
+    const ids = rawIds
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item);
     const items = [];
     const seen = {};
 
-    for (const rawId of ids) {
-      const userId = asString(rawId).trim();
+    for (const userId of ids) {
       if (!userId || seen[userId]) {
         continue;
       }
       seen[userId] = true;
+      let displayName = userId;
+      let avatarUrl = "";
+      let role = "warga";
+      let systemRole = "warga";
+      let planCode = "free";
+      try {
+        const userRecord = $app.findRecordById("_pb_users_auth_", userId);
+        const rawName = String(userRecord.getString("name") || "").trim();
+        const rawEmail = String(userRecord.getString("email") || "").trim();
+        const rawAvatar = String(userRecord.getString("avatar") || "").trim();
+        const rawRole = String(userRecord.getString("role") || "").trim();
+        const rawSystemRole = String(userRecord.getString("system_role") || "").trim();
+        const rawPlanCode = String(userRecord.getString("plan_code") || "").trim();
+        const rawSubscriptionPlan = String(
+          userRecord.getString("subscription_plan") || "",
+        ).trim();
+        if (rawName) {
+          displayName = rawName;
+        } else if (rawEmail) {
+          displayName = rawEmail.split("@")[0];
+        }
+        if (rawAvatar) {
+          const fileToken = String(userRecord.newFileToken() || "").trim();
+          avatarUrl =
+            "/api/files/_pb_users_auth_/" +
+            userId +
+            "/" +
+            encodeURIComponent(rawAvatar);
+          if (fileToken) {
+            avatarUrl += "?token=" + encodeURIComponent(fileToken);
+          }
+        }
+        role = normalizeUserRole(rawRole);
+        systemRole =
+          rawSystemRole || inferTargetSystemRole(rawRole || role);
+        planCode =
+          inferPlanCode(rawPlanCode || rawSubscriptionPlan, rawRole || role) || "free";
+      } catch (_) {}
 
-      const profile = buildChatProfilePayload(userId);
-      if (profile) {
-        items.push(profile);
-      }
+      items.push({
+        userId: userId,
+        displayName: displayName,
+        avatarUrl: avatarUrl,
+        role: role,
+        systemRole: systemRole,
+        planCode: planCode,
+      });
     }
 
     return e.json(200, { items: items });
   },
   $apis.requireAuth(USERS_COLLECTION),
 );
-
-function requireUserAuth(e) {
-  const info = e.requestInfo();
-
-  if (!info.auth) {
-    throw e.unauthorizedError("Autentikasi dibutuhkan.", null);
-  }
-
-  return info.auth;
-}
-
-function buildChatProfilePayload(userId) {
-  let userRecord = null;
-  try {
-    userRecord = $app.findRecordById(USERS_COLLECTION, userId);
-  } catch (_) {
-    return null;
-  }
-
-  let wargaRecord = null;
-  try {
-    wargaRecord = $app.findFirstRecordByFilter(
-      "warga",
-      "user_id = {:userId}",
-      { userId: userId },
-    );
-  } catch (_) {}
-
-  const wargaName = wargaRecord ? asString(wargaRecord.getString("nama_lengkap")) : "";
-  const avatarFile = asString(userRecord.getString("avatar"));
-  const fotoWarga = wargaRecord ? asString(wargaRecord.getString("foto_warga")) : "";
-  const displayName =
-    wargaName ||
-    getUserDisplayName(userRecord) ||
-    asString(userRecord.getString("email")).split("@")[0] ||
-    "Pengguna";
-
-  return {
-    userId: userId,
-    displayName: displayName,
-    avatarUrl:
-      avatarFile
-        ? buildRecordFileUrl(userRecord, avatarFile, userRecord.newFileToken())
-        : fotoWarga
-          ? buildRecordFileUrl(wargaRecord, fotoWarga, "")
-          : "",
-    role: normalizeUserRole(userRecord.getString("role")),
-    systemRole: inferTargetSystemRole(userRecord.getString("role")),
-    planCode: inferPlanCode(
-      userRecord.getString("plan_code") || userRecord.getString("subscription_plan"),
-      userRecord.getString("role"),
-    ),
-  };
-}
-
-function buildRecordFileUrl(record, filename, token) {
-  if (!record || !filename) {
-    return "";
-  }
-
-  const basePath = asString(record.baseFilesPath());
-  if (!basePath) {
-    return "";
-  }
-
-  let url = basePath + "/" + encodeURIComponent(filename);
-  if (token) {
-    url += (url.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(token);
-  }
-
-  return url;
-}
-
-function getMidtransConfig() {
-  const isProduction = isTruthy($os.getenv("RW_MIDTRANS_IS_PRODUCTION"));
-
-  return {
-    isProduction: isProduction,
-    serverKey: asString($os.getenv("RW_MIDTRANS_SERVER_KEY")),
-    clientKey: asString($os.getenv("RW_MIDTRANS_CLIENT_KEY")),
-    merchantId: asString($os.getenv("RW_MIDTRANS_MERCHANT_ID")),
-    notificationUrl: asString($os.getenv("RW_MIDTRANS_NOTIFICATION_URL")),
-    finishUrl: asString($os.getenv("RW_MIDTRANS_FINISH_URL")),
-  };
-}
 
 function getPlanList(role) {
   return getPlanListForRole(role || "");

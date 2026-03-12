@@ -12,11 +12,10 @@ import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
-import '../../../shared/widgets/floating_action_pill.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/chat_providers.dart';
 
-enum _ChatSection { inbox, groups, announcements }
+enum _ChatSection { inbox, groups }
 
 class ChatListScreen extends ConsumerStatefulWidget {
   const ChatListScreen({super.key});
@@ -41,9 +40,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final bootstrapAsync = ref.watch(chatBootstrapProvider);
-    final announcementsAsync = ref.watch(chatAnnouncementsProvider);
     final bootstrapData = bootstrapAsync.asData?.value;
-    final announcementsData = announcementsAsync.asData?.value;
     final showBootstrap = bootstrapData != null;
 
     return Scaffold(
@@ -59,17 +56,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
           ),
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton:
-          _section == _ChatSection.announcements &&
-              announcementsData?.canCreate == true
-          ? FloatingActionPill(
-              onTap: () => context.push(Routes.announcements),
-              icon: Icons.campaign_rounded,
-              label: 'Kelola Pengumuman',
-              gradientColors: const [AppTheme.accentColor, Color(0xFFE0B56C)],
-            )
-          : null,
       body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
         child: Column(
@@ -88,8 +74,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               hintText: switch (_section) {
                 _ChatSection.inbox => 'Cari nama, isi chat, atau percakapan...',
                 _ChatSection.groups => 'Cari grup, isi chat, atau RT/RW...',
-                _ChatSection.announcements =>
-                  'Cari judul, isi, atau pembuat...',
               },
               value: _searchCtrl.text,
               onChanged: (value) {
@@ -120,9 +104,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
                           emptyIcon: Icons.groups_2_outlined,
                         ),
-                        _ChatSection.announcements => _buildAnnouncementPreview(
-                          announcementsAsync,
-                        ),
                       },
                     )
                   : bootstrapAsync.when(
@@ -143,8 +124,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                 'Grup RT atau RW akan muncul sesuai role dan cakupan wilayah akun Anda.',
                             emptyIcon: Icons.groups_2_outlined,
                           ),
-                          _ChatSection.announcements =>
-                            _buildAnnouncementPreview(announcementsAsync),
                         },
                       ),
                       loading: () =>
@@ -185,7 +164,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     final title = switch (_section) {
       _ChatSection.inbox => 'Inbox warga & pengurus',
       _ChatSection.groups => 'Forum RT dan koordinasi RW',
-      _ChatSection.announcements => 'Pengumuman resmi wilayah Anda',
     };
 
     final subtitle = areaLabel.isEmpty ? authName : '$authName / $areaLabel';
@@ -293,14 +271,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
               label: 'Grup',
               selected: _section == _ChatSection.groups,
               onTap: () => setState(() => _section = _ChatSection.groups),
-            ),
-          ),
-          Expanded(
-            child: _SectionPill(
-              label: 'Pengumuman',
-              selected: _section == _ChatSection.announcements,
-              onTap: () =>
-                  setState(() => _section = _ChatSection.announcements),
             ),
           ),
         ],
@@ -564,205 +534,6 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     );
   }
 
-  Widget _buildAnnouncementPreview(
-    AsyncValue<ChatAnnouncementsData> announcementsAsync,
-  ) {
-    final data = announcementsAsync.asData?.value;
-    if (data != null) {
-      final items = data.items
-          .where(_matchesAnnouncementSearch)
-          .toList(growable: false);
-      if (items.isEmpty) {
-        return ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            const SizedBox(height: 48),
-            Center(
-              child: AppTheme.glassContainer(
-                opacity: 0.72,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.campaign_outlined,
-                      size: 44,
-                      color: AppTheme.textSecondary,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Tidak ada hasil pengumuman',
-                      style: AppTheme.heading3,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _searchQuery.isEmpty
-                          ? 'Pengumuman resmi RT/RW akan muncul di sini.'
-                          : 'Ubah kata kunci pencarian untuk melihat hasil lain.',
-                      style: AppTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      }
-
-      return ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: items.length,
-        padding: const EdgeInsets.only(bottom: 10),
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          return Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppTheme.dividerColor),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.accentColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        item.targetLabel,
-                        style: AppTheme.caption.copyWith(
-                          color: AppTheme.accentColor,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      item.createdAt != null
-                          ? Formatters.waktuRingkas(item.createdAt!)
-                          : '',
-                      style: AppTheme.caption,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  item.title,
-                  style: AppTheme.bodyLarge.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.content.trim().isNotEmpty
-                      ? item.content
-                      : item.hasAttachment
-                      ? 'Lampiran tersedia: ${item.attachmentName}'
-                      : '-',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTheme.bodyMedium.copyWith(height: 1.35),
-                ),
-                if (item.hasAttachment) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF7F3EE),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppTheme.dividerColor),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.attach_file_rounded,
-                          size: 16,
-                          color: AppTheme.primaryColor,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item.attachmentName!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTheme.bodySmall.copyWith(
-                              color: AppTheme.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  'Oleh ${item.authorName}',
-                  style: AppTheme.caption.copyWith(
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-    }
-
-    return announcementsAsync.when(
-      data: (data) {
-        if (data.items.isEmpty) {
-          return ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              const SizedBox(height: 48),
-              Center(
-                child: AppTheme.glassContainer(
-                  opacity: 0.72,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.campaign_outlined,
-                        size: 44,
-                        color: AppTheme.textSecondary,
-                      ),
-                      const SizedBox(height: 12),
-                      Text('Belum ada pengumuman', style: AppTheme.heading3),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Pengumuman resmi RT/RW akan muncul di sini.',
-                        style: AppTheme.bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        }
-
-        return const SizedBox.shrink();
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) =>
-          Center(child: Text(ErrorClassifier.classify(error).message)),
-    );
-  }
-
   Future<void> _handleConversationAction({
     required ConversationModel conversation,
     required String action,
@@ -891,24 +662,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     return haystack.contains(_searchQuery);
   }
 
-  bool _matchesAnnouncementSearch(AnnouncementModel item) {
-    if (_searchQuery.isEmpty) {
-      return true;
-    }
-    final haystack = [
-      item.title,
-      item.content,
-      item.authorName,
-      item.targetLabel,
-    ].join(' ').toLowerCase();
-    return haystack.contains(_searchQuery);
-  }
-
   Future<void> _refresh() async {
     ref.invalidate(chatBootstrapProvider);
-    ref.invalidate(chatAnnouncementsProvider);
     await ref.read(chatBootstrapProvider.future);
-    await ref.read(chatAnnouncementsProvider.future);
   }
 }
 

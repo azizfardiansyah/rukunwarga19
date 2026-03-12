@@ -176,12 +176,19 @@ class MessageModel {
     this.forwardedFromId,
     this.forwardedFromName,
     this.createdAt,
+    this.editedAt,
+    this.pinnedUntil,
     this.voiceDurationSeconds,
     this.pollId,
     this.senderBadgeLabel,
     this.senderAvatarUrl,
     this.senderPlanCode,
     this.senderSystemRole,
+    this.deliveryStatus,
+    this.deliveredCount = 0,
+    this.readCount = 0,
+    this.recipientCount = 0,
+    this.reactions = const [],
     this.poll,
   });
 
@@ -203,19 +210,31 @@ class MessageModel {
   final String? forwardedFromId;
   final String? forwardedFromName;
   final DateTime? createdAt;
+  final DateTime? editedAt;
+  final DateTime? pinnedUntil;
   final int? voiceDurationSeconds;
   final String? pollId;
   final String? senderBadgeLabel;
   final String? senderAvatarUrl;
   final String? senderPlanCode;
   final String? senderSystemRole;
+  final String? deliveryStatus;
+  final int deliveredCount;
+  final int readCount;
+  final int recipientCount;
+  final List<MessageReactionModel> reactions;
   final ChatPollModel? poll;
 
   bool get hasAttachment => (attachmentName ?? '').trim().isNotEmpty;
   bool get hasReply => (replyToId ?? '').trim().isNotEmpty;
   bool get isForwarded => (forwardedFromId ?? '').trim().isNotEmpty;
+  bool get isEdited => editedAt != null;
+  bool get hasReactions => reactions.isNotEmpty;
 
   factory MessageModel.fromJson(Map<String, dynamic> json) {
+    final pinnedUntil = DateTime.tryParse(
+      json['pinnedUntil']?.toString() ?? '',
+    );
     return MessageModel(
       id: json['id']?.toString() ?? '',
       conversationId: json['conversationId']?.toString() ?? '',
@@ -225,7 +244,10 @@ class MessageModel {
       messageType: json['messageType']?.toString() ?? 'text',
       isMine: json['isMine'] == true,
       isStarred: json['isStarred'] == true,
-      isPinned: json['isPinned'] == true,
+      isPinned:
+          json['isPinned'] == true &&
+          (pinnedUntil == null ||
+              pinnedUntil.toUtc().isAfter(DateTime.now().toUtc())),
       isDeleted: json['isDeleted'] == true,
       attachmentName: json['attachmentName']?.toString(),
       attachmentUrl: json['attachmentUrl']?.toString(),
@@ -235,12 +257,21 @@ class MessageModel {
       forwardedFromId: json['forwardedFromId']?.toString(),
       forwardedFromName: json['forwardedFromName']?.toString(),
       createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? ''),
+      editedAt: DateTime.tryParse(json['editedAt']?.toString() ?? ''),
+      pinnedUntil: pinnedUntil,
       voiceDurationSeconds: _jsonNullableInt(json['voiceDurationSeconds']),
       pollId: json['pollId']?.toString(),
       senderBadgeLabel: json['senderBadgeLabel']?.toString(),
       senderAvatarUrl: json['senderAvatarUrl']?.toString(),
       senderPlanCode: json['senderPlanCode']?.toString(),
       senderSystemRole: json['senderSystemRole']?.toString(),
+      deliveryStatus: json['deliveryStatus']?.toString(),
+      deliveredCount: _jsonInt(json['deliveredCount']),
+      readCount: _jsonInt(json['readCount']),
+      recipientCount: _jsonInt(json['recipientCount']),
+      reactions: _jsonList(
+        json['reactions'],
+      ).map(MessageReactionModel.fromJson).toList(growable: false),
       poll: json['poll'] is Map
           ? ChatPollModel.fromJson(
               Map<String, dynamic>.from(json['poll'] as Map),
@@ -250,6 +281,9 @@ class MessageModel {
   }
 
   factory MessageModel.fromRecord(RecordModel record) {
+    final pinnedUntil = DateTime.tryParse(
+      record.getStringValue('pinned_until'),
+    );
     return MessageModel(
       id: record.id,
       conversationId: record.getStringValue('conversation'),
@@ -259,12 +293,17 @@ class MessageModel {
       messageType: record.getStringValue('message_type'),
       isMine: false,
       isStarred: record.data['is_starred'] == true,
-      isPinned: record.data['is_pinned'] == true,
+      isPinned:
+          record.data['is_pinned'] == true &&
+          (pinnedUntil == null ||
+              pinnedUntil.toUtc().isAfter(DateTime.now().toUtc())),
       isDeleted: record.getStringValue('deleted_at').isNotEmpty,
       attachmentName: record.getStringValue('attachment'),
       replyToId: record.getStringValue('reply_to'),
       forwardedFromId: record.getStringValue('forwarded_from'),
       createdAt: DateTime.tryParse(record.getStringValue('created')),
+      editedAt: DateTime.tryParse(record.getStringValue('edited_at')),
+      pinnedUntil: pinnedUntil,
       voiceDurationSeconds: _jsonNullableInt(
         record.data['voice_duration_seconds'],
       ),
@@ -273,6 +312,11 @@ class MessageModel {
       senderAvatarUrl: null,
       senderPlanCode: null,
       senderSystemRole: null,
+      deliveryStatus: null,
+      deliveredCount: 0,
+      readCount: 0,
+      recipientCount: 0,
+      reactions: const [],
       poll: null,
     );
   }
@@ -280,6 +324,75 @@ class MessageModel {
   bool get isVoice => messageType == AppConstants.msgTypeVoice;
 
   bool get isPoll => messageType == AppConstants.msgTypePoll;
+}
+
+class MessageReactionModel {
+  const MessageReactionModel({
+    required this.emoji,
+    required this.count,
+    this.reactedByMe = false,
+  });
+
+  final String emoji;
+  final int count;
+  final bool reactedByMe;
+
+  factory MessageReactionModel.fromJson(Map<String, dynamic> json) {
+    return MessageReactionModel(
+      emoji: json['emoji']?.toString() ?? '',
+      count: _jsonInt(json['count']),
+      reactedByMe: json['reactedByMe'] == true,
+    );
+  }
+}
+
+class ChatParticipantModel {
+  const ChatParticipantModel({
+    required this.userId,
+    required this.displayName,
+    this.avatarUrl,
+    this.lastSeenAt,
+    this.typingAt,
+    this.isCurrentUser = false,
+  });
+
+  final String userId;
+  final String displayName;
+  final String? avatarUrl;
+  final DateTime? lastSeenAt;
+  final DateTime? typingAt;
+  final bool isCurrentUser;
+
+  bool get isTyping {
+    final value = typingAt?.toUtc();
+    if (value == null) {
+      return false;
+    }
+    return value.isAfter(
+      DateTime.now().toUtc().subtract(const Duration(seconds: 6)),
+    );
+  }
+
+  bool get isOnline {
+    final value = lastSeenAt?.toUtc();
+    if (value == null) {
+      return false;
+    }
+    return value.isAfter(
+      DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
+    );
+  }
+
+  factory ChatParticipantModel.fromJson(Map<String, dynamic> json) {
+    return ChatParticipantModel(
+      userId: json['userId']?.toString() ?? '',
+      displayName: json['displayName']?.toString() ?? 'Pengguna',
+      avatarUrl: json['avatarUrl']?.toString(),
+      lastSeenAt: DateTime.tryParse(json['lastSeenAt']?.toString() ?? ''),
+      typingAt: DateTime.tryParse(json['typingAt']?.toString() ?? ''),
+      isCurrentUser: json['isCurrentUser'] == true,
+    );
+  }
 }
 
 class ChatPollOptionModel {
@@ -458,10 +571,15 @@ class ChatBootstrapData {
 }
 
 class ChatMessagesData {
-  const ChatMessagesData({required this.conversation, required this.messages});
+  const ChatMessagesData({
+    required this.conversation,
+    required this.messages,
+    this.participants = const [],
+  });
 
   final ConversationModel conversation;
   final List<MessageModel> messages;
+  final List<ChatParticipantModel> participants;
 
   factory ChatMessagesData.fromJson(Map<String, dynamic> json) {
     return ChatMessagesData(
@@ -471,6 +589,9 @@ class ChatMessagesData {
       messages: _jsonList(
         json['messages'],
       ).map(MessageModel.fromJson).toList(growable: false),
+      participants: _jsonList(
+        json['participants'],
+      ).map(ChatParticipantModel.fromJson).toList(growable: false),
     );
   }
 }

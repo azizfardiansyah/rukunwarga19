@@ -28,47 +28,89 @@ class ChatRoomScreen extends ConsumerStatefulWidget {
 
 class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   final _messageCtrl = TextEditingController();
+  final _roomSearchCtrl = TextEditingController();
   final _scrollController = ScrollController();
+  late final ChatService _chatService;
+  late final String _currentUserId;
 
   ChatMessagesData? _data;
   bool _isLoading = true;
   bool _isSending = false;
+  bool _isSearchMode = false;
+  bool _isTypingStateActive = false;
+  bool _isDisposed = false;
+  bool _isFetchingMessages = false;
+  bool _queuedSilentRefresh = false;
   PlatformFile? _selectedAttachment;
   MessageModel? _replyingTo;
-  Timer? _pollTimer;
+  MessageModel? _editingMessage;
+  Timer? _presenceTimer;
   Timer? _refreshDebounce;
+  Timer? _typingStopTimer;
   Future<void> Function()? _unsubscribeMessages;
   Future<void> Function()? _unsubscribeConversation;
+  Future<void> Function()? _unsubscribeMembers;
 
   @override
   void initState() {
     super.initState();
-    _loadMessages();
+    _chatService = ref.read(chatServiceProvider);
+    _currentUserId = ref.read(authProvider).user?.id ?? '';
+    final cached = _chatService.getCachedMessages(widget.conversationId);
+    if (cached != null) {
+      _data = cached;
+      _isLoading = false;
+    }
+    _messageCtrl.addListener(_handleComposerChanged);
+    _roomSearchCtrl.addListener(_handleRoomSearchChanged);
+    _loadMessages(silent: cached != null);
     _bindRealtime();
-    _pollTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _loadMessages(silent: true),
+    _presenceTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => _touchPresence(),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _touchPresence();
+    });
   }
 
   Future<void> _bindRealtime() async {
     await _disposeRealtime();
     _unsubscribeMessages = await pb
         .collection(AppConstants.colMessages)
-        .subscribe(
-          '*',
-          (_) => _scheduleRefresh(),
-          filter: 'conversation = "${widget.conversationId}"',
-        );
+        .subscribe('*', (event) {
+          final record = event.record;
+          if (record == null ||
+              record.getStringValue('conversation') != widget.conversationId) {
+            return;
+          }
+          _scheduleRefresh();
+        }, filter: 'conversation = "${widget.conversationId}"');
     _unsubscribeConversation = await pb
         .collection(AppConstants.colConversations)
         .subscribe(widget.conversationId, (_) => _scheduleRefresh());
+    _unsubscribeMembers = await pb
+        .collection(AppConstants.colConversationMembers)
+        .subscribe('*', (event) {
+          final record = event.record;
+          if (record == null ||
+              record.getStringValue('conversation') != widget.conversationId) {
+            return;
+          }
+          if (record.getStringValue('user') == _currentUserId) {
+            return;
+          }
+          _scheduleRefresh();
+        }, filter: 'conversation = "${widget.conversationId}"');
   }
 
   void _scheduleRefresh() {
+    if (_isDisposed) {
+      return;
+    }
     _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 180), () {
-      if (mounted) {
+    _refreshDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (mounted && !_isDisposed) {
         _loadMessages(silent: true);
       }
     });
@@ -77,41 +119,75 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   Future<void> _disposeRealtime() async {
     await _unsubscribeMessages?.call();
     await _unsubscribeConversation?.call();
+    await _unsubscribeMembers?.call();
     _unsubscribeMessages = null;
     _unsubscribeConversation = null;
+    _unsubscribeMembers = null;
   }
 
   Future<void> _loadMessages({bool silent = false}) async {
-    if (!silent && mounted && _data == null) {
+    if (_isDisposed) {
+      return;
+    }
+    if (_isFetchingMessages) {
+      _queuedSilentRefresh = _queuedSilentRefresh || silent;
+      return;
+    }
+    _isFetchingMessages = true;
+    if (!silent && mounted && !_isDisposed && _data == null) {
       setState(() => _isLoading = true);
     }
 
     try {
-      final service = ref.read(chatServiceProvider);
-      final result = await service.getMessages(widget.conversationId);
-      if (!mounted) {
+      final previous = _data;
+      final result = await _chatService.getMessages(widget.conversationId);
+      if (!mounted || _isDisposed) {
         return;
       }
 
-      setState(() {
-        _data = result;
-        _isLoading = false;
-        if (_replyingTo != null) {
-          final match = result.messages.where(
-            (item) => item.id == _replyingTo!.id,
-          );
-          _replyingTo = match.isEmpty ? null : match.first;
+      final previousSignature = _messagesSignature(previous);
+      final nextSignature = _messagesSignature(result);
+      final shouldScroll = _shouldAutoScroll(previous, result);
+      final shouldUpdateUi =
+          previous == null || previousSignature != nextSignature || _isLoading;
+
+      if (shouldUpdateUi) {
+        setState(() {
+          _data = result;
+          _isLoading = false;
+          if (_replyingTo != null) {
+            final match = result.messages.where(
+              (item) => item.id == _replyingTo!.id,
+            );
+            _replyingTo = match.isEmpty ? null : match.first;
+          }
+          if (_editingMessage != null) {
+            final match = result.messages.where(
+              (item) => item.id == _editingMessage!.id,
+            );
+            _editingMessage = match.isEmpty ? null : match.first;
+          }
+        });
+        _chatService.cacheMessagesData(result);
+        if (shouldScroll) {
+          _scrollToBottom();
         }
-      });
-      _scrollToBottom();
-      ref.read(chatRefreshTickProvider.notifier).bump();
+      } else if (_isLoading) {
+        setState(() => _isLoading = false);
+      }
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || _isDisposed) {
         return;
       }
       setState(() => _isLoading = false);
       if (!silent) {
         ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    } finally {
+      _isFetchingMessages = false;
+      if (_queuedSilentRefresh && mounted && !_isDisposed) {
+        _queuedSilentRefresh = false;
+        unawaited(_loadMessages(silent: true));
       }
     }
   }
@@ -148,9 +224,114 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
       _data = ChatMessagesData(
         conversation: current.conversation,
         messages: [...current.messages, message],
+        participants: current.participants,
       );
     });
+    if (_data != null) {
+      _chatService.cacheMessagesData(_data!);
+    }
     _scrollToBottom();
+  }
+
+  String _messagesSignature(ChatMessagesData? data) {
+    if (data == null) {
+      return '';
+    }
+    final messageSignature = data.messages
+        .map(
+          (message) =>
+              '${message.id}:${message.editedAt?.millisecondsSinceEpoch ?? 0}:'
+              '${message.deliveryStatus ?? ''}:${message.deliveredCount}:'
+              '${message.readCount}:${message.isPinned ? 1 : 0}:'
+              '${message.isStarred ? 1 : 0}:${message.isDeleted ? 1 : 0}:'
+              '${message.reactions.map((item) => '${item.emoji}${item.count}${item.reactedByMe ? 1 : 0}').join(',')}',
+        )
+        .join('|');
+    final participantSignature = data.participants
+        .map(
+          (participant) =>
+              '${participant.userId}:${participant.lastSeenAt?.millisecondsSinceEpoch ?? 0}:'
+              '${participant.typingAt?.millisecondsSinceEpoch ?? 0}',
+        )
+        .join('|');
+    return '${data.conversation.id}:${data.conversation.name}:'
+        '${data.conversation.lastMessageAt?.millisecondsSinceEpoch ?? 0}:'
+        '${data.messages.length}:$messageSignature:$participantSignature';
+  }
+
+  bool _shouldAutoScroll(ChatMessagesData? previous, ChatMessagesData next) {
+    if (previous == null) {
+      return true;
+    }
+    if (next.messages.length > previous.messages.length) {
+      return true;
+    }
+    final previousLastId = previous.messages.isEmpty
+        ? ''
+        : previous.messages.last.id;
+    final nextLastId = next.messages.isEmpty ? '' : next.messages.last.id;
+    return previousLastId.isNotEmpty && previousLastId != nextLastId;
+  }
+
+  void _handleRoomSearchChanged() {
+    if (mounted && !_isDisposed) {
+      setState(() {});
+    }
+  }
+
+  void _handleComposerChanged() {
+    if (_isDisposed) {
+      return;
+    }
+    final trimmed = _messageCtrl.text.trim();
+    if (trimmed.isEmpty) {
+      if (_isTypingStateActive) {
+        _isTypingStateActive = false;
+        unawaited(
+          _chatService.setTypingState(
+            conversationId: widget.conversationId,
+            isTyping: false,
+          ),
+        );
+      }
+      _typingStopTimer?.cancel();
+    } else {
+      if (!_isTypingStateActive) {
+        _isTypingStateActive = true;
+        unawaited(
+          _chatService.setTypingState(
+            conversationId: widget.conversationId,
+            isTyping: true,
+          ),
+        );
+      }
+      _typingStopTimer?.cancel();
+      _typingStopTimer = Timer(const Duration(seconds: 3), () {
+        if (_isDisposed) {
+          return;
+        }
+        _isTypingStateActive = false;
+        unawaited(
+          _chatService.setTypingState(
+            conversationId: widget.conversationId,
+            isTyping: false,
+          ),
+        );
+      });
+    }
+
+    if (mounted && !_isDisposed) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _touchPresence() async {
+    if (_isDisposed) {
+      return;
+    }
+    try {
+      await _chatService.touchPresence(widget.conversationId);
+    } catch (_) {}
   }
 
   Future<void> _showComposerActions() async {
@@ -461,32 +642,59 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
 
   Future<void> _sendMessage() async {
     final text = _messageCtrl.text.trim();
-    if ((text.isEmpty && _selectedAttachment == null) || _isSending) {
+    if (_isSending) {
+      return;
+    }
+    if (_editingMessage != null && text.isEmpty) {
+      ErrorClassifier.showErrorSnackBar(
+        context,
+        const FormatException('Isi pesan edit tidak boleh kosong.'),
+      );
+      return;
+    }
+    if (_editingMessage == null &&
+        text.isEmpty &&
+        _selectedAttachment == null) {
       return;
     }
 
     setState(() => _isSending = true);
     try {
       final service = ref.read(chatServiceProvider);
-      final sentMessage = await service.sendMessage(
-        conversationId: widget.conversationId,
-        text: text,
-        attachment: _selectedAttachment,
-        replyToId: _replyingTo?.id,
-      );
-      _messageCtrl.clear();
-      if (mounted && _data != null) {
-        setState(() {
-          _selectedAttachment = null;
-          _replyingTo = null;
-        });
-        _appendMessage(sentMessage);
-      } else if (mounted) {
-        setState(() {
-          _selectedAttachment = null;
-          _replyingTo = null;
-        });
+      if (_editingMessage != null) {
+        await service.editMessage(messageId: _editingMessage!.id, text: text);
+        _messageCtrl.clear();
+        if (mounted) {
+          setState(() => _editingMessage = null);
+        }
+      } else {
+        final sentMessage = await service.sendMessage(
+          conversationId: widget.conversationId,
+          text: text,
+          attachment: _selectedAttachment,
+          replyToId: _replyingTo?.id,
+        );
+        _messageCtrl.clear();
+        if (mounted && _data != null) {
+          setState(() {
+            _selectedAttachment = null;
+            _replyingTo = null;
+          });
+          _appendMessage(sentMessage);
+        } else if (mounted) {
+          setState(() {
+            _selectedAttachment = null;
+            _replyingTo = null;
+          });
+        }
       }
+      _isTypingStateActive = false;
+      unawaited(
+        service.setTypingState(
+          conversationId: widget.conversationId,
+          isTyping: false,
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 140));
       await _loadMessages(silent: true);
     } catch (error) {
@@ -629,17 +837,50 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
             runSpacing: 6,
             children: [
               if (!message.isDeleted)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final emoji in _quickReactionEmojis)
+                        _QuickReactionChip(
+                          emoji: emoji,
+                          selected: message.reactions.any(
+                            (item) => item.emoji == emoji && item.reactedByMe,
+                          ),
+                          onTap: () async {
+                            Navigator.pop(context);
+                            await _toggleReaction(message, emoji);
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              if (!message.isDeleted)
                 _MessageActionTile(
                   icon: Icons.reply_rounded,
-                  label: 'Reply',
+                  label: 'Balas',
                   onTap: () {
                     Navigator.pop(context);
-                    setState(() => _replyingTo = message);
+                    setState(() {
+                      _editingMessage = null;
+                      _replyingTo = message;
+                    });
+                  },
+                ),
+              if (!message.isDeleted)
+                _MessageActionTile(
+                  icon: Icons.add_reaction_outlined,
+                  label: 'Reaksi',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _showReactionPicker(message);
                   },
                 ),
               _MessageActionTile(
                 icon: Icons.forward_rounded,
-                label: 'Forward',
+                label: 'Teruskan',
                 onTap: () {
                   Navigator.pop(context);
                   _forwardMessage(message);
@@ -647,7 +888,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
               ),
               _MessageActionTile(
                 icon: Icons.copy_all_rounded,
-                label: 'Copy',
+                label: 'Salin',
                 onTap: () async {
                   Navigator.pop(context);
                   await Clipboard.setData(
@@ -668,7 +909,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 icon: message.isStarred
                     ? Icons.star_rounded
                     : Icons.star_outline_rounded,
-                label: message.isStarred ? 'Hapus Star' : 'Star',
+                label: message.isStarred ? 'Hapus bintang' : 'Beri bintang',
                 onTap: () async {
                   Navigator.pop(context);
                   await _runMessageAction(() async {
@@ -678,6 +919,19 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                   });
                 },
               ),
+              if (!message.isDeleted &&
+                  message.isMine &&
+                  auth.user != null &&
+                  message.messageType != AppConstants.msgTypePoll &&
+                  !message.isVoice)
+                _MessageActionTile(
+                  icon: Icons.edit_outlined,
+                  label: 'Edit pesan',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _startEditingMessage(message);
+                  },
+                ),
               _MessageActionTile(
                 icon: message.isPinned
                     ? Icons.push_pin_rounded
@@ -685,17 +939,38 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                 label: message.isPinned ? 'Lepas Pin Pesan' : 'Pin Pesan',
                 onTap: () async {
                   Navigator.pop(context);
+                  if (message.isPinned) {
+                    await _runMessageAction(() async {
+                      await ref
+                          .read(chatServiceProvider)
+                          .setMessagePin(
+                            messageId: message.id,
+                            isPinned: false,
+                          );
+                    });
+                    return;
+                  }
+
+                  final duration = await _showMessagePinDurationDialog();
+                  if (!mounted || duration == null) {
+                    return;
+                  }
+
                   await _runMessageAction(() async {
                     await ref
                         .read(chatServiceProvider)
-                        .toggleMessagePin(message.id);
+                        .setMessagePin(
+                          messageId: message.id,
+                          isPinned: true,
+                          duration: duration,
+                        );
                   });
                 },
               ),
               if (message.isMine || auth.isSysadmin)
                 _MessageActionTile(
                   icon: Icons.delete_outline_rounded,
-                  label: 'Delete',
+                  label: 'Hapus',
                   isDestructive: true,
                   onTap: () async {
                     Navigator.pop(context);
@@ -723,6 +998,217 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         ErrorClassifier.showErrorSnackBar(context, error);
       }
     }
+  }
+
+  void _startEditingMessage(MessageModel message) {
+    _messageCtrl.value = TextEditingValue(
+      text: message.text,
+      selection: TextSelection.collapsed(offset: message.text.length),
+    );
+    setState(() {
+      _editingMessage = message;
+      _replyingTo = null;
+      _selectedAttachment = null;
+    });
+  }
+
+  Future<void> _showReactionPicker(MessageModel message) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final emoji in _reactionPickerEmojis)
+                _QuickReactionChip(
+                  emoji: emoji,
+                  selected: message.reactions.any(
+                    (item) => item.emoji == emoji && item.reactedByMe,
+                  ),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _toggleReaction(message, emoji);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleReaction(MessageModel message, String emoji) async {
+    await _runMessageAction(() async {
+      await ref
+          .read(chatServiceProvider)
+          .toggleMessageReaction(messageId: message.id, emoji: emoji);
+    });
+  }
+
+  void _toggleSearchMode() {
+    setState(() {
+      _isSearchMode = !_isSearchMode;
+      if (!_isSearchMode) {
+        _roomSearchCtrl.clear();
+      }
+    });
+  }
+
+  Future<void> _showConversationMediaSheet() async {
+    final messages = _data?.messages ?? const <MessageModel>[];
+    final media = messages
+        .where(
+          (item) =>
+              item.hasAttachment &&
+              _isImageFileName(item.attachmentName ?? '') &&
+              (item.attachmentUrl ?? '').isNotEmpty,
+        )
+        .toList(growable: false);
+    final documents = messages
+        .where(
+          (item) =>
+              item.hasAttachment &&
+              !_isImageFileName(item.attachmentName ?? ''),
+        )
+        .toList(growable: false);
+    final links = _extractConversationLinks(messages);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: DefaultTabController(
+          length: 3,
+          child: SizedBox(
+            height: MediaQuery.of(sheetContext).size.height * 0.78,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Media, Dokumen, dan Link',
+                          style: AppTheme.heading3,
+                        ),
+                      ),
+                      Text('${messages.length} pesan', style: AppTheme.caption),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Media'),
+                    Tab(text: 'Dokumen'),
+                    Tab(text: 'Link'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _ConversationMediaTab(
+                        messages: media,
+                        onOpenMessageAttachment: _openAttachment,
+                      ),
+                      _ConversationDocumentTab(
+                        messages: documents,
+                        onOpenMessageAttachment: _openAttachment,
+                      ),
+                      _ConversationLinkTab(links: links),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_ConversationLinkEntry> _extractConversationLinks(
+    List<MessageModel> messages,
+  ) {
+    final entries = <_ConversationLinkEntry>[];
+    final seen = <String>{};
+    for (final message in messages) {
+      for (final match in _urlRegex.allMatches(message.text)) {
+        final url = message.text.substring(match.start, match.end);
+        final normalized = url.trim();
+        if (normalized.isEmpty || !seen.add('${message.id}::$normalized')) {
+          continue;
+        }
+        entries.add(_ConversationLinkEntry(message: message, url: normalized));
+      }
+    }
+    return entries;
+  }
+
+  Future<Duration?> _showMessagePinDurationDialog() {
+    final options = _messagePinDurationOptions;
+    var selected = options[1];
+
+    return showDialog<Duration>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Pilih durasi pin pesan'),
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Pin bisa dilepas kapan saja.',
+                style: AppTheme.bodyMedium.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 14),
+              RadioGroup<_MessagePinDurationOption>(
+                groupValue: selected,
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+                  setState(() => selected = value);
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in options)
+                      RadioListTile<_MessagePinDurationOption>(
+                        value: option,
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(option.label),
+                        activeColor: AppTheme.accentColor,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(selected.duration),
+              child: const Text('Pin'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _toggleConversationPin() async {
@@ -762,6 +1248,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_isDisposed || !_scrollController.hasClients) {
+        return;
+      }
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
@@ -774,9 +1263,20 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _isDisposed = true;
+    _messageCtrl.removeListener(_handleComposerChanged);
+    _roomSearchCtrl.removeListener(_handleRoomSearchChanged);
+    _presenceTimer?.cancel();
     _refreshDebounce?.cancel();
-    _disposeRealtime();
+    _typingStopTimer?.cancel();
+    unawaited(
+      _chatService.setTypingState(
+        conversationId: widget.conversationId,
+        isTyping: false,
+      ),
+    );
+    unawaited(_disposeRealtime());
+    _roomSearchCtrl.dispose();
     _messageCtrl.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -785,6 +1285,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
   @override
   Widget build(BuildContext context) {
     final conversation = _data?.conversation;
+    final visibleMessages = _visibleMessages;
+    final pinnedMessages = _pinnedMessages;
+    final activePinnedMessage = pinnedMessages.isEmpty
+        ? null
+        : pinnedMessages.first;
     final roomAvatarUrl = _resolveRoomAvatarUrl(conversation);
     final roomHeaderBadgeLabel = _conversationHeaderBadgeLabel(conversation);
     final auth = ref.watch(authProvider);
@@ -867,6 +1372,21 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
             ),
           if (conversation != null)
             IconButton(
+              tooltip: _isSearchMode ? 'Tutup pencarian' : 'Cari di chat',
+              onPressed: _toggleSearchMode,
+              icon: Icon(
+                _isSearchMode ? Icons.close_rounded : Icons.search_rounded,
+                color: Colors.white,
+              ),
+            ),
+          if (conversation != null)
+            IconButton(
+              tooltip: 'Media, dokumen, dan link',
+              onPressed: _showConversationMediaSheet,
+              icon: const Icon(Icons.perm_media_outlined, color: Colors.white),
+            ),
+          if (conversation != null)
+            IconButton(
               tooltip: conversation.isPinned ? 'Lepas pin chat' : 'Pin chat',
               onPressed: _toggleConversationPin,
               icon: Icon(
@@ -893,6 +1413,24 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         ),
         child: Column(
           children: [
+            if (_isSearchMode)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: _RoomSearchField(
+                  controller: _roomSearchCtrl,
+                  resultCount: visibleMessages.length,
+                ),
+              ),
+            if (activePinnedMessage != null &&
+                _roomSearchCtrl.text.trim().isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                child: _PinnedMessageBanner(
+                  message: activePinnedMessage,
+                  pinnedCount: pinnedMessages.length,
+                  preview: _pinnedMessagePreview(activePinnedMessage),
+                ),
+              ),
             Expanded(
               child: _isLoading && _data == null
                   ? const Center(child: CircularProgressIndicator())
@@ -920,15 +1458,42 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                         ),
                       ),
                     )
+                  : visibleMessages.isEmpty
+                  ? Center(
+                      child: AppTheme.glassContainer(
+                        opacity: 0.72,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.search_off_rounded,
+                              size: 38,
+                              color: AppTheme.textSecondary,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Pesan tidak ditemukan',
+                              style: AppTheme.heading3,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Ubah kata kunci untuk melihat hasil lain di percakapan ini.',
+                              style: AppTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : RefreshIndicator(
                       onRefresh: _loadMessages,
                       child: ListView.builder(
                         controller: _scrollController,
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                        itemCount: _data!.messages.length,
+                        itemCount: visibleMessages.length,
                         itemBuilder: (context, index) {
-                          final message = _data!.messages[index];
+                          final message = visibleMessages[index];
                           return _MessageBubble(
                             message: message,
                             roomAvatarUrl: roomAvatarUrl,
@@ -937,6 +1502,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                                 ? () => _openAttachment(message)
                                 : null,
                             onShowActions: () => _showMessageActions(message),
+                            onToggleReaction: (emoji) =>
+                                _toggleReaction(message, emoji),
+                            onAddReaction: () => _showReactionPicker(message),
                             onVotePoll: message.isPoll
                                 ? (optionIds) => _votePoll(message, optionIds)
                                 : null,
@@ -977,16 +1545,36 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                             : (_replyingTo!.attachmentName ?? 'Lampiran'),
                         onClose: () => setState(() => _replyingTo = null),
                       ),
+                    if (_editingMessage != null)
+                      _ComposerHint(
+                        icon: Icons.edit_outlined,
+                        color: AppTheme.accentColor,
+                        title: 'Mengedit pesan',
+                        subtitle: _editingMessage!.text.isNotEmpty
+                            ? _editingMessage!.text
+                            : (_editingMessage!.attachmentName ?? 'Pesan'),
+                        onClose: () {
+                          _messageCtrl.clear();
+                          setState(() => _editingMessage = null);
+                        },
+                      ),
                     if (_selectedAttachment != null)
                       _AttachmentDraftPreview(
                         attachment: _selectedAttachment!,
                         onClose: () =>
                             setState(() => _selectedAttachment = null),
                       ),
+                    if (_mentionSuggestions.isNotEmpty)
+                      _MentionSuggestionStrip(
+                        participants: _mentionSuggestions,
+                        onSelect: _insertMention,
+                      ),
                     Row(
                       children: [
                         IconButton.filledTonal(
-                          onPressed: _isSending ? null : _showComposerActions,
+                          onPressed: _isSending || _editingMessage != null
+                              ? null
+                              : _showComposerActions,
                           icon: const Icon(Icons.add_rounded),
                         ),
                         const SizedBox(width: 8),
@@ -998,10 +1586,14 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                             textInputAction: TextInputAction.send,
                             onSubmitted: (_) => _sendMessage(),
                             decoration: InputDecoration(
-                              hintText: _replyingTo != null
+                              hintText: _editingMessage != null
+                                  ? 'Perbarui pesan...'
+                                  : _replyingTo != null
                                   ? 'Tulis balasan...'
                                   : _selectedAttachment != null
                                   ? 'Tambahkan caption...'
+                                  : _canShowMentionSuggestions
+                                  ? 'Tulis pesan... gunakan @ untuk mention'
                                   : 'Tulis pesan...',
                               filled: true,
                               fillColor: const Color(0xFFF7FAF9),
@@ -1038,7 +1630,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.send_rounded),
+                              : Icon(
+                                  _editingMessage != null
+                                      ? Icons.check_rounded
+                                      : Icons.send_rounded,
+                                ),
                         ),
                       ],
                     ),
@@ -1052,12 +1648,133 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     );
   }
 
+  bool get _canShowMentionSuggestions {
+    final conversation = _data?.conversation;
+    return conversation != null && !conversation.isPrivate;
+  }
+
+  List<MessageModel> get _visibleMessages {
+    final messages = _data?.messages ?? const <MessageModel>[];
+    final query = _roomSearchCtrl.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return messages;
+    }
+    return messages
+        .where((message) {
+          final haystack = [
+            message.senderName,
+            message.text,
+            message.attachmentName ?? '',
+            message.replySnippet ?? '',
+          ].join(' ').toLowerCase();
+          return haystack.contains(query);
+        })
+        .toList(growable: false);
+  }
+
+  List<ChatParticipantModel> get _otherParticipants =>
+      (_data?.participants ?? const <ChatParticipantModel>[])
+          .where((item) => !item.isCurrentUser)
+          .toList(growable: false);
+
+  String? get _activeMentionQuery {
+    if (!_canShowMentionSuggestions) {
+      return null;
+    }
+    final text = _messageCtrl.text;
+    final selection = _messageCtrl.selection;
+    final cursor = selection.baseOffset < 0
+        ? text.length
+        : selection.baseOffset;
+    final prefix = text.substring(0, cursor);
+    final match = RegExp(r'(?:^|\s)@([A-Za-z0-9_]*)$').firstMatch(prefix);
+    return match?.group(1);
+  }
+
+  List<ChatParticipantModel> get _mentionSuggestions {
+    final rawQuery = _activeMentionQuery;
+    if (rawQuery == null) {
+      return const <ChatParticipantModel>[];
+    }
+    final query = rawQuery.trim().toLowerCase();
+    return _otherParticipants
+        .where((participant) {
+          final handle = _mentionHandleForName(
+            participant.displayName,
+          ).toLowerCase();
+          final displayName = participant.displayName.toLowerCase();
+          return query.isEmpty ||
+              handle.contains(query) ||
+              displayName.contains(query);
+        })
+        .take(5)
+        .toList(growable: false);
+  }
+
+  void _insertMention(ChatParticipantModel participant) {
+    final text = _messageCtrl.text;
+    final selection = _messageCtrl.selection;
+    final cursor = selection.baseOffset < 0
+        ? text.length
+        : selection.baseOffset;
+    final prefix = text.substring(0, cursor);
+    final suffix = text.substring(cursor);
+    final match = RegExp(r'@([A-Za-z0-9_]*)$').firstMatch(prefix);
+    if (match == null) {
+      return;
+    }
+
+    final start = match.start;
+    final replacement = '@${_mentionHandleForName(participant.displayName)} ';
+    final nextText = '${prefix.substring(0, start)}$replacement$suffix';
+    final nextCursor = prefix.substring(0, start).length + replacement.length;
+    _messageCtrl.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextCursor),
+    );
+  }
+
   String _conversationHeaderSubtitle(ConversationModel conversation) {
+    final typingParticipants = _otherParticipants
+        .where((item) => item.isTyping)
+        .toList(growable: false);
+    if (typingParticipants.isNotEmpty) {
+      if (conversation.isPrivate) {
+        return 'Sedang mengetik...';
+      }
+      if (typingParticipants.length == 1) {
+        return '${typingParticipants.first.displayName} sedang mengetik...';
+      }
+      return '${typingParticipants.first.displayName} dan ${typingParticipants.length - 1} lainnya sedang mengetik...';
+    }
+
+    final onlineParticipants = _otherParticipants
+        .where((item) => item.isOnline)
+        .toList(growable: false);
+    if (onlineParticipants.isNotEmpty) {
+      return conversation.isPrivate
+          ? 'Online'
+          : '${onlineParticipants.length} anggota online';
+    }
+
+    final lastSeenEntries =
+        _otherParticipants
+            .map((item) => item.lastSeenAt)
+            .whereType<DateTime>()
+            .toList(growable: false)
+          ..sort((left, right) => right.compareTo(left));
+    if (lastSeenEntries.isNotEmpty) {
+      final label = Formatters.tanggalRelatif(lastSeenEntries.first);
+      return conversation.isPrivate
+          ? 'Terakhir dilihat $label'
+          : 'Terakhir aktif $label';
+    }
+
     final lastSeenAt = conversation.lastMessageAt;
     if (lastSeenAt == null) {
-      return 'Last seen belum tersedia';
+      return 'Status kehadiran belum tersedia';
     }
-    return 'Last seen ${Formatters.waktuRingkas(lastSeenAt)}';
+    return 'Terakhir aktif ${Formatters.tanggalRelatif(lastSeenAt)}';
   }
 
   String _conversationHeaderBadgeLabel(ConversationModel? conversation) {
@@ -1092,6 +1809,60 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     }
     return null;
   }
+
+  List<MessageModel> get _pinnedMessages {
+    final items =
+        _data?.messages
+            .where((message) => message.isPinned && !message.isDeleted)
+            .toList(growable: false) ??
+        const <MessageModel>[];
+    final sorted = [...items];
+    sorted.sort((left, right) {
+      final leftTime = left.createdAt?.millisecondsSinceEpoch ?? 0;
+      final rightTime = right.createdAt?.millisecondsSinceEpoch ?? 0;
+      return rightTime.compareTo(leftTime);
+    });
+    return sorted;
+  }
+
+  String _pinnedMessagePreview(MessageModel message) {
+    final text = message.text.trim();
+    if (message.isPoll) {
+      return text.isNotEmpty ? 'Polling: $text' : 'Polling dipin';
+    }
+    if (message.isVoice) {
+      return 'Voice note dipin';
+    }
+    if (message.hasAttachment) {
+      final attachmentName = (message.attachmentName ?? '').trim();
+      if (text.isNotEmpty) {
+        return text;
+      }
+      return attachmentName.isNotEmpty
+          ? 'Lampiran: $attachmentName'
+          : 'Lampiran dipin';
+    }
+    if (text.isNotEmpty) {
+      return text;
+    }
+    return 'Pesan dipin';
+  }
+}
+
+const List<_MessagePinDurationOption> _messagePinDurationOptions = [
+  _MessagePinDurationOption(label: '24 jam', duration: Duration(hours: 24)),
+  _MessagePinDurationOption(label: '7 hari', duration: Duration(days: 7)),
+  _MessagePinDurationOption(label: '30 hari', duration: Duration(days: 30)),
+];
+
+class _MessagePinDurationOption {
+  const _MessagePinDurationOption({
+    required this.label,
+    required this.duration,
+  });
+
+  final String label;
+  final Duration duration;
 }
 
 class _ComposerHint extends StatelessWidget {
@@ -1142,6 +1913,106 @@ class _ComposerHint extends StatelessWidget {
             ),
           ),
           IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PinnedMessageBanner extends StatelessWidget {
+  const _PinnedMessageBanner({
+    required this.message,
+    required this.pinnedCount,
+    required this.preview,
+  });
+
+  final MessageModel message;
+  final int pinnedCount;
+  final String preview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.accentColor.withValues(alpha: 0.45)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.accentColor.withValues(alpha: 0.14),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppTheme.accentColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.push_pin_rounded,
+              color: AppTheme.accentColor,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        message.senderName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (pinnedCount > 1)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '$pinnedCount pinned',
+                          style: AppTheme.caption.copyWith(
+                            color: AppTheme.primaryColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.textSecondary,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1225,6 +2096,131 @@ class _AttachmentDraftPreview extends StatelessWidget {
           IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded)),
         ],
       ),
+    );
+  }
+}
+
+class _RoomSearchField extends StatelessWidget {
+  const _RoomSearchField({required this.controller, required this.resultCount});
+
+  final TextEditingController controller;
+  final int resultCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.dividerColor),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search_rounded, color: AppTheme.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Cari isi pesan, nama, atau lampiran...',
+                border: InputBorder.none,
+                isDense: true,
+              ),
+            ),
+          ),
+          Text(
+            '$resultCount hasil',
+            style: AppTheme.caption.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MentionSuggestionStrip extends StatelessWidget {
+  const _MentionSuggestionStrip({
+    required this.participants,
+    required this.onSelect,
+  });
+
+  final List<ChatParticipantModel> participants;
+  final ValueChanged<ChatParticipantModel> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FAF9),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mention anggota grup',
+            style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: participants.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final participant = participants[index];
+                return ActionChip(
+                  avatar: _TinyParticipantAvatar(
+                    imageUrl: participant.avatarUrl,
+                    label: participant.displayName,
+                  ),
+                  label: Text(
+                    '@${_mentionHandleForName(participant.displayName)}',
+                    style: AppTheme.caption.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: () => onSelect(participant),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TinyParticipantAvatar extends StatelessWidget {
+  const _TinyParticipantAvatar({required this.imageUrl, required this.label});
+
+  final String? imageUrl;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedImageUrl = (imageUrl ?? '').trim();
+    if (resolvedImageUrl.isEmpty) {
+      return CircleAvatar(
+        radius: 10,
+        backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+        child: Text(
+          Formatters.inisial(label),
+          style: AppTheme.caption.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppTheme.primaryColor,
+            fontSize: 9,
+          ),
+        ),
+      );
+    }
+    return CircleAvatar(
+      radius: 10,
+      backgroundImage: NetworkImage(resolvedImageUrl),
     );
   }
 }
@@ -1399,7 +2395,9 @@ class _LinkifiedText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final matches = _urlRegex.allMatches(text).toList(growable: false);
+    final matches = _linkOrMentionRegex
+        .allMatches(text)
+        .toList(growable: false);
     if (matches.isEmpty) {
       return Text(text, style: style);
     }
@@ -1412,21 +2410,26 @@ class _LinkifiedText extends StatelessWidget {
           TextSpan(text: text.substring(start, match.start), style: style),
         );
       }
-      final url = text.substring(match.start, match.end);
+      final token = text.substring(match.start, match.end);
+      final isUrl = _urlRegex.hasMatch(token);
       spans.add(
         TextSpan(
-          text: url,
+          text: token,
           style: style.copyWith(
-            color: style.color == Colors.white
-                ? Colors.white
-                : AppTheme.primaryColor,
-            decoration: TextDecoration.underline,
+            color: isUrl
+                ? style.color == Colors.white
+                      ? Colors.white
+                      : AppTheme.primaryColor
+                : const Color(0xFFE85B4A),
+            decoration: isUrl ? TextDecoration.underline : TextDecoration.none,
             fontWeight: FontWeight.w600,
           ),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () {
-              _launchDetectedUrl(url);
-            },
+          recognizer: isUrl
+              ? (TapGestureRecognizer()
+                  ..onTap = () {
+                    _launchDetectedUrl(token);
+                  })
+              : null,
         ),
       );
       start = match.end;
@@ -1765,6 +2768,8 @@ class _MessageBubble extends StatelessWidget {
     required this.roomAvatarUrl,
     required this.currentUserAvatarUrl,
     this.onOpenAttachment,
+    this.onToggleReaction,
+    this.onAddReaction,
     this.onVotePoll,
   });
 
@@ -1773,12 +2778,17 @@ class _MessageBubble extends StatelessWidget {
   final String? roomAvatarUrl;
   final String? currentUserAvatarUrl;
   final VoidCallback? onOpenAttachment;
+  final ValueChanged<String>? onToggleReaction;
+  final VoidCallback? onAddReaction;
   final Future<void> Function(List<String> optionIds)? onVotePoll;
 
   @override
   Widget build(BuildContext context) {
     final isMine = message.isMine;
     final bubbleTextColor = isMine ? Colors.white : AppTheme.textPrimary;
+    final metaColor = isMine
+        ? Colors.white.withValues(alpha: 0.82)
+        : AppTheme.textSecondary;
     final badgeLabel = _messageBadgeLabel(message);
     final sentAtLabel = message.createdAt != null
         ? Formatters.waktu(message.createdAt!)
@@ -1973,6 +2983,39 @@ class _MessageBubble extends StatelessWidget {
                     height: 1.35,
                   ),
                 ),
+              if (!message.isDeleted &&
+                  (message.isEdited ||
+                      (isMine &&
+                          (message.deliveryStatus ?? '').isNotEmpty))) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: isMine
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    if (message.isEdited)
+                      Text(
+                        'Diedit',
+                        style: AppTheme.caption.copyWith(
+                          color: metaColor,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    if (message.isEdited &&
+                        isMine &&
+                        (message.deliveryStatus ?? '').isNotEmpty)
+                      const SizedBox(width: 8),
+                    if (isMine && (message.deliveryStatus ?? '').isNotEmpty)
+                      _MessageDeliveryStatus(
+                        status: message.deliveryStatus ?? 'sent',
+                        color: metaColor,
+                        deliveredCount: message.deliveredCount,
+                        readCount: message.readCount,
+                        recipientCount: message.recipientCount,
+                      ),
+                  ],
+                ),
+              ],
             ],
           ],
         ),
@@ -1983,29 +3026,216 @@ class _MessageBubble extends StatelessWidget {
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Row(
-          mainAxisAlignment: isMine
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        child: Column(
+          crossAxisAlignment: isMine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
-            if (!isMine) ...[
-              _ChatParticipantAvatar(
-                imageUrl: message.senderAvatarUrl ?? roomAvatarUrl,
-                label: message.senderName,
+            Row(
+              mainAxisAlignment: isMine
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (!isMine) ...[
+                  _ChatParticipantAvatar(
+                    imageUrl: message.senderAvatarUrl ?? roomAvatarUrl,
+                    label: message.senderName,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                bubble,
+                if (isMine) ...[
+                  const SizedBox(width: 8),
+                  _ChatParticipantAvatar(
+                    imageUrl: message.senderAvatarUrl ?? currentUserAvatarUrl,
+                    label: message.senderName,
+                  ),
+                ],
+              ],
+            ),
+            if (message.hasReactions)
+              Padding(
+                padding: EdgeInsets.only(
+                  top: 4,
+                  left: isMine ? 0 : 40,
+                  right: isMine ? 40 : 0,
+                ),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  alignment: isMine ? WrapAlignment.end : WrapAlignment.start,
+                  children: [
+                    for (final reaction in message.reactions)
+                      _ReactionCountChip(
+                        reaction: reaction,
+                        onTap: onToggleReaction == null
+                            ? null
+                            : () => onToggleReaction!(reaction.emoji),
+                      ),
+                    if (onAddReaction != null)
+                      _AddReactionChip(onTap: onAddReaction!),
+                  ],
+                ),
               ),
-              const SizedBox(width: 8),
-            ],
-            bubble,
-            if (isMine) ...[
-              const SizedBox(width: 8),
-              _ChatParticipantAvatar(
-                imageUrl: message.senderAvatarUrl ?? currentUserAvatarUrl,
-                label: message.senderName,
-              ),
-            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MessageDeliveryStatus extends StatelessWidget {
+  const _MessageDeliveryStatus({
+    required this.status,
+    required this.color,
+    required this.deliveredCount,
+    required this.readCount,
+    required this.recipientCount,
+  });
+
+  final String status;
+  final Color color;
+  final int deliveredCount;
+  final int readCount;
+  final int recipientCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeStatus = status.trim().toLowerCase();
+    IconData icon;
+    String label;
+
+    switch (safeStatus) {
+      case 'read':
+        icon = Icons.done_all_rounded;
+        label = recipientCount > 0
+            ? 'Dibaca $readCount/$recipientCount'
+            : 'Dibaca';
+        break;
+      case 'delivered':
+        icon = Icons.done_all_rounded;
+        label = recipientCount > 0
+            ? 'Terkirim $deliveredCount/$recipientCount'
+            : 'Terkirim';
+        break;
+      default:
+        icon = Icons.done_rounded;
+        label = 'Terkirim';
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: AppTheme.caption.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReactionCountChip extends StatelessWidget {
+  const _ReactionCountChip({required this.reaction, this.onTap});
+
+  final MessageReactionModel reaction;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: reaction.reactedByMe
+              ? AppTheme.primaryColor.withValues(alpha: 0.12)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: reaction.reactedByMe
+                ? AppTheme.primaryColor.withValues(alpha: 0.4)
+                : AppTheme.dividerColor,
+          ),
+        ),
+        child: Text(
+          '${reaction.emoji} ${reaction.count}',
+          style: AppTheme.caption.copyWith(
+            fontWeight: FontWeight.w700,
+            color: reaction.reactedByMe
+                ? AppTheme.primaryColor
+                : AppTheme.textPrimary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddReactionChip extends StatelessWidget {
+  const _AddReactionChip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppTheme.dividerColor),
+        ),
+        child: const Icon(
+          Icons.add_reaction_outlined,
+          size: 14,
+          color: AppTheme.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickReactionChip extends StatelessWidget {
+  const _QuickReactionChip({
+    required this.emoji,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppTheme.primaryColor.withValues(alpha: 0.12)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? AppTheme.primaryColor.withValues(alpha: 0.4)
+                : AppTheme.dividerColor,
+          ),
+        ),
+        child: Text(emoji, style: const TextStyle(fontSize: 22)),
       ),
     );
   }
@@ -2257,10 +3487,258 @@ class _MessageActionTile extends StatelessWidget {
   }
 }
 
+class _ConversationMediaTab extends StatelessWidget {
+  const _ConversationMediaTab({
+    required this.messages,
+    required this.onOpenMessageAttachment,
+  });
+
+  final List<MessageModel> messages;
+  final Future<void> Function(MessageModel) onOpenMessageAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    if (messages.isEmpty) {
+      return const _ConversationAssetEmptyState(
+        icon: Icons.photo_library_outlined,
+        title: 'Belum ada media',
+        subtitle: 'Foto dan gambar dari percakapan ini akan muncul di sini.',
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: messages.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        return InkWell(
+          onTap: () => onOpenMessageAttachment(message),
+          borderRadius: BorderRadius.circular(14),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  message.attachmentUrl ?? '',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: const Color(0xFFF4F7F5),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.broken_image_outlined),
+                  ),
+                ),
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      message.senderName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ConversationDocumentTab extends StatelessWidget {
+  const _ConversationDocumentTab({
+    required this.messages,
+    required this.onOpenMessageAttachment,
+  });
+
+  final List<MessageModel> messages;
+  final Future<void> Function(MessageModel) onOpenMessageAttachment;
+
+  @override
+  Widget build(BuildContext context) {
+    if (messages.isEmpty) {
+      return const _ConversationAssetEmptyState(
+        icon: Icons.description_outlined,
+        title: 'Belum ada dokumen',
+        subtitle: 'File non-gambar dari percakapan ini akan muncul di sini.',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: messages.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+          tileColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppTheme.dividerColor),
+          ),
+          leading: Icon(
+            _fileIconForName(message.attachmentName ?? ''),
+            color: AppTheme.primaryColor,
+          ),
+          title: Text(
+            message.attachmentName ?? 'Lampiran',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            '${message.senderName} • ${message.createdAt != null ? Formatters.waktuRingkas(message.createdAt!) : ''}',
+            style: AppTheme.caption,
+          ),
+          trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+          onTap: () => onOpenMessageAttachment(message),
+        );
+      },
+    );
+  }
+}
+
+class _ConversationLinkTab extends StatelessWidget {
+  const _ConversationLinkTab({required this.links});
+
+  final List<_ConversationLinkEntry> links;
+
+  @override
+  Widget build(BuildContext context) {
+    if (links.isEmpty) {
+      return const _ConversationAssetEmptyState(
+        icon: Icons.link_off_rounded,
+        title: 'Belum ada link',
+        subtitle:
+            'Semua tautan yang dibagikan di chat ini akan muncul di sini.',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: links.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final item = links[index];
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+          tileColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: AppTheme.dividerColor),
+          ),
+          leading: const Icon(Icons.link_rounded, color: AppTheme.primaryColor),
+          title: Text(
+            item.url,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Text(
+            '${item.message.senderName} • ${item.message.createdAt != null ? Formatters.waktuRingkas(item.message.createdAt!) : ''}',
+            style: AppTheme.caption,
+          ),
+          trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+          onTap: () => _launchDetectedUrl(item.url),
+        );
+      },
+    );
+  }
+}
+
+class _ConversationAssetEmptyState extends StatelessWidget {
+  const _ConversationAssetEmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 40, color: AppTheme.textSecondary),
+            const SizedBox(height: 12),
+            Text(title, style: AppTheme.heading3),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: AppTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConversationLinkEntry {
+  const _ConversationLinkEntry({required this.message, required this.url});
+
+  final MessageModel message;
+  final String url;
+}
+
 final RegExp _urlRegex = RegExp(
   r'((https?:\/\/|www\.)[^\s]+)',
   caseSensitive: false,
 );
+final RegExp _linkOrMentionRegex = RegExp(
+  r'((https?:\/\/|www\.)[^\s]+|@[A-Za-z0-9_]+)',
+  caseSensitive: false,
+);
+
+const List<String> _quickReactionEmojis = ['👍', '❤️', '😂', '🙏', '🔥'];
+
+const List<String> _reactionPickerEmojis = [
+  '👍',
+  '❤️',
+  '😂',
+  '😮',
+  '😢',
+  '🙏',
+  '🔥',
+  '🎉',
+  '✅',
+  '👏',
+];
 
 bool _isImageFileName(String value) {
   final lower = value.toLowerCase();
@@ -2315,4 +3793,12 @@ Future<void> _launchDetectedUrl(String rawUrl) async {
     return;
   }
   await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
+String _mentionHandleForName(String displayName) {
+  final compact = displayName
+      .trim()
+      .replaceAll(RegExp(r'[^A-Za-z0-9\s]'), '')
+      .replaceAll(RegExp(r'\s+'), '_');
+  return compact.isEmpty ? 'user' : compact;
 }
