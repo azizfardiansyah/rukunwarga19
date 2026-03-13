@@ -13,6 +13,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/finance_model.dart';
 import '../../../shared/models/iuran_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
@@ -104,7 +105,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     return accessAsync.when(
       loading: () => Scaffold(
         appBar: AppBar(title: const Text('Iuran')),
-        body: const Center(child: CircularProgressIndicator()),
+        body: AppPageBackground(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: const _IuranListSkeleton(),
+        ),
       ),
       error: (error, stackTrace) => _buildScaffold(
         auth: auth,
@@ -120,7 +124,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
             canPublishFinance: false,
             showOperatorFallbackNotice: auth.isOperator,
           ),
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const _IuranListSkeleton(),
           error: (error, _) => _buildErrorState(error),
         ),
       ),
@@ -138,7 +142,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
             canPublishFinance: access.canPublishFinance,
             showOperatorFallbackNotice: access.showOperatorFallbackNotice,
           ),
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const _IuranListSkeleton(),
           error: (error, _) => _buildErrorState(error),
         ),
       ),
@@ -2524,5 +2528,65 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         Exception('File bukti tidak dapat dibuka.'),
       );
     }
+  }
+}
+
+class _IuranListSkeleton extends StatelessWidget {
+  const _IuranListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Hero skeleton
+        const AppSkeleton(height: 140, borderRadius: 16),
+        const SizedBox(height: 12),
+        // Tab selector skeleton
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceColor.withValues(alpha: 0.76),
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          ),
+          child: const Row(
+            children: [
+              Expanded(child: AppSkeleton(height: 36, borderRadius: 8)),
+              SizedBox(width: 8),
+              Expanded(child: AppSkeleton(height: 36, borderRadius: 8)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // List items
+        Expanded(
+          child: ListView.separated(
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: 5,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (_, _) => const AppSurfaceCard(
+              padding: EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  AppSkeleton(width: 44, height: 44, borderRadius: 12),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppSkeleton(height: 16),
+                        SizedBox(height: 6),
+                        AppSkeleton(height: 14, width: 120),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 70, height: 24, borderRadius: 999),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

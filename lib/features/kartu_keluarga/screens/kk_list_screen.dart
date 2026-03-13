@@ -12,6 +12,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 
@@ -154,7 +155,7 @@ class _KkListScreenState extends ConsumerState<KkListScreen> {
                     ),
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () => const _KkListSkeleton(),
                 error: (error, _) => Center(
                   child: AppSurfaceCard(
                     child: Column(
@@ -454,6 +455,47 @@ class _KkCompactTileState extends State<_KkCompactTile> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _KkListSkeleton extends StatelessWidget {
+  const _KkListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (_, _) => const AppSurfaceCard(
+        padding: EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AppSkeleton(width: 36, height: 36, borderRadius: 10),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppSkeleton(height: 16, width: 180),
+                      SizedBox(height: 6),
+                      AppSkeleton(height: 12, width: 120),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 10),
+            AppSkeleton(height: 14),
+            SizedBox(height: 6),
+            AppSkeleton(height: 14, width: 200),
+          ],
+        ),
       ),
     );
   }

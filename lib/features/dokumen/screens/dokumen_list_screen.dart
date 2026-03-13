@@ -13,6 +13,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/dokumen_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 
@@ -141,7 +142,7 @@ class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
                       ? _buildMyDocuments(data)
                       : _buildVerificationDocuments(data),
                 ),
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () => const _DokumenListSkeleton(),
                 error: (error, _) => Center(
                   child: AppSurfaceCard(
                     child: Column(
@@ -795,5 +796,50 @@ class _DokumenCard extends StatelessWidget {
       default:
         return 'Pending';
     }
+  }
+}
+
+class _DokumenListSkeleton extends StatelessWidget {
+  const _DokumenListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => const AppSurfaceCard(
+        padding: EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AppSkeleton(width: 44, height: 44, borderRadius: 10),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppSkeleton(height: 16),
+                      SizedBox(height: 6),
+                      AppSkeleton(width: 120, height: 12),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+            Row(
+              children: [
+                AppSkeleton(width: 80, height: 24, borderRadius: 999),
+                SizedBox(width: 8),
+                AppSkeleton(width: 100, height: 24, borderRadius: 999),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -9,6 +9,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/role_request_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 
 final managedUsersProvider = FutureProvider.autoDispose<List<RecordModel>>((
   ref,
@@ -231,13 +232,13 @@ class _UserRoleManagementScreenState
           children: [
             usersAsync.when(
               data: _buildUsersTab,
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const _UserManagementSkeleton(),
               error: (error, _) =>
                   Center(child: Text(ErrorClassifier.classify(error).message)),
             ),
             requestsAsync.when(
               data: _buildRequestsTab,
-              loading: () => const Center(child: CircularProgressIndicator()),
+              loading: () => const _UserManagementSkeleton(),
               error: (error, _) =>
                   Center(child: Text(ErrorClassifier.classify(error).message)),
             ),
@@ -523,6 +524,44 @@ class _UserRoleManagementScreenState
         style: AppTheme.caption.copyWith(
           color: color,
           fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _UserManagementSkeleton extends StatelessWidget {
+  const _UserManagementSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: const EdgeInsets.all(AppTheme.paddingMedium),
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 6,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor.withValues(alpha: 0.76),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        ),
+        child: const Row(
+          children: [
+            AppSkeleton(width: 44, height: 44, borderRadius: 22),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppSkeleton(height: 16, width: 140),
+                  SizedBox(height: 6),
+                  AppSkeleton(height: 12, width: 100),
+                ],
+              ),
+            ),
+            AppSkeleton(width: 70, height: 24, borderRadius: 999),
+          ],
         ),
       ),
     );

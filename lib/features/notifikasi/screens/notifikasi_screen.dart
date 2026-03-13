@@ -7,6 +7,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/surat/providers/surat_providers.dart';
+import '../../../shared/widgets/app_badge.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 
 class NotifikasiScreen extends ConsumerStatefulWidget {
@@ -144,21 +146,17 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
                                         spacing: 8,
                                         runSpacing: 8,
                                         children: [
-                                          _chip(
-                                            item.wargaName,
-                                            AppTheme.extraLightGray,
-                                            AppTheme.textSecondary,
+                                          AppBadge(
+                                            label: item.wargaName,
+                                            type: AppBadgeType.neutral,
+                                            size: AppBadgeSize.small,
                                           ),
-                                          _chip(
-                                            AppConstants.suratStatusLabel(
+                                          AppBadge(
+                                            label: AppConstants.suratStatusLabel(
                                               item.request.status,
                                             ),
-                                            AppTheme.statusColor(
-                                              item.request.status,
-                                            ).withValues(alpha: 0.12),
-                                            AppTheme.statusColor(
-                                              item.request.status,
-                                            ),
+                                            type: _badgeTypeFromStatus(item.request.status),
+                                            size: AppBadgeSize.small,
                                           ),
                                         ],
                                       ),
@@ -173,7 +171,7 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
                     ),
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () => const _NotificationSkeleton(),
                 error: (error, _) => Center(
                   child: AppSurfaceCard(
                     child: Column(
@@ -202,18 +200,63 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
     );
   }
 
-  Widget _chip(String label, Color background, Color foreground) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: AppTheme.caption.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
+  AppBadgeType _badgeTypeFromStatus(String status) {
+    switch (status) {
+      case 'approved':
+        return AppBadgeType.success;
+      case 'rejected':
+        return AppBadgeType.error;
+      case 'pending':
+        return AppBadgeType.warning;
+      case 'processing':
+        return AppBadgeType.info;
+      default:
+        return AppBadgeType.neutral;
+    }
+  }
+}
+
+class _NotificationSkeleton extends StatelessWidget {
+  const _NotificationSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => const AppSurfaceCard(
+        padding: EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSkeleton(width: 42, height: 42, borderRadius: 14),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: AppSkeleton(height: 16)),
+                      SizedBox(width: 8),
+                      AppSkeleton(width: 50, height: 12),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  AppSkeleton(height: 14),
+                  SizedBox(height: 10),
+                  Row(
+                    children: [
+                      AppSkeleton(width: 70, height: 20, borderRadius: 999),
+                      SizedBox(width: 8),
+                      AppSkeleton(width: 60, height: 20, borderRadius: 999),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

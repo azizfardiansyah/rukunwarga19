@@ -13,6 +13,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 
 typedef _WargaDetailData = ({
@@ -88,7 +89,7 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
           future: _loadDetail(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+              return const _WargaDetailSkeleton();
             }
             if (snapshot.hasError) {
               return Center(
@@ -593,6 +594,83 @@ class _AvatarCircle extends StatelessWidget {
       child: Text(
         fallbackText,
         style: AppTheme.heading3.copyWith(color: Colors.white),
+      ),
+    );
+  }
+}
+
+class _WargaDetailSkeleton extends StatelessWidget {
+  const _WargaDetailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Overview card skeleton
+          const AppSkeleton(height: 180, borderRadius: 16),
+          const SizedBox(height: 12),
+          // Identitas section
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    AppSkeleton(width: 28, height: 28, borderRadius: 8),
+                    SizedBox(width: 10),
+                    AppSkeleton(width: 80, height: 18),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                ...List.generate(
+                  6,
+                  (_) => const Padding(
+                    padding: EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 2, child: AppSkeleton(height: 14)),
+                        SizedBox(width: 12),
+                        Expanded(flex: 3, child: AppSkeleton(height: 14)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Alamat section
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    AppSkeleton(width: 28, height: 28, borderRadius: 8),
+                    SizedBox(width: 10),
+                    AppSkeleton(width: 100, height: 18),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                ...List.generate(
+                  4,
+                  (_) => const Padding(
+                    padding: EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Expanded(flex: 2, child: AppSkeleton(height: 14)),
+                        SizedBox(width: 12),
+                        Expanded(flex: 3, child: AppSkeleton(height: 14)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

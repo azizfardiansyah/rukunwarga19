@@ -10,6 +10,7 @@ import '../../../app/theme.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../shared/models/workspace_access_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
@@ -91,7 +92,7 @@ class OrganizationStructureScreen extends ConsumerWidget {
                   ),
           ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const _OrganizationStructureSkeleton(),
       ),
     );
   }
@@ -488,6 +489,7 @@ class _PyramidLevelBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = _levelTone(depth: depth, totalLevels: totalLevels);
+    final isDark = AppTheme.isDark(context);
     final isTopLevel = depth == 0;
     final label = isTopLevel ? 'Puncak Organisasi' : 'Level ${depth + 1}';
     final levelIcon = isTopLevel
@@ -503,75 +505,67 @@ class _PyramidLevelBand extends StatelessWidget {
           nodes.length == 1 ? singleWidth : multiWidth,
         );
 
-        return Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.white, tone.withValues(alpha: 0.06)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: BorderRadius.circular(depth == 0 ? 22 : 18),
-            border: Border.all(color: tone.withValues(alpha: 0.18)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: tone.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(levelIcon, size: 13, color: tone),
-                        const SizedBox(width: 6),
-                        Text(
-                          label,
-                          style: AppTheme.caption.copyWith(
-                            color: tone,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
-                          ),
+        return Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? tone.withValues(alpha: 0.18)
+                    : tone.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(levelIcon, size: 13, color: tone),
+                      const SizedBox(width: 6),
+                      Text(
+                        label,
+                        style: AppTheme.caption.copyWith(
+                          color: tone,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${nodes.length} unit organisasi aktif',
-                      style: AppTheme.caption.copyWith(
-                        color: tone.withValues(alpha: 0.72),
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${nodes.length} unit organisasi aktif',
+                    style: AppTheme.caption.copyWith(
+                      color: isDark
+                          ? tone.withValues(alpha: 0.8)
+                          : tone.withValues(alpha: 0.72),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Wrap(
-                alignment: WrapAlignment.center,
-                runAlignment: WrapAlignment.center,
-                spacing: 10,
-                runSpacing: 10,
-                children: nodes
-                    .map(
-                      (node) => SizedBox(
-                        width: cardWidth,
-                        child: _PyramidNodeCard(overview: overview, node: node),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              alignment: WrapAlignment.center,
+              runAlignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: nodes
+                  .map(
+                    (node) => SizedBox(
+                      width: cardWidth,
+                      child: _PyramidNodeCard(overview: overview, node: node),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+          ],
         );
       },
     );
@@ -587,6 +581,7 @@ class _PyramidNodeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = _unitTypeColor(node.unit.type);
+    final isDark = AppTheme.isDark(context);
     final leadMembership = _primaryMembership(node.memberships);
     final supportMemberships = leadMembership == null
         ? node.memberships
@@ -599,32 +594,42 @@ class _PyramidNodeCard extends StatelessWidget {
         .take(supportLimit)
         .toList(growable: false);
 
+    // Card colors for dark/light mode
+    final cardBgColor = isDark
+        ? AppTheme.darkSurfaceColor
+        : Colors.white;
+    final cardGradient = isTopLevel
+        ? LinearGradient(
+            colors: [
+              tone.withValues(alpha: 0.95),
+              AppTheme.primaryDark.withValues(alpha: 0.94),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+        : LinearGradient(
+            colors: isDark
+                ? [cardBgColor, tone.withValues(alpha: 0.08)]
+                : [Colors.white, tone.withValues(alpha: 0.05)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          );
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: isTopLevel
-            ? LinearGradient(
-                colors: [
-                  tone.withValues(alpha: 0.95),
-                  AppTheme.primaryDark.withValues(alpha: 0.94),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : LinearGradient(
-                colors: [Colors.white, tone.withValues(alpha: 0.05)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
+        gradient: cardGradient,
         borderRadius: BorderRadius.circular(isTopLevel ? 20 : 16),
         border: Border.all(
           color: isTopLevel
               ? Colors.white.withValues(alpha: 0.12)
-              : tone.withValues(alpha: 0.16),
+              : isDark
+                  ? tone.withValues(alpha: 0.24)
+                  : tone.withValues(alpha: 0.16),
         ),
         boxShadow: [
           BoxShadow(
-            color: tone.withValues(alpha: isTopLevel ? 0.24 : 0.1),
+            color: tone.withValues(alpha: isTopLevel ? 0.24 : (isDark ? 0.2 : 0.1)),
             blurRadius: isTopLevel ? 24 : 14,
             offset: const Offset(0, 10),
           ),
@@ -643,7 +648,9 @@ class _PyramidNodeCard extends StatelessWidget {
                     Text(
                       node.unit.name,
                       style: AppTheme.bodySmall.copyWith(
-                        color: isTopLevel ? Colors.white : AppTheme.textPrimary,
+                        color: isTopLevel
+                            ? Colors.white
+                            : (isDark ? Colors.white : AppTheme.textPrimary),
                         fontWeight: FontWeight.w900,
                         fontSize: isTopLevel ? 14 : 13,
                         letterSpacing: -0.2,
@@ -655,7 +662,7 @@ class _PyramidNodeCard extends StatelessWidget {
                       style: AppTheme.caption.copyWith(
                         color: isTopLevel
                             ? Colors.white.withValues(alpha: 0.72)
-                            : AppTheme.textTertiary,
+                            : (isDark ? Colors.white70 : AppTheme.textTertiary),
                       ),
                     ),
                   ],
@@ -667,7 +674,7 @@ class _PyramidNodeCard extends StatelessWidget {
                 foreground: isTopLevel ? Colors.white : tone,
                 background: isTopLevel
                     ? Colors.white.withValues(alpha: 0.14)
-                    : tone.withValues(alpha: 0.12),
+                    : tone.withValues(alpha: isDark ? 0.2 : 0.12),
               ),
             ],
           ),
@@ -678,6 +685,7 @@ class _PyramidNodeCard extends StatelessWidget {
               actor: overview.actorByMemberId(leadMembership.workspaceMemberId),
               tone: tone,
               inverted: isTopLevel,
+              isDark: isDark,
             ),
           if (supportMemberships.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -777,12 +785,14 @@ class _LeadMemberBlock extends StatelessWidget {
     required this.actor,
     required this.tone,
     required this.inverted,
+    this.isDark = false,
   });
 
   final OrgMembershipModel membership;
   final OrganizationWorkspaceActor? actor;
   final Color tone;
   final bool inverted;
+  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
@@ -1887,4 +1897,82 @@ String _errorMessage(Object error) {
     }
   }
   return 'Pastikan RW aktif dan data pengurus sudah tersedia.';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKELETON LOADER
+// ═══════════════════════════════════════════════════════════════════
+
+class _OrganizationStructureSkeleton extends StatelessWidget {
+  const _OrganizationStructureSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+      children: [
+        // Hero skeleton
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const AppSkeleton(width: 44, height: 44, borderRadius: 12),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppSkeleton(width: MediaQuery.of(context).size.width * 0.4, height: 17),
+                        const SizedBox(height: 6),
+                        const AppSkeleton(width: 180, height: 12),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Row(
+                children: [
+                  AppSkeleton(width: 50, height: 40, borderRadius: 10),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 50, height: 40, borderRadius: 10),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 70, height: 40, borderRadius: 10),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 60, height: 40, borderRadius: 10),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Manage card skeleton
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: AppTheme.cardDecorationFor(context),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppSkeleton(width: 140, height: 14),
+              SizedBox(height: 6),
+              AppSkeleton(height: 12),
+              SizedBox(height: 12),
+              SkeletonListItem(showAvatar: false, showBadge: false),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // Hierarchy section skeleton
+        const SkeletonCard(height: 200),
+      ],
+    );
+  }
 }

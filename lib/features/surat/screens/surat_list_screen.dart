@@ -11,6 +11,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../providers/surat_providers.dart';
 import '../../../shared/models/surat_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 
@@ -122,7 +123,7 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
               ],
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const _SuratListSkeleton(),
           error: (error, _) => Center(
             child: AppSurfaceCard(
               child: Column(
@@ -442,6 +443,98 @@ class _SuratListCard extends StatelessWidget {
           color: foreground,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _SuratListSkeleton extends StatelessWidget {
+  const _SuratListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Hero skeleton
+        const AppSkeleton(height: 140, borderRadius: 16),
+        const SizedBox(height: 8),
+        // Search bar skeleton
+        const AppSkeleton(height: 48, borderRadius: 12),
+        const SizedBox(height: 8),
+        // Filter chips skeleton
+        const SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              AppSkeleton(width: 70, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 80, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 90, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 75, height: 32, borderRadius: 16),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // List items skeleton
+        Expanded(
+          child: ListView.separated(
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: 4,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (_, _) => const _SuratCardSkeleton(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SuratCardSkeleton extends StatelessWidget {
+  const _SuratCardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppSkeleton(width: 44, height: 44, borderRadius: 14),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    AppSkeleton(height: 18),
+                    SizedBox(height: 6),
+                    AppSkeleton(height: 14, width: 180),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              const AppSkeleton(width: 50, height: 12),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Row(
+            children: [
+              AppSkeleton(width: 80, height: 24, borderRadius: 999),
+              SizedBox(width: 8),
+              AppSkeleton(width: 70, height: 24, borderRadius: 999),
+              SizedBox(width: 8),
+              AppSkeleton(width: 65, height: 24, borderRadius: 999),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const AppSkeleton(height: 14, width: 140),
+          const SizedBox(height: 4),
+          const AppSkeleton(height: 12, width: 160),
+        ],
       ),
     );
   }

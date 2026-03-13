@@ -11,6 +11,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
 import '../../../shared/widgets/app_badge.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -134,7 +135,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                         },
                       ),
                       loading: () =>
-                          const Center(child: CircularProgressIndicator()),
+                          const _ChatListSkeleton(),
                       error: (error, _) => Center(
                         child: AppSurfaceCard(
                           child: Column(
@@ -1118,6 +1119,44 @@ class _AvatarFallback extends StatelessWidget {
         style: AppTheme.bodyMedium.copyWith(
           color: textColor,
           fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ChatListSkeleton extends StatelessWidget {
+  const _ChatListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 6,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (_, _) => const AppSurfaceCard(
+        padding: EdgeInsets.all(14),
+        child: Row(
+          children: [
+            AppSkeleton(width: 50, height: 50, borderRadius: 14),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: AppSkeleton(height: 16)),
+                      SizedBox(width: 8),
+                      AppSkeleton(width: 40, height: 12),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  AppSkeleton(height: 14),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

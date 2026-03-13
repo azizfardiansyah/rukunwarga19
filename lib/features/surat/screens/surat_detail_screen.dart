@@ -16,6 +16,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../providers/surat_providers.dart';
 import '../../../shared/models/surat_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import 'surat_list_screen.dart';
 
@@ -470,7 +471,7 @@ class _SuratDetailScreenState extends ConsumerState<SuratDetailScreen> {
               ),
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const _SuratDetailSkeleton(),
           error: (error, _) => Center(
             child: AppSurfaceCard(
               child: Column(
@@ -898,6 +899,107 @@ class _ActionRow extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+class _SuratDetailSkeleton extends StatelessWidget {
+  const _SuratDetailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        // Hero panel skeleton
+        const AppSkeleton(height: 160, borderRadius: 16),
+        const SizedBox(height: 10),
+        // Summary card
+        AppSurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppSkeleton(width: 140, height: 18),
+              const SizedBox(height: 6),
+              const AppSkeleton(width: 200, height: 14),
+              const SizedBox(height: 14),
+              ...List.generate(
+                5,
+                (_) => const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      Expanded(flex: 2, child: AppSkeleton(height: 14)),
+                      SizedBox(width: 12),
+                      Expanded(flex: 3, child: AppSkeleton(height: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Data pemohon card
+        AppSurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppSkeleton(width: 120, height: 18),
+              const SizedBox(height: 6),
+              const AppSkeleton(width: 180, height: 14),
+              const SizedBox(height: 14),
+              ...List.generate(
+                4,
+                (_) => const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      Expanded(flex: 2, child: AppSkeleton(height: 14)),
+                      SizedBox(width: 12),
+                      Expanded(flex: 3, child: AppSkeleton(height: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Timeline card
+        AppSurfaceCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AppSkeleton(width: 130, height: 18),
+              const SizedBox(height: 14),
+              ...List.generate(
+                3,
+                (_) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      AppSkeleton(width: 24, height: 24, borderRadius: 12),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppSkeleton(height: 14),
+                            SizedBox(height: 6),
+                            AppSkeleton(width: 120, height: 12),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

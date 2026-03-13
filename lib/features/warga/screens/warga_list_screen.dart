@@ -12,6 +12,8 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_badge.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
 
@@ -171,7 +173,7 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                     ),
                   );
                 },
-                loading: () => const Center(child: CircularProgressIndicator()),
+                loading: () => const _WargaListSkeleton(),
                 error: (error, _) => Center(
                   child: AppSurfaceCard(
                     child: Column(
@@ -597,23 +599,10 @@ class _CompactWargaRow extends StatelessWidget {
                       ),
                       if (isKepala) ...[
                         const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            'Kepala',
-                            style: AppTheme.caption.copyWith(
-                              color: AppTheme.primaryColor,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 10,
-                            ),
-                          ),
+                        AppBadge(
+                          label: 'Kepala',
+                          type: AppBadgeType.info,
+                          size: AppBadgeSize.small,
                         ),
                       ],
                     ],
@@ -629,6 +618,63 @@ class _CompactWargaRow extends StatelessWidget {
               ),
             ),
             Icon(Icons.chevron_right_rounded, size: 18, color: tertiaryColor),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKELETON LOADER
+// ═══════════════════════════════════════════════════════════════════
+
+class _WargaListSkeleton extends StatelessWidget {
+  const _WargaListSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 5,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (_, _) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: AppTheme.cardDecorationFor(context),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const AppSkeleton(width: 40, height: 40, borderRadius: 12),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppSkeleton(
+                        width: MediaQuery.of(context).size.width * 0.35,
+                        height: 14,
+                      ),
+                      const SizedBox(height: 6),
+                      AppSkeleton(
+                        width: MediaQuery.of(context).size.width * 0.50,
+                        height: 11,
+                      ),
+                    ],
+                  ),
+                ),
+                const AppSkeleton(width: 24, height: 24, borderRadius: 12),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const AppSkeleton(width: 60, height: 20, borderRadius: 10),
+                const SizedBox(width: 8),
+                const AppSkeleton(width: 80, height: 20, borderRadius: 10),
+              ],
+            ),
           ],
         ),
       ),

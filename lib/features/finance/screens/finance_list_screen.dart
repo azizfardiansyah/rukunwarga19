@@ -301,14 +301,39 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
         error: (error, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(AppTheme.paddingLarge),
-            child: Text(
-              'Gagal memuat ledger keuangan.\n${error.toString()}',
-              textAlign: TextAlign.center,
-              style: AppTheme.bodySmall,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 48,
+                  color: AppTheme.errorColor,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Gagal memuat ledger keuangan',
+                  style: AppTheme.heading3,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  error.toString(),
+                  textAlign: TextAlign.center,
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => ref.read(financeRefreshTickProvider.notifier).bump(),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Coba Lagi'),
+                ),
+              ],
             ),
           ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const FinanceListSkeleton(),
       ),
     );
   }

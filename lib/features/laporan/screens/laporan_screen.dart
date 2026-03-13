@@ -14,6 +14,7 @@ import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/iuran_model.dart';
 import '../../../shared/models/surat_model.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/laporan/alert_card.dart';
 import '../../../shared/widgets/laporan/metric_card.dart';
@@ -142,7 +143,7 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
               ],
             ),
           ),
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const _LaporanSkeleton(),
           error: (error, _) => Center(
             child: AppSurfaceCard(
               child: Column(
@@ -1276,4 +1277,110 @@ class _ReportDetailItem {
 
 class _SuratActionFilter {
   static const String actionRequired = 'action_required';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKELETON LOADER
+// ═══════════════════════════════════════════════════════════════════
+
+class _LaporanSkeleton extends StatelessWidget {
+  const _LaporanSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      children: [
+        // Context card skeleton
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: AppTheme.cardDecorationFor(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const AppSkeleton(width: 42, height: 42, borderRadius: 12),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const AppSkeleton(width: 80, height: 12),
+                        const SizedBox(height: 6),
+                        AppSkeleton(width: MediaQuery.of(context).size.width * 0.6, height: 16),
+                        const SizedBox(height: 6),
+                        const AppSkeleton(height: 12),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                children: [
+                  AppSkeleton(width: 90, height: 24, borderRadius: 12),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 80, height: 24, borderRadius: 12),
+                  SizedBox(width: 8),
+                  AppSkeleton(width: 120, height: 24, borderRadius: 12),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Preset selector skeleton
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: AppTheme.cardDecorationFor(context),
+          child: const Row(
+            children: [
+              AppSkeleton(width: 70, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 70, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 70, height: 32, borderRadius: 16),
+              SizedBox(width: 8),
+              AppSkeleton(width: 70, height: 32, borderRadius: 16),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        // Alerts section skeleton
+        const Row(
+          children: [
+            AppSkeleton(width: 24, height: 24, borderRadius: 8),
+            SizedBox(width: 8),
+            AppSkeleton(width: 140, height: 16),
+          ],
+        ),
+        const SizedBox(height: 6),
+        const AppSkeleton(width: 280, height: 12),
+        const SizedBox(height: 12),
+        const SkeletonCard(height: 100),
+        const SizedBox(height: 18),
+        // Snapshot section skeleton
+        const Row(
+          children: [
+            AppSkeleton(width: 24, height: 24, borderRadius: 8),
+            SizedBox(width: 8),
+            AppSkeleton(width: 160, height: 16),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
+          child: Row(
+            children: List.generate(4, (index) => const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: SkeletonMetricCard(),
+            )),
+          ),
+        ),
+      ],
+    );
+  }
 }
