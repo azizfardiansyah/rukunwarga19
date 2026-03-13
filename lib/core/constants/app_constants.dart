@@ -1257,6 +1257,7 @@ class AppConstants {
           featureBroadcastRt,
           featureAgendaBasic,
           featureFinanceBasic,
+          featureFinancePublish,
         ];
       case planRw:
         return const [

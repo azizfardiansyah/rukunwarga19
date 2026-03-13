@@ -21,13 +21,16 @@ class FinanceService {
   Future<List<FinanceAccountModel>> getAccounts({
     String? workspaceId,
     String? orgUnitId,
+    bool includeInactive = false,
   }) async {
     final profile = await _requireAccessProfile();
     final effectiveWorkspaceId = workspaceId ?? profile.workspace.id;
     final filters = <String>[
       'workspace = "${_escapeFilterValue(effectiveWorkspaceId)}"',
-      'is_active = true',
     ];
+    if (!includeInactive) {
+      filters.add('is_active = true');
+    }
     if ((orgUnitId ?? '').isNotEmpty) {
       filters.add('org_unit = "${_escapeFilterValue(orgUnitId!)}"');
     }
@@ -36,6 +39,108 @@ class FinanceService {
         .collection(AppConstants.colFinanceAccounts)
         .getFullList(filter: filters.join(' && '), sort: 'label,created');
     return records.map(FinanceAccountModel.fromRecord).toList(growable: false);
+  }
+
+  Future<FinanceAccountModel> getAccount(String accountId) async {
+    final profile = await _requireAccessProfile();
+    final record = await pb
+        .collection(AppConstants.colFinanceAccounts)
+        .getOne(accountId);
+    final account = FinanceAccountModel.fromRecord(record);
+    if (account.workspaceId != profile.workspace.id) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {'message': 'Akses akun kas ditolak.'},
+      );
+    }
+    return account;
+  }
+
+  Future<FinanceAccountModel> createAccount({
+    required String orgUnitId,
+    required String code,
+    required String label,
+    required String type,
+    bool isActive = true,
+  }) async {
+    final profile = await _requireAccessProfile();
+    final sanitizedCode = code.trim().toLowerCase();
+    final sanitizedLabel = label.trim();
+    final sanitizedType = type.trim().toLowerCase();
+    _assertCanManageAccount(profile, orgUnitId);
+    await _requireFinanceUnit(profile.workspace.id, orgUnitId);
+    await _assertUniqueAccountCode(
+      workspaceId: profile.workspace.id,
+      code: sanitizedCode,
+    );
+
+    final record = await pb
+        .collection(AppConstants.colFinanceAccounts)
+        .create(
+          body: {
+            'workspace': profile.workspace.id,
+            'org_unit': orgUnitId,
+            'code': sanitizedCode,
+            'label': sanitizedLabel,
+            'type': sanitizedType,
+            'is_active': isActive,
+          },
+        );
+    return FinanceAccountModel.fromRecord(record);
+  }
+
+  Future<FinanceAccountModel> updateAccount({
+    required String accountId,
+    required String orgUnitId,
+    required String code,
+    required String label,
+    required String type,
+    required bool isActive,
+  }) async {
+    final profile = await _requireAccessProfile();
+    final existing = await getAccount(accountId);
+    final sanitizedCode = code.trim().toLowerCase();
+    final sanitizedLabel = label.trim();
+    final sanitizedType = type.trim().toLowerCase();
+
+    if (!profile.member.isSysadmin) {
+      _assertCanManageAccount(profile, existing.orgUnitId);
+    }
+    _assertCanManageAccount(profile, orgUnitId);
+    await _requireFinanceUnit(profile.workspace.id, orgUnitId);
+    await _assertUniqueAccountCode(
+      workspaceId: profile.workspace.id,
+      code: sanitizedCode,
+      excludingAccountId: existing.id,
+    );
+
+    final record = await pb
+        .collection(AppConstants.colFinanceAccounts)
+        .update(
+          accountId,
+          body: {
+            'org_unit': orgUnitId,
+            'code': sanitizedCode,
+            'label': sanitizedLabel,
+            'type': sanitizedType,
+            'is_active': isActive,
+          },
+        );
+    return FinanceAccountModel.fromRecord(record);
+  }
+
+  Future<FinanceAccountModel> setAccountActive({
+    required String accountId,
+    required bool isActive,
+  }) async {
+    final profile = await _requireAccessProfile();
+    final existing = await getAccount(accountId);
+    _assertCanManageAccount(profile, existing.orgUnitId);
+
+    final record = await pb
+        .collection(AppConstants.colFinanceAccounts)
+        .update(accountId, body: {'is_active': isActive});
+    return FinanceAccountModel.fromRecord(record);
   }
 
   Future<List<FinanceTransactionModel>> getTransactions({
@@ -564,6 +669,77 @@ class FinanceService {
             'provinsi': profile.workspace.provinsi ?? '',
           },
         );
+  }
+
+  void _assertCanManageAccount(
+    WorkspaceAccessProfile profile,
+    String? orgUnitId,
+  ) {
+    if (profile.member.isSysadmin) {
+      return;
+    }
+    final unitId = (orgUnitId ?? '').trim();
+    if (unitId.isEmpty || !profile.canSubmitFinanceForUnit(unitId)) {
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message': 'Anda tidak memiliki hak kelola akun kas untuk unit ini.',
+        },
+      );
+    }
+  }
+
+  Future<void> _assertUniqueAccountCode({
+    required String workspaceId,
+    required String code,
+    String? excludingAccountId,
+  }) async {
+    if (code.trim().isEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Kode akun kas wajib diisi.'},
+      );
+    }
+
+    final filters = <String>[
+      'workspace = "${_escapeFilterValue(workspaceId)}"',
+      'code = "${_escapeFilterValue(code.trim().toLowerCase())}"',
+    ];
+    if ((excludingAccountId ?? '').trim().isNotEmpty) {
+      filters.add('id != "${_escapeFilterValue(excludingAccountId!.trim())}"');
+    }
+
+    final existing = await _tryFindFirst(
+      AppConstants.colFinanceAccounts,
+      filters.join(' && '),
+    );
+    if (existing != null) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Kode akun kas sudah dipakai. Gunakan kode lain.',
+        },
+      );
+    }
+  }
+
+  Future<void> _requireFinanceUnit(String workspaceId, String orgUnitId) async {
+    final record = await _tryFindFirst(
+      AppConstants.colOrgUnits,
+      [
+        'workspace = "${_escapeFilterValue(workspaceId)}"',
+        'id = "${_escapeFilterValue(orgUnitId)}"',
+        'status = "active"',
+      ].join(' && '),
+    );
+    if (record == null) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Unit organisasi aktif untuk akun kas belum ditemukan.',
+        },
+      );
+    }
   }
 
   bool _canReadTransaction(

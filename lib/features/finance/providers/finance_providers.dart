@@ -82,36 +82,75 @@ class FinanceDetailData {
 
   OrgUnitModel? get orgUnit => overview.unitById(transaction.orgUnitId);
 
-  FinanceAccountModel? get account => overview.accountById(transaction.accountId);
+  FinanceAccountModel? get account =>
+      overview.accountById(transaction.accountId);
 }
 
-final financeOverviewProvider =
-    FutureProvider.autoDispose<FinanceOverviewData>((ref) async {
-      ref.watch(financeRefreshTickProvider);
-      final profile = await ref
-          .watch(workspaceAccessServiceProvider)
-          .getCurrentAccessProfile();
-      if (profile == null) {
-        throw StateError('Workspace aktif belum tersedia.');
-      }
-      final orgUnits = await ref
-          .watch(workspaceAccessServiceProvider)
-          .getOrgUnits(profile.workspace.id);
-      final accounts = await ref.watch(financeServiceProvider).getAccounts();
-      final transactions = await ref.watch(financeServiceProvider).getTransactions();
-      return FinanceOverviewData(
-        profile: profile,
-        orgUnits: orgUnits,
-        accounts: accounts,
-        transactions: transactions,
-      );
-    });
+class FinanceAccountManagementData {
+  const FinanceAccountManagementData({
+    required this.profile,
+    required this.orgUnits,
+    required this.accounts,
+  });
 
-final financeDetailProvider =
-    FutureProvider.autoDispose.family<FinanceDetailData, String>((
-      ref,
-      transactionId,
-    ) async {
+  final WorkspaceAccessProfile profile;
+  final List<OrgUnitModel> orgUnits;
+  final List<FinanceAccountModel> accounts;
+
+  List<OrgUnitModel> get manageableUnits => orgUnits
+      .where(
+        (unit) =>
+            profile.member.isSysadmin ||
+            profile.canSubmitFinanceForUnit(unit.id),
+      )
+      .toList(growable: false);
+
+  List<FinanceAccountModel> get manageableAccounts => accounts
+      .where(
+        (account) =>
+            profile.member.isSysadmin ||
+            ((account.orgUnitId ?? '').isNotEmpty &&
+                profile.canSubmitFinanceForUnit(account.orgUnitId!)),
+      )
+      .toList(growable: false);
+
+  OrgUnitModel? unitById(String unitId) {
+    for (final unit in orgUnits) {
+      if (unit.id == unitId) {
+        return unit;
+      }
+    }
+    return null;
+  }
+}
+
+final financeOverviewProvider = FutureProvider.autoDispose<FinanceOverviewData>(
+  (ref) async {
+    ref.watch(financeRefreshTickProvider);
+    final profile = await ref
+        .watch(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      throw StateError('Workspace aktif belum tersedia.');
+    }
+    final orgUnits = await ref
+        .watch(workspaceAccessServiceProvider)
+        .getOrgUnits(profile.workspace.id);
+    final accounts = await ref.watch(financeServiceProvider).getAccounts();
+    final transactions = await ref
+        .watch(financeServiceProvider)
+        .getTransactions();
+    return FinanceOverviewData(
+      profile: profile,
+      orgUnits: orgUnits,
+      accounts: accounts,
+      transactions: transactions,
+    );
+  },
+);
+
+final financeDetailProvider = FutureProvider.autoDispose
+    .family<FinanceDetailData, String>((ref, transactionId) async {
       ref.watch(financeRefreshTickProvider);
       final overview = await ref.watch(financeOverviewProvider.future);
       final transaction = await ref
@@ -124,5 +163,27 @@ final financeDetailProvider =
         overview: overview,
         transaction: transaction,
         approvals: approvals,
+      );
+    });
+
+final financeAccountManagementProvider =
+    FutureProvider.autoDispose<FinanceAccountManagementData>((ref) async {
+      ref.watch(financeRefreshTickProvider);
+      final profile = await ref
+          .watch(workspaceAccessServiceProvider)
+          .getCurrentAccessProfile();
+      if (profile == null) {
+        throw StateError('Workspace aktif belum tersedia.');
+      }
+      final orgUnits = await ref
+          .watch(workspaceAccessServiceProvider)
+          .getOrgUnits(profile.workspace.id);
+      final accounts = await ref
+          .watch(financeServiceProvider)
+          .getAccounts(includeInactive: true);
+      return FinanceAccountManagementData(
+        profile: profile,
+        orgUnits: orgUnits,
+        accounts: accounts,
       );
     });

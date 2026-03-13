@@ -32,6 +32,9 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
     }
 
     final overviewAsync = ref.watch(financeOverviewProvider);
+    final canManageAccounts =
+        auth.isSysadmin ||
+        overviewAsync.asData?.value.creatableUnits.isNotEmpty == true;
     return FinanceScreenShell(
       title: 'Keuangan',
       actions: [
@@ -40,6 +43,18 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
           onPressed: () => ref.read(financeRefreshTickProvider.notifier).bump(),
           icon: const Icon(Icons.refresh_rounded),
         ),
+        if (canManageAccounts)
+          PopupMenuButton<String>(
+            tooltip: 'Menu keuangan',
+            onSelected: (value) {
+              if (value == 'accounts') {
+                context.push(Routes.financeAccounts);
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'accounts', child: Text('Kelola akun kas')),
+            ],
+          ),
       ],
       floatingActionButton:
           overviewAsync.asData?.value.creatableUnits.isNotEmpty == true
@@ -90,6 +105,34 @@ class _FinanceListScreenState extends ConsumerState<FinanceListScreen> {
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
               children: [
                 _FinanceHero(overview: overview),
+                const SizedBox(height: 12),
+                FinanceSectionCard(
+                  title: 'Setup akun kas',
+                  subtitle:
+                      'Kelola akun kas dan rekening per unit. Dipakai oleh transaksi manual dan posting otomatis dari iuran.',
+                  action: TextButton.icon(
+                    onPressed: canManageAccounts
+                        ? () => context.push(Routes.financeAccounts)
+                        : null,
+                    icon: const Icon(Icons.settings_outlined, size: 18),
+                    label: const Text('Buka menu'),
+                  ),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FinanceBadge(
+                        label: 'Akun aktif ${overview.accounts.length}',
+                        color: AppTheme.primaryColor,
+                      ),
+                      FinanceBadge(
+                        label:
+                            'Unit siap transaksi ${overview.creatableUnits.length}',
+                        color: AppTheme.successColor,
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 12),
                 FinanceSectionCard(
                   title: 'Filter transaksi',

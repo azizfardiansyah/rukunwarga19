@@ -66,14 +66,62 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    final isAdminView = auth.isOperator || auth.isSysadmin;
+    final accessAsync = ref.watch(iuranAccessProvider);
     final listAsync = ref.watch(iuranListDataProvider);
 
+    return accessAsync.when(
+      loading: () => Scaffold(
+        appBar: AppBar(title: const Text('Iuran')),
+        body: const Center(child: CircularProgressIndicator()),
+      ),
+      error: (error, stackTrace) => _buildScaffold(
+        auth: auth,
+        canManageSetup: false,
+        isAdminView: false,
+        body: listAsync.when(
+          data: (data) => _buildBody(
+            auth: auth,
+            data: data,
+            isAdminView: false,
+            canReviewPayments: false,
+            canPublishFinance: false,
+            showOperatorFallbackNotice: auth.isOperator,
+          ),
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => _buildErrorState(error),
+        ),
+      ),
+      data: (access) => _buildScaffold(
+        auth: auth,
+        canManageSetup: access.canManageSetup,
+        isAdminView: access.canOpenAdminView,
+        body: listAsync.when(
+          data: (data) => _buildBody(
+            auth: auth,
+            data: data,
+            isAdminView: access.canOpenAdminView,
+            canReviewPayments: access.canReviewPayments,
+            canPublishFinance: access.canPublishFinance,
+            showOperatorFallbackNotice: access.showOperatorFallbackNotice,
+          ),
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => _buildErrorState(error),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScaffold({
+    required AuthState auth,
+    required bool canManageSetup,
+    required bool isAdminView,
+    required Widget body,
+  }) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Iuran'),
         actions: [
-          if (isAdminView)
+          if (canManageSetup)
             IconButton(
               onPressed: () => context.push(Routes.iuranForm),
               icon: const Icon(Icons.tune_rounded),
@@ -82,7 +130,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: isAdminView
+      floatingActionButton: canManageSetup
           ? FloatingActionPill(
               onTap: () async {
                 await context.push(Routes.iuranForm);
@@ -100,57 +148,84 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           : null,
       body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: listAsync.when(
-          data: (data) => Column(
-            children: [
-              _buildHero(auth, data),
-              const SizedBox(height: 8),
-              AppSearchBar(
-                hintText: 'Cari tagihan, jenis iuran, KK, atau catatan',
-                value: _query,
-                onChanged: (value) => setState(() => _query = value),
-              ),
-              const SizedBox(height: 8),
-              _buildTabs(isAdminView),
-              const SizedBox(height: 10),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async =>
-                      ref.read(iuranRefreshTickProvider.notifier).bump(),
-                  child: _buildContent(context, auth, data, isAdminView),
-                ),
-              ),
-              if (isAdminView) const SizedBox(height: 72),
-            ],
-          ),
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: AppSurfaceCard(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    ErrorClassifier.classify(error).message,
-                    style: AppTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 10),
-                  FilledButton(
-                    onPressed: () =>
-                        ref.read(iuranRefreshTickProvider.notifier).bump(),
-                    child: const Text('Coba Lagi'),
-                  ),
-                ],
-              ),
+        child: body,
+      ),
+    );
+  }
+
+  Widget _buildBody({
+    required AuthState auth,
+    required IuranListData data,
+    required bool isAdminView,
+    required bool canReviewPayments,
+    required bool canPublishFinance,
+    required bool showOperatorFallbackNotice,
+  }) {
+    return Column(
+      children: [
+        _buildHero(auth, data, isAdminView: isAdminView),
+        if (showOperatorFallbackNotice) ...[
+          const SizedBox(height: 8),
+          _buildOperatorFallbackNotice(),
+        ],
+        const SizedBox(height: 8),
+        AppSearchBar(
+          hintText: 'Cari tagihan, jenis iuran, KK, atau catatan',
+          value: _query,
+          onChanged: (value) => setState(() => _query = value),
+        ),
+        const SizedBox(height: 8),
+        _buildTabs(isAdminView),
+        const SizedBox(height: 10),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async =>
+                ref.read(iuranRefreshTickProvider.notifier).bump(),
+            child: _buildContent(
+              context,
+              auth,
+              data,
+              isAdminView,
+              canReviewPayments: canReviewPayments,
+              canPublishFinance: canPublishFinance,
             ),
           ),
+        ),
+        if (isAdminView) const SizedBox(height: 72),
+      ],
+    );
+  }
+
+  Widget _buildErrorState(Object error) {
+    return Center(
+      child: AppSurfaceCard(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              ErrorClassifier.classify(error).message,
+              style: AppTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            FilledButton(
+              onPressed: () =>
+                  ref.read(iuranRefreshTickProvider.notifier).bump(),
+              child: const Text('Coba Lagi'),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHero(AuthState auth, IuranListData data) {
+  Widget _buildHero(
+    AuthState auth,
+    IuranListData data, {
+    required bool isAdminView,
+  }) {
     final isWargaView = !auth.isOperator && !auth.isSysadmin;
+    final effectiveWargaView = isWargaView || !isAdminView;
     final subtitle = isWargaView
         ? 'Pantau tagihan per KK, unggah bukti transfer, dan lihat status verifikasi pembayaran.'
         : 'Kelola jenis iuran, periode, tagihan per KK, dan verifikasi pembayaran sesuai wilayah akses Anda.';
@@ -158,10 +233,12 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     return AppHeroPanel(
       eyebrow: AppConstants.roleLabel(auth.role),
       icon: Icons.payments_outlined,
-      title: isWargaView
+      title: effectiveWargaView
           ? 'Tagihan iuran keluarga Anda'
           : 'Operasional iuran warga per KK',
-      subtitle: subtitle,
+      subtitle: effectiveWargaView
+          ? 'Pantau tagihan per KK, unggah bukti transfer, dan lihat status verifikasi pembayaran.'
+          : subtitle,
       chips: [
         _heroChip(
           Icons.receipt_long_rounded,
@@ -176,6 +253,50 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           'Tunggakan ${Formatters.rupiah(data.summary.totalTunggakan)}',
         ),
       ],
+    );
+  }
+
+  Widget _buildOperatorFallbackNotice() {
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.warningColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.lock_clock_rounded,
+              color: AppTheme.warningColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Mode warga aktif',
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Subscription atau hak operasional iuran belum aktif. Anda tetap bisa membayar iuran sendiri, tetapi verifikasi harus dilakukan pengurus lain atau RW.',
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -233,14 +354,16 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     BuildContext context,
     AuthState auth,
     IuranListData data,
-    bool isAdminView,
-  ) {
+    bool isAdminView, {
+    required bool canReviewPayments,
+    required bool canPublishFinance,
+  }) {
     if (isAdminView) {
       switch (_adminTab) {
         case _AdminIuranTab.tagihan:
-          return _buildAdminBills(data);
+          return _buildAdminBills(data, canPublishFinance: canPublishFinance);
         case _AdminIuranTab.verifikasi:
-          return _buildAdminVerification(data);
+          return _buildAdminVerification(data, auth, canReviewPayments);
         case _AdminIuranTab.periode:
           return _buildPeriods(data);
         case _AdminIuranTab.jenis:
@@ -251,7 +374,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     return _buildWargaBills(auth, data);
   }
 
-  Widget _buildAdminBills(IuranListData data) {
+  Widget _buildAdminBills(
+    IuranListData data, {
+    required bool canPublishFinance,
+  }) {
     final bills = _filterBills(
       data.bills,
       includePaidOnly: false,
@@ -287,11 +413,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           latestPayment,
           financeTransaction: financeTransaction,
           isAdmin: true,
+          showPrimaryAction: !bill.isPaid,
+          showFinanceAction:
+              canPublishFinance && financeTransaction != null && bill.isPaid,
           onPrimaryAction: bill.isSubmittedVerification
               ? () => setState(() => _adminTab = _AdminIuranTab.verifikasi)
               : () => _recordCash(bill),
           onFinanceAction:
-              financeTransaction != null &&
+              canPublishFinance &&
+                  financeTransaction != null &&
                   bill.isPaid &&
                   !financeTransaction.isPublished
               ? () => _publishFinance(bill)
@@ -307,7 +437,11 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     );
   }
 
-  Widget _buildAdminVerification(IuranListData data) {
+  Widget _buildAdminVerification(
+    IuranListData data,
+    AuthState auth,
+    bool canReviewPayments,
+  ) {
     final payments = _filterPendingPayments(data.pendingPayments, data);
     if (payments.isEmpty) {
       return ListView(
@@ -330,7 +464,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
       itemBuilder: (context, index) {
         final payment = payments[index];
         final bill = data.bills.firstWhere((item) => item.id == payment.billId);
-        return _buildPendingPaymentCard(bill, payment);
+        final isSelfPayment =
+            (data.myKkId ?? '').isNotEmpty && data.myKkId == bill.kkId ||
+            payment.submittedBy == auth.user?.id;
+        return _buildPendingPaymentCard(
+          bill,
+          payment,
+          canReview: canReviewPayments && !isSelfPayment,
+          isSelfPayment: isSelfPayment,
+        );
       },
     );
   }
@@ -546,12 +688,17 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     IuranPaymentModel? latestPayment, {
     FinanceTransactionModel? financeTransaction,
     required bool isAdmin,
+    bool showPrimaryAction = true,
+    bool showFinanceAction = true,
     required VoidCallback? onPrimaryAction,
     required VoidCallback? onFinanceAction,
     required String primaryActionLabel,
     required String financeActionLabel,
   }) {
     final statusColor = AppTheme.statusColor(bill.status);
+    final shouldShowPrimaryAction = showPrimaryAction && !bill.isPaid;
+    final shouldShowFinanceAction =
+        showFinanceAction && financeTransaction != null;
     final financePublishLabel = financeTransaction == null
         ? null
         : financeTransaction.isPublished
@@ -712,14 +859,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(
-                child: FilledButton(
-                  onPressed: onPrimaryAction,
-                  child: Text(primaryActionLabel),
+              if (shouldShowPrimaryAction)
+                Expanded(
+                  child: FilledButton(
+                    onPressed: onPrimaryAction,
+                    child: Text(primaryActionLabel),
+                  ),
                 ),
-              ),
-              if (isAdmin && financeTransaction != null) ...[
-                const SizedBox(width: 10),
+              if (isAdmin && shouldShowFinanceAction) ...[
+                if (shouldShowPrimaryAction) const SizedBox(width: 10),
                 OutlinedButton(
                   onPressed: financeTransaction.isPublished
                       ? null
@@ -728,7 +876,8 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                 ),
               ],
               if (isAdmin && latestPayment != null) ...[
-                const SizedBox(width: 10),
+                if (shouldShowPrimaryAction || shouldShowFinanceAction)
+                  const SizedBox(width: 10),
                 OutlinedButton(
                   onPressed: () => _openProof(latestPayment),
                   child: const Text('Bukti'),
@@ -743,8 +892,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
 
   Widget _buildPendingPaymentCard(
     IuranBillModel bill,
-    IuranPaymentModel payment,
-  ) {
+    IuranPaymentModel payment, {
+    required bool canReview,
+    required bool isSelfPayment,
+  }) {
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -797,6 +948,27 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           _infoRow('No. KK', bill.kkNumber),
           if ((payment.note ?? '').isNotEmpty)
             _infoRow('Catatan warga', payment.note!),
+          if (isSelfPayment) ...[
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.warningColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.warningColor.withValues(alpha: 0.22),
+                ),
+              ),
+              child: Text(
+                'Pembayaran untuk KK Anda sendiri harus diverifikasi pengurus lain atau RW.',
+                style: AppTheme.bodySmall.copyWith(
+                  color: AppTheme.warningColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
@@ -812,7 +984,9 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton(
-                  onPressed: () => _reviewPayment(payment, approve: true),
+                  onPressed: canReview
+                      ? () => _reviewPayment(payment, approve: true)
+                      : null,
                   child: const Text('Verifikasi'),
                 ),
               ),
@@ -822,7 +996,9 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
-              onPressed: () => _reviewPayment(payment, approve: false),
+              onPressed: canReview
+                  ? () => _reviewPayment(payment, approve: false)
+                  : null,
               child: const Text('Tolak Pembayaran'),
             ),
           ),

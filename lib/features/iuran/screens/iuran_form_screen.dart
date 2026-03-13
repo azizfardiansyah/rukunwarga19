@@ -61,62 +61,85 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
-    if (!auth.isOperator && !auth.isSysadmin) {
-      return Scaffold(
+    final accessAsync = ref.watch(iuranAccessProvider);
+
+    return accessAsync.when(
+      loading: () => Scaffold(
         appBar: AppBar(title: const Text('Kelola Iuran')),
-        body: const AppPageBackground(
-          child: AppEmptyState(
-            icon: Icons.lock_outline_rounded,
-            title: 'Akses ditolak',
-            message: 'Hanya admin yang dapat membuat dan mengelola iuran.',
-          ),
-        ),
-      );
-    }
+        body: const Center(child: CircularProgressIndicator()),
+      ),
+      error: (error, _) => _buildAccessDenied(
+        auth.isOperator || auth.isSysadmin
+            ? 'Hak kelola iuran belum aktif untuk akun ini.'
+            : 'Hanya admin yang dapat membuat dan mengelola iuran.',
+      ),
+      data: (access) {
+        if (!access.canManageSetup) {
+          return _buildAccessDenied(
+            access.showOperatorFallbackNotice
+                ? 'Subscription atau hak kelola iuran belum aktif. Gunakan layar iuran sebagai warga atau aktifkan akses operator terlebih dahulu.'
+                : 'Anda belum memiliki hak kelola periode dan jenis iuran.',
+          );
+        }
 
-    final optionsAsync = ref.watch(iuranFormOptionsProvider);
-
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Kelola Iuran'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Periode'),
-              Tab(text: 'Jenis Iuran'),
-            ],
-          ),
-        ),
-        body: AppPageBackground(
-          child: optionsAsync.when(
-            data: (options) => TabBarView(
-              children: [
-                _buildPeriodTab(context, auth, options),
-                _buildTypeTab(context, auth),
-              ],
+        final optionsAsync = ref.watch(iuranFormOptionsProvider);
+        return DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            appBar: AppBar(
+              title: const Text('Kelola Iuran'),
+              bottom: const TabBar(
+                tabs: [
+                  Tab(text: 'Periode'),
+                  Tab(text: 'Jenis Iuran'),
+                ],
+              ),
             ),
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => Center(
-              child: AppSurfaceCard(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            body: AppPageBackground(
+              child: optionsAsync.when(
+                data: (options) => TabBarView(
                   children: [
-                    Text(
-                      ErrorClassifier.classify(error).message,
-                      style: AppTheme.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                    FilledButton(
-                      onPressed: () => ref.invalidate(iuranFormOptionsProvider),
-                      child: const Text('Coba Lagi'),
-                    ),
+                    _buildPeriodTab(context, auth, options),
+                    _buildTypeTab(context, auth),
                   ],
+                ),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: AppSurfaceCard(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          ErrorClassifier.classify(error).message,
+                          style: AppTheme.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        FilledButton(
+                          onPressed: () =>
+                              ref.invalidate(iuranFormOptionsProvider),
+                          child: const Text('Coba Lagi'),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAccessDenied(String message) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Kelola Iuran')),
+      body: AppPageBackground(
+        child: AppEmptyState(
+          icon: Icons.lock_outline_rounded,
+          title: 'Akses ditolak',
+          message: message,
         ),
       ),
     );

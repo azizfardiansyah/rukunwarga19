@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/iuran_service.dart';
+import '../../../core/services/workspace_access_service.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class IuranRefreshTickNotifier extends Notifier<int> {
@@ -14,6 +15,103 @@ final iuranRefreshTickProvider =
     NotifierProvider<IuranRefreshTickNotifier, int>(
       IuranRefreshTickNotifier.new,
     );
+
+class IuranAccessState {
+  const IuranAccessState({
+    required this.canOpenAdminView,
+    required this.canManageSetup,
+    required this.canReviewPayments,
+    required this.canPublishFinance,
+    required this.showOperatorFallbackNotice,
+  });
+
+  final bool canOpenAdminView;
+  final bool canManageSetup;
+  final bool canReviewPayments;
+  final bool canPublishFinance;
+  final bool showOperatorFallbackNotice;
+
+  bool get isWargaMode => !canOpenAdminView;
+}
+
+final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
+  ref,
+) async {
+  final auth = ref.watch(authProvider);
+  if (auth.user == null) {
+    return const IuranAccessState(
+      canOpenAdminView: false,
+      canManageSetup: false,
+      canReviewPayments: false,
+      canPublishFinance: false,
+      showOperatorFallbackNotice: false,
+    );
+  }
+  if (auth.isSysadmin) {
+    return const IuranAccessState(
+      canOpenAdminView: true,
+      canManageSetup: true,
+      canReviewPayments: true,
+      canPublishFinance: true,
+      showOperatorFallbackNotice: false,
+    );
+  }
+  if (!auth.isOperator) {
+    return const IuranAccessState(
+      canOpenAdminView: false,
+      canManageSetup: false,
+      canReviewPayments: false,
+      canPublishFinance: false,
+      showOperatorFallbackNotice: false,
+    );
+  }
+
+  try {
+    final profile = await ref
+        .watch(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null || !profile.member.hasActiveSubscription) {
+      return const IuranAccessState(
+        canOpenAdminView: false,
+        canManageSetup: false,
+        canReviewPayments: false,
+        canPublishFinance: false,
+        showOperatorFallbackNotice: true,
+      );
+    }
+
+    final canManageSetup = profile.orgMemberships.any(
+      (membership) => membership.isActive && membership.canManageIuran,
+    );
+    final canReviewPayments = profile.orgMemberships.any(
+      (membership) =>
+          membership.isActive &&
+          (membership.canManageIuran || membership.canVerifyIuranPayment),
+    );
+    final canPublishFinance =
+        profile.canPublishFinanceByPlan &&
+        profile.orgMemberships.any(
+          (membership) => membership.isActive && membership.canPublishFinance,
+        );
+    final canOpenAdminView = canManageSetup || canReviewPayments;
+
+    return IuranAccessState(
+      canOpenAdminView: canOpenAdminView,
+      canManageSetup: canManageSetup,
+      canReviewPayments: canReviewPayments,
+      canPublishFinance: canPublishFinance,
+      showOperatorFallbackNotice: !canOpenAdminView,
+    );
+  } catch (_) {
+    return const IuranAccessState(
+      canOpenAdminView: false,
+      canManageSetup: false,
+      canReviewPayments: false,
+      canPublishFinance: false,
+      showOperatorFallbackNotice: true,
+    );
+  }
+});
 
 final iuranListDataProvider = FutureProvider.autoDispose<IuranListData>((ref) {
   final auth = ref.watch(authProvider);

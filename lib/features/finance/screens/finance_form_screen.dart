@@ -250,9 +250,23 @@ class _FinanceFormScreenState extends ConsumerState<FinanceFormScreen> {
                 if (selectedUnitId != null && selectedAccounts.isEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
-                    'Belum ada akun kas aktif untuk unit ini. Tambahkan akun kas terlebih dahulu di backend.',
+                    'Belum ada akun kas aktif untuk unit ini. Buka menu Kelola Akun Kas untuk menambahkan akun unit terlebih dahulu.',
                     style: AppTheme.bodySmall.copyWith(
                       color: AppTheme.errorColor,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _isSaving
+                          ? null
+                          : () => context.push(Routes.financeAccounts),
+                      icon: const Icon(
+                        Icons.account_balance_outlined,
+                        size: 18,
+                      ),
+                      label: const Text('Kelola Akun Kas'),
                     ),
                   ),
                 ],

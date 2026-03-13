@@ -39,6 +39,7 @@ import '../features/organization/screens/organization_membership_screen.dart';
 import '../features/finance/screens/finance_list_screen.dart';
 import '../features/finance/screens/finance_form_screen.dart';
 import '../features/finance/screens/finance_detail_screen.dart';
+import '../features/finance/screens/finance_account_screen.dart';
 import '../shared/widgets/main_scaffold.dart';
 
 // Route paths
@@ -78,6 +79,7 @@ class Routes {
   static const String organizationUnits = '/organisasi/unit';
   static const String organizationMemberships = '/organisasi/membership';
   static const String finance = '/keuangan';
+  static const String financeAccounts = '/keuangan/akun';
   static const String financeForm = '/keuangan/form';
   static const String financeDetail = '/keuangan/:id';
 }
@@ -327,6 +329,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.finance,
         builder: (context, state) => const FinanceListScreen(),
+      ),
+      GoRoute(
+        path: Routes.financeAccounts,
+        builder: (context, state) => const FinanceAccountScreen(),
       ),
       GoRoute(
         path: Routes.financeForm,

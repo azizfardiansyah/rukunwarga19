@@ -1,23 +1,45 @@
 # RukunWarga
 
-Tanggal pembaruan: 2026-03-11
+Tanggal pembaruan: 2026-03-13
 
 Dokumen ini adalah README utama yang menggabungkan isi:
 
-- `chat.md`
-- `implementation_blueprint.md`
-- `iuran.md`
-- `jabatan_master_flag_schema.md`
 - `manual_smoke_runbook.md`
-- `midtransapi.md`
-- `rukunwarga_saas_model.md`
-- `service_permission_matrix.md`
-- `surat.md`
 - `testing_matrix.md`
-- `ui_permission_matrix.md`
 
-`RULES.md` tetap dipisah karena dipakai sebagai aturan agent AI dan bukan
+RULES.md` tetap dipisah karena dipakai sebagai aturan agent AI dan bukan
 dokumen produk utama.
+
+## 0. Ringkasan Perubahan 10-13 Maret 2026
+
+### 2026-03-13
+
+- `Laporan` dirombak menjadi dashboard 3 layer: alert urgent, snapshot
+  operasional, dan detail drill-down, dengan CTA langsung ke modul kerja.
+- route `iuran`, `dokumen`, dan `surat` sekarang menerima query parameter
+  filter awal agar tombol dari dashboard bisa membuka konteks yang tepat.
+- grup chat unit resmi sekarang bisa tersinkron otomatis dari `org_units`,
+  mendukung avatar grup, dan anggota dikelola manual sesuai area yuridiksi.
+- layar struktur organisasi diubah menjadi chart hierarkis berbentuk piramida
+  dengan lead member yang lebih menonjol.
+
+### 2026-03-12
+
+- organisasi menambah dukungan `Karang Taruna`, `workspace_member.display_name`,
+  avatar anggota workspace, dan pembacaan user untuk mapping pengurus.
+- pengumuman mendapat attachment, statistik view, dan penyelarasan rule fitur
+  chat scoped.
+- chat menambah fondasi pin duration, presence, dan penyempurnaan alur room
+  serta announcement.
+
+### 2026-03-11
+
+- fondasi akses SaaS direfaktor besar ke model `workspace + plan + jabatan +
+  scope`, termasuk capability flag dan plan-gated collection rules.
+- finance maker-checker, group, dan sumber referensi transaksi diperluas untuk
+  flow operasional RW/RT.
+- polish UI/UX lintas modul admin dirapikan agar surface, spacing, dan visual
+  state lebih konsisten.
 
 ## 1. Ringkasan Produk
 
@@ -310,6 +332,15 @@ Status implementasi chat:
 - polling: backend aktif, UI composer belum final
 - voice note: backend aktif, UI composer belum final
 
+Perubahan terbaru:
+
+- official group chat untuk unit organisasi bisa dibuat atau disinkronkan
+  otomatis dari `org_units`
+- avatar grup chat sudah didukung
+- kelola anggota grup mengikuti area yuridiksi dan tetap bisa dikurasi manual
+- pengumuman sudah mendukung attachment dan statistik view
+- foundation pin duration dan presence untuk chat sudah masuk backend
+
 ## 8.6 Organisasi
 
 Layar organisasi yang sudah ada:
@@ -325,6 +356,15 @@ Data yang ditampilkan:
 - seat operator
 - unit resmi dan custom
 - pengurus, jabatan, masa bakti, status
+
+Perubahan terbaru:
+
+- unit `Karang Taruna` sudah masuk sebagai unit resmi
+- struktur organisasi sekarang punya mode visual hierarkis berbentuk piramida
+- unit atau pengurus yang belum disetting tidak lagi ditampilkan di layar
+- lead member mengikuti urutan jabatan aktif tertinggi, bukan hanya flag
+  `primary`
+- display name dan avatar `workspace_member` dipakai untuk identitas pengurus
 
 ## 8.7 Finance Maker-Checker
 
@@ -359,6 +399,29 @@ Prinsip subscription:
 - transaksi payment belum boleh langsung mengubah akses sampai status payment sah
 
 Midtrans dipakai untuk checkout dan callback payment subscription.
+
+## 8.9 Laporan Operasional
+
+Tujuan modul:
+
+- membantu admin scan kondisi RW atau RT dalam beberapa detik
+- menonjolkan item yang perlu tindakan paling cepat
+- membuka modul kerja yang relevan dengan filter awal yang tepat
+
+Struktur layar terbaru:
+
+- layer 1: alert urgent untuk iuran belum lunas, dokumen pending review, surat
+  perlu approval, dan bukti transfer menunggu verifikasi
+- layer 2: snapshot operasional berbentuk metric card yang lebih ringkas
+- layer 3: detail drill-down untuk fokus kategori yang dipilih
+
+Perubahan terbaru:
+
+- dashboard laporan sekarang lebih bersih dan actionable
+- CTA pada alert langsung membuka `iuran`, `dokumen`, atau `surat` dengan
+  pre-filter
+- metric card punya active state untuk fokus detail
+- akses laporan operasional tetap dibatasi untuk admin wilayah
 
 ## 9. Collection Utama PocketBase
 
@@ -434,7 +497,10 @@ Midtrans dipakai untuk checkout dan callback payment subscription.
 - organization screens
 - finance screens
 - announcement scoped
+- attachment dan statistik view pengumuman
 - iuran operasional dasar
+- dashboard laporan operasional dengan CTA terfilter
+- org chart hierarkis dan sinkronisasi grup chat unit
 - fallback legacy role lama
 
 ### Belum final
@@ -458,16 +524,19 @@ Status testing saat ini:
 - polling dan voice note: backend siap, UI belum final
 - iuran ke ledger finance: belum selesai
 
-## 13. Checklist Batch Hari Ini
+## 13. Checklist Batch 10-13 Maret 2026
 
-Perubahan yang harus dites satu per satu dari batch hari ini:
+Perubahan yang harus dites satu per satu dari batch 10-13 Maret 2026:
 
-1. `operator + rt` membuat pengumuman hanya pada RT sesuai yuridiksi
-2. kartu tagihan iuran menampilkan nama kepala keluarga
-3. field `Nominal Default` periode iuran tampil dalam format `Rp 20.000`
-4. menu `Keuangan` membuka list finance
-5. `FinanceFormScreen` bisa simpan draft dan submit
-6. `FinanceDetailScreen` bisa approve, reject, dan publish sesuai hak
+1. alert `Laporan` membuka `iuran`, `dokumen`, dan `surat` dengan filter awal
+   yang sesuai
+2. dashboard `Laporan` tidak overflow pada mobile, tablet, dan web desktop
+3. grup chat unit organisasi otomatis tersedia sesuai `org_units`
+4. avatar grup chat bisa dilihat, diubah, dan dihapus dari menu `more`
+5. kelola anggota grup hanya menawarkan anggota sesuai area yuridiksi
+6. struktur organisasi hanya menampilkan unit dan pengurus yang sudah terset
+7. lead member pada chart organisasi selalu memilih jabatan aktif tertinggi
+8. pengumuman scoped mendukung attachment dan statistik view
 
 ## 14. Next Step Setelah Batch Ini Lolos Test
 

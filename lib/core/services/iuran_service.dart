@@ -154,6 +154,28 @@ class IuranPaymentReviewPayload {
   final String note;
 }
 
+class _IuranPostingContext {
+  const _IuranPostingContext({
+    required this.profile,
+    required this.targetUnit,
+    this.account,
+  });
+
+  final WorkspaceAccessProfile profile;
+  final OrgUnitModel targetUnit;
+  final FinanceAccountModel? account;
+}
+
+class _IuranFinanceEnsureResult {
+  const _IuranFinanceEnsureResult({
+    required this.transaction,
+    required this.created,
+  });
+
+  final FinanceTransactionModel transaction;
+  final bool created;
+}
+
 class IuranService {
   IuranService(this._ref);
 
@@ -181,8 +203,9 @@ class IuranService {
       );
     }
 
+    final viewerAuth = await _effectiveViewerAuth(auth);
     final access = await resolveAreaAccessContext(auth);
-    final billFilter = buildIuranBillScopeFilter(auth, context: access);
+    final billFilter = buildIuranBillScopeFilter(viewerAuth, context: access);
 
     final billRecords = await pb
         .collection(AppConstants.colIuranBills)
@@ -200,12 +223,12 @@ class IuranService {
           .collection(AppConstants.colIuranPeriods)
           .getFullList(sort: '-created', filter: _orFilter('id', periodIds));
       periods = periodRecords.map(IuranPeriodModel.fromRecord).toList();
-    } else if (auth.isOperator || auth.isSysadmin) {
+    } else if (viewerAuth.isOperator || viewerAuth.isSysadmin) {
       final periodRecords = await pb
           .collection(AppConstants.colIuranPeriods)
           .getFullList(
             sort: '-created',
-            filter: buildIuranPeriodScopeFilter(auth, context: access),
+            filter: buildIuranPeriodScopeFilter(viewerAuth, context: access),
           );
       periods = periodRecords.map(IuranPeriodModel.fromRecord).toList();
     }
@@ -214,7 +237,9 @@ class IuranService {
         .collection(AppConstants.colIuranTypes)
         .getFullList(
           sort: 'sort_order,label',
-          filter: auth.isOperator || auth.isSysadmin ? '' : 'is_active = true',
+          filter: viewerAuth.isOperator || viewerAuth.isSysadmin
+              ? ''
+              : 'is_active = true',
         );
     final types = typeRecords.map(IuranTypeModel.fromRecord).toList();
 
@@ -290,7 +315,7 @@ class IuranService {
   }
 
   Future<IuranFormOptions> fetchFormOptions(AuthState auth) async {
-    _assertAdminAccess(auth);
+    await _assertIuranWorkspaceManagerAccess(auth);
 
     final types =
         (await pb
@@ -307,7 +332,7 @@ class IuranService {
     AuthState auth,
     IuranTypeSubmitPayload payload,
   ) async {
-    _assertAdminAccess(auth);
+    await _assertIuranWorkspaceManagerAccess(auth);
 
     final label = payload.label.trim();
     if (label.isEmpty) {
@@ -341,7 +366,7 @@ class IuranService {
     AuthState auth,
     IuranPeriodSubmitPayload payload,
   ) async {
-    _assertAdminAccess(auth);
+    await _assertIuranWorkspaceManagerAccess(auth);
     if (payload.defaultAmount <= 0) {
       throw Exception('Nominal default harus lebih besar dari nol.');
     }
@@ -508,9 +533,15 @@ class IuranService {
     _assertAdminAccess(auth);
     final billRecord = await _loadAuthorizedBillRecord(auth, billId);
     final bill = IuranBillModel.fromRecord(billRecord);
+    await _assertCanRecordOrVerifyBillPayment(auth, bill);
+    await _assertNotSelfHandledPayment(auth, bill);
     if (bill.isPaid) {
       throw Exception('Tagihan ini sudah lunas.');
     }
+    final postingContext = await _preparePostingContext(
+      bill: bill,
+      paymentMethod: AppConstants.iuranMethodCash,
+    );
 
     final now = DateTime.now().toIso8601String();
     final paymentRecord = await pb
@@ -530,31 +561,39 @@ class IuranService {
             'verified_at': now,
           },
         );
-
-    await pb
-        .collection(AppConstants.colIuranBills)
-        .update(
-          bill.id,
-          body: {
-            'status': AppConstants.iuranBillPaid,
-            'payment_method': AppConstants.iuranMethodCash,
-            'payer_note': note.trim(),
-            'submitted_by': auth.user!.id,
-            'submitted_at': now,
-            'verified_by': auth.user!.id,
-            'verified_at': now,
-            'paid_at': now,
-            'rejection_note': '',
-          },
-        );
-
     final payment = IuranPaymentModel.fromRecord(paymentRecord);
-    await _ensureFinanceTransactionForPayment(
-      auth: auth,
-      bill: bill,
-      payment: payment,
-      note: note.trim(),
-    );
+    _IuranFinanceEnsureResult? financeResult;
+    try {
+      financeResult = await _ensureFinanceTransactionForPayment(
+        auth: auth,
+        bill: bill,
+        payment: payment,
+        note: note.trim(),
+        postingContext: postingContext,
+      );
+      await pb
+          .collection(AppConstants.colIuranBills)
+          .update(
+            bill.id,
+            body: {
+              'status': AppConstants.iuranBillPaid,
+              'payment_method': AppConstants.iuranMethodCash,
+              'payer_note': note.trim(),
+              'submitted_by': auth.user!.id,
+              'submitted_at': now,
+              'verified_by': auth.user!.id,
+              'verified_at': now,
+              'paid_at': now,
+              'rejection_note': '',
+            },
+          );
+    } catch (_) {
+      await _rollbackRecordedCashPayment(
+        paymentId: payment.id,
+        financeResult: financeResult,
+      );
+      rethrow;
+    }
   }
 
   Future<void> verifyPayment(
@@ -568,48 +607,69 @@ class IuranService {
     final payment = IuranPaymentModel.fromRecord(paymentRecord);
     final billRecord = await _loadAuthorizedBillRecord(auth, payment.billId);
     final bill = IuranBillModel.fromRecord(billRecord);
+    await _assertCanRecordOrVerifyBillPayment(auth, bill);
+    await _assertNotSelfHandledPayment(auth, bill, payment: payment);
     if (payment.isVerified) {
       throw Exception('Pembayaran ini sudah diverifikasi.');
     }
+    if (!payment.isSubmitted) {
+      throw Exception(
+        'Hanya pembayaran yang sedang menunggu verifikasi yang bisa diproses.',
+      );
+    }
+    final postingContext = await _preparePostingContext(
+      bill: bill,
+      paymentMethod: payment.method,
+    );
 
     final now = DateTime.now().toIso8601String();
-    final updatedPaymentRecord = await pb
-        .collection(AppConstants.colIuranPayments)
-        .update(
-          payment.id,
-          body: {
-            'status': AppConstants.iuranPaymentVerified,
-            'review_note': payload.note.trim(),
-            'verified_by': auth.user!.id,
-            'verified_at': now,
-            'rejection_note': '',
-          },
-        );
-
-    await pb
-        .collection(AppConstants.colIuranBills)
-        .update(
-          bill.id,
-          body: {
-            'status': AppConstants.iuranBillPaid,
-            'payment_method': payment.method,
-            'submitted_by': payment.submittedBy,
-            'submitted_at': payment.submittedAt?.toIso8601String(),
-            'verified_by': auth.user!.id,
-            'verified_at': now,
-            'paid_at': now,
-            'payer_note': payment.note ?? '',
-            'rejection_note': '',
-          },
-        );
-
-    final verifiedPayment = IuranPaymentModel.fromRecord(updatedPaymentRecord);
-    await _ensureFinanceTransactionForPayment(
-      auth: auth,
-      bill: bill,
-      payment: verifiedPayment,
-      note: payload.note.trim(),
-    );
+    _IuranFinanceEnsureResult? financeResult;
+    try {
+      final updatedPaymentRecord = await pb
+          .collection(AppConstants.colIuranPayments)
+          .update(
+            payment.id,
+            body: {
+              'status': AppConstants.iuranPaymentVerified,
+              'review_note': payload.note.trim(),
+              'verified_by': auth.user!.id,
+              'verified_at': now,
+              'rejection_note': '',
+            },
+          );
+      final verifiedPayment = IuranPaymentModel.fromRecord(
+        updatedPaymentRecord,
+      );
+      financeResult = await _ensureFinanceTransactionForPayment(
+        auth: auth,
+        bill: bill,
+        payment: verifiedPayment,
+        note: payload.note.trim(),
+        postingContext: postingContext,
+      );
+      await pb
+          .collection(AppConstants.colIuranBills)
+          .update(
+            bill.id,
+            body: {
+              'status': AppConstants.iuranBillPaid,
+              'payment_method': payment.method,
+              'submitted_by': payment.submittedBy,
+              'submitted_at': payment.submittedAt?.toIso8601String(),
+              'verified_by': auth.user!.id,
+              'verified_at': now,
+              'paid_at': now,
+              'payer_note': payment.note ?? '',
+              'rejection_note': '',
+            },
+          );
+    } catch (_) {
+      await _rollbackVerifiedPayment(
+        payment: payment,
+        financeResult: financeResult,
+      );
+      rethrow;
+    }
   }
 
   Future<void> rejectPayment(
@@ -623,6 +683,13 @@ class IuranService {
     final payment = IuranPaymentModel.fromRecord(paymentRecord);
     final billRecord = await _loadAuthorizedBillRecord(auth, payment.billId);
     final bill = IuranBillModel.fromRecord(billRecord);
+    await _assertCanRecordOrVerifyBillPayment(auth, bill);
+    await _assertNotSelfHandledPayment(auth, bill, payment: payment);
+    if (!payment.isSubmitted) {
+      throw Exception(
+        'Hanya pembayaran yang sedang menunggu verifikasi yang bisa ditolak.',
+      );
+    }
     final note = payload.note.trim();
     if (note.isEmpty) {
       throw Exception('Catatan penolakan wajib diisi.');
@@ -710,6 +777,40 @@ class IuranService {
     if (auth.user == null || (!auth.isOperator && !auth.isSysadmin)) {
       throw Exception('Hanya admin yang dapat mengelola iuran.');
     }
+  }
+
+  Future<AuthState> _effectiveViewerAuth(AuthState auth) async {
+    if (await _canUseAdminIuranView(auth)) {
+      return auth;
+    }
+    return auth.copyWith(
+      role: AppConstants.roleWarga,
+      systemRole: AppConstants.systemRoleWarga,
+      planCode: AppConstants.planFree,
+    );
+  }
+
+  Future<bool> _canUseAdminIuranView(AuthState auth) async {
+    if (auth.user == null) {
+      return false;
+    }
+    if (auth.isSysadmin) {
+      return true;
+    }
+    if (!auth.isOperator) {
+      return false;
+    }
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null || !profile.member.hasActiveSubscription) {
+      return false;
+    }
+    return profile.orgMemberships.any(
+      (membership) =>
+          membership.isActive &&
+          (membership.canManageIuran || membership.canVerifyIuranPayment),
+    );
   }
 
   http.MultipartFile _toMultipartFile(String field, PlatformFile file) {
@@ -934,29 +1035,126 @@ class IuranService {
     return IuranPaymentModel.fromRecord(records.first);
   }
 
-  Future<void> _ensureFinanceTransactionForPayment({
+  Future<_IuranFinanceEnsureResult> _ensureFinanceTransactionForPayment({
     required AuthState auth,
     required IuranBillModel bill,
     required IuranPaymentModel payment,
     required String note,
+    _IuranPostingContext? postingContext,
   }) async {
-    final profile = await _ref
-        .read(workspaceAccessServiceProvider)
-        .getCurrentAccessProfile();
-    if (profile == null) {
-      throw Exception('Workspace aktif belum tersedia.');
+    final context =
+        postingContext ??
+        await _preparePostingContext(bill: bill, paymentMethod: payment.method);
+    final financeService = _ref.read(financeServiceProvider);
+    final existing = await financeService.getTransactionBySourceReference(
+      sourceModule: 'iuran',
+      sourceReference: payment.id,
+    );
+    if (existing != null) {
+      return _IuranFinanceEnsureResult(transaction: existing, created: false);
     }
 
-    final existing = await _ref
-        .read(financeServiceProvider)
-        .getTransactionBySourceReference(
-          sourceModule: 'iuran',
-          sourceReference: payment.id,
-        );
-    if (existing != null) {
+    final title =
+        'Iuran ${bill.typeLabel} - ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber}';
+    final descriptionParts = <String>[
+      'Tagihan ${bill.title}',
+      'No. KK ${bill.kkNumber}',
+      if ((bill.kkHolderName ?? '').trim().isNotEmpty)
+        'Kepala KK ${bill.kkHolderName}',
+      if (note.trim().isNotEmpty) 'Catatan: ${note.trim()}',
+    ];
+
+    final transaction = await financeService.createRecordedIncomingTransaction(
+      orgUnitId: context.targetUnit.id,
+      accountId: context.account!.id,
+      category: 'iuran',
+      title: title,
+      amount: payment.amount,
+      paymentMethod: payment.method,
+      sourceModule: 'iuran',
+      sourceReference: payment.id,
+      description: descriptionParts.join(' - '),
+    );
+    return _IuranFinanceEnsureResult(transaction: transaction, created: true);
+  }
+
+  Future<void> _assertIuranWorkspaceManagerAccess(AuthState auth) async {
+    _assertAdminAccess(auth);
+    final profile = await _requireProfile();
+    if (profile.member.isSysadmin) {
       return;
     }
+    if (!profile.member.hasActiveSubscription) {
+      throw Exception(
+        'Subscription operator belum aktif. Kelola iuran dikunci sampai subscription aktif.',
+      );
+    }
+    final canManageAnyIuran = profile.orgMemberships.any(
+      (membership) => membership.isActive && membership.canManageIuran,
+    );
+    if (!canManageAnyIuran) {
+      throw Exception(
+        'Anda tidak memiliki hak kelola iuran pada workspace ini.',
+      );
+    }
+  }
 
+  Future<void> _assertCanRecordOrVerifyBillPayment(
+    AuthState auth,
+    IuranBillModel bill,
+  ) async {
+    _assertAdminAccess(auth);
+    final context = await _preparePostingContext(
+      bill: bill,
+      paymentMethod: bill.paymentMethod ?? AppConstants.iuranMethodTransfer,
+      requireAccount: false,
+    );
+    if (context.profile.member.isSysadmin) {
+      return;
+    }
+    if (!context.profile.member.hasActiveSubscription) {
+      throw Exception(
+        'Subscription operator belum aktif. Verifikasi iuran harus dilakukan pengurus lain yang aktif atau RW.',
+      );
+    }
+    final canManage = context.profile.canManageIuranForUnit(
+      context.targetUnit.id,
+    );
+    final canVerify = context.profile.canVerifyIuranForUnit(
+      context.targetUnit.id,
+    );
+    if (!canManage && !canVerify) {
+      throw Exception(
+        'Anda tidak memiliki hak verifikasi pembayaran iuran untuk unit ${context.targetUnit.name}.',
+      );
+    }
+  }
+
+  Future<void> _assertNotSelfHandledPayment(
+    AuthState auth,
+    IuranBillModel bill, {
+    IuranPaymentModel? payment,
+  }) async {
+    if (auth.user == null) {
+      return;
+    }
+    final area = await resolveAreaAccessContext(auth);
+    final isOwnBill = (area.kkId ?? '').isNotEmpty && area.kkId == bill.kkId;
+    final isOwnSubmission =
+        payment != null && payment.submittedBy == auth.user!.id;
+    if (isOwnBill || isOwnSubmission) {
+      throw Exception(
+        'Pembayaran untuk KK Anda sendiri harus diverifikasi pengurus lain atau diekskalasi ke RW.',
+      );
+    }
+  }
+
+  Future<_IuranPostingContext> _preparePostingContext({
+    required IuranBillModel bill,
+    required String paymentMethod,
+    bool requireAccount = true,
+  }) async {
+    final profile = await _requireProfile();
     final orgUnits = await _ref
         .read(workspaceAccessServiceProvider)
         .getOrgUnits(profile.workspace.id);
@@ -972,37 +1170,72 @@ class IuranService {
       accounts: accounts,
       orgUnits: orgUnits,
       targetUnit: targetUnit,
-      paymentMethod: payment.method,
+      paymentMethod: paymentMethod,
     );
-    if (account == null) {
+    if (requireAccount && account == null) {
       throw Exception(
-        'Akun kas aktif untuk unit ${targetUnit.name} belum tersedia. Tambahkan finance account terlebih dahulu.',
+        'Akun kas aktif untuk unit ${targetUnit.name} belum tersedia. Tambahkan dulu di menu Keuangan > Kelola Akun Kas.',
       );
     }
 
-    final title =
-        'Iuran ${bill.typeLabel} - ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber}';
-    final descriptionParts = <String>[
-      'Tagihan ${bill.title}',
-      'No. KK ${bill.kkNumber}',
-      if ((bill.kkHolderName ?? '').trim().isNotEmpty)
-        'Kepala KK ${bill.kkHolderName}',
-      if (note.trim().isNotEmpty) 'Catatan: ${note.trim()}',
-    ];
+    return _IuranPostingContext(
+      profile: profile,
+      targetUnit: targetUnit,
+      account: account,
+    );
+  }
 
-    await _ref
-        .read(financeServiceProvider)
-        .createRecordedIncomingTransaction(
-          orgUnitId: targetUnit.id,
-          accountId: account.id,
-          category: 'iuran',
-          title: title,
-          amount: payment.amount,
-          paymentMethod: payment.method,
-          sourceModule: 'iuran',
-          sourceReference: payment.id,
-          description: descriptionParts.join(' • '),
-        );
+  Future<WorkspaceAccessProfile> _requireProfile() async {
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      throw Exception('Workspace aktif belum tersedia.');
+    }
+    return profile;
+  }
+
+  Future<void> _rollbackRecordedCashPayment({
+    required String paymentId,
+    required _IuranFinanceEnsureResult? financeResult,
+  }) async {
+    if (financeResult?.created == true) {
+      try {
+        await pb
+            .collection(AppConstants.colFinanceTransactions)
+            .delete(financeResult!.transaction.id);
+      } catch (_) {}
+    }
+    try {
+      await pb.collection(AppConstants.colIuranPayments).delete(paymentId);
+    } catch (_) {}
+  }
+
+  Future<void> _rollbackVerifiedPayment({
+    required IuranPaymentModel payment,
+    required _IuranFinanceEnsureResult? financeResult,
+  }) async {
+    if (financeResult?.created == true) {
+      try {
+        await pb
+            .collection(AppConstants.colFinanceTransactions)
+            .delete(financeResult!.transaction.id);
+      } catch (_) {}
+    }
+    try {
+      await pb
+          .collection(AppConstants.colIuranPayments)
+          .update(
+            payment.id,
+            body: {
+              'status': AppConstants.iuranPaymentSubmitted,
+              'review_note': payment.reviewNote ?? '',
+              'verified_by': '',
+              'verified_at': '',
+              'rejection_note': '',
+            },
+          );
+    } catch (_) {}
   }
 
   FinanceAccountModel? _pickFinanceAccount({
