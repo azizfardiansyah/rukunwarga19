@@ -52,6 +52,7 @@ dependencies:
   url_launcher: ^6.3.2
   flutter_slidable: ^4.0.1
   printing: ^5.14.2
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:

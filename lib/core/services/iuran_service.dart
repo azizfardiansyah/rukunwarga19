@@ -12,6 +12,7 @@ import '../constants/app_constants.dart';
 import '../services/finance_service.dart';
 import '../services/pocketbase_service.dart';
 import '../utils/area_access.dart';
+import '../utils/formatters.dart';
 import 'workspace_access_service.dart';
 
 class IuranDashboardSummary {
@@ -1021,6 +1022,128 @@ class IuranService {
     );
   }
 
+  Future<void> publishPeriodSummary(
+    AuthState auth,
+    String periodId, {
+    String? announcementTitle,
+    String? announcementContent,
+  }) async {
+    _assertAdminAccess(auth);
+    await _assertIuranWorkspaceManagerAccess(auth);
+    final profile = await _requireProfile();
+    final access = await resolveAreaAccessContext(auth);
+    final viewerAuth = await _effectiveViewerAuth(auth);
+    final periodRecord = await pb
+        .collection(AppConstants.colIuranPeriods)
+        .getOne(periodId);
+    final period = IuranPeriodModel.fromRecord(periodRecord);
+
+    final billRecords = await pb
+        .collection(AppConstants.colIuranBills)
+        .getFullList(
+          sort: '-updated,-created',
+          filter: [
+            buildIuranBillScopeFilter(viewerAuth, context: access),
+            'period = "${_escapeFilterValue(periodId)}"',
+          ].join(' && '),
+        );
+    if (billRecords.isEmpty) {
+      throw Exception(
+        'Tidak ada data tagihan iuran yang dapat dipublikasikan untuk periode ini.',
+      );
+    }
+
+    final bills = billRecords
+        .map(IuranBillModel.fromRecord)
+        .toList(growable: false);
+    final paymentsByBill = <String, List<IuranPaymentModel>>{};
+    final paymentRecords = await pb
+        .collection(AppConstants.colIuranPayments)
+        .getFullList(
+          sort: '-created',
+          filter: _orFilter('bill', bills.map((item) => item.id).toList()),
+        );
+    for (final record in paymentRecords) {
+      final payment = IuranPaymentModel.fromRecord(record);
+      paymentsByBill.putIfAbsent(payment.billId, () => []).add(payment);
+    }
+    for (final entry in paymentsByBill.entries) {
+      entry.value.sort((a, b) => b.timelineAt.compareTo(a.timelineAt));
+    }
+
+    final enrichedBills = bills
+        .map(
+          (bill) => _deriveBillStateFromPayments(
+            bill,
+            paymentsByBill[bill.id] ?? const [],
+          ),
+        )
+        .toList(growable: false);
+
+    final totalTarget = enrichedBills.length;
+    final paidCount = enrichedBills.where((item) => item.isPaid).length;
+    final unpaidCount = totalTarget - paidCount;
+    final totalCollected = enrichedBills
+        .where((item) => item.isPaid)
+        .fold<int>(0, (sum, item) => sum + item.amount);
+    final completionPercent = totalTarget == 0
+        ? 0
+        : ((paidCount / totalTarget) * 100).round();
+
+    final orgUnits = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getOrgUnits(profile.workspace.id);
+    final targetUnit = _pickIuranAnnouncementUnit(
+      orgUnits: orgUnits,
+      period: period,
+      bills: enrichedBills,
+    );
+    final title = (announcementTitle ?? 'Rekap ${period.title}').trim();
+    final content =
+        (announcementContent ??
+                _buildPeriodSummaryAnnouncement(
+                  period: period,
+                  totalTarget: totalTarget,
+                  paidCount: paidCount,
+                  unpaidCount: unpaidCount,
+                  totalCollected: totalCollected,
+                  completionPercent: completionPercent,
+                ))
+            .trim();
+
+    await pb
+        .collection(AppConstants.colAnnouncements)
+        .create(
+          body: {
+            'workspace': profile.workspace.id,
+            if (targetUnit != null) 'org_unit': targetUnit.id,
+            'author': auth.user!.id,
+            'title': title,
+            'content': content,
+            'target_type': (period.rt ?? 0) > 0 ? 'rt' : 'rw',
+            'rt': period.rt ?? 0,
+            'rw': period.rw ?? profile.workspace.rw,
+            'source_module': 'iuran',
+            'publish_state': 'published',
+            'published_by_member': profile.member.id,
+            'is_published': true,
+            'desa_code': period.desaCode ?? profile.workspace.desaCode ?? '',
+            'kecamatan_code':
+                period.kecamatanCode ?? profile.workspace.kecamatanCode ?? '',
+            'kabupaten_code':
+                period.kabupatenCode ?? profile.workspace.kabupatenCode ?? '',
+            'provinsi_code':
+                period.provinsiCode ?? profile.workspace.provinsiCode ?? '',
+            'desa_kelurahan':
+                period.desaKelurahan ?? profile.workspace.desaKelurahan ?? '',
+            'kecamatan': period.kecamatan ?? profile.workspace.kecamatan ?? '',
+            'kabupaten_kota':
+                period.kabupatenKota ?? profile.workspace.kabupatenKota ?? '',
+            'provinsi': period.provinsi ?? profile.workspace.provinsi ?? '',
+          },
+        );
+  }
+
   Future<IuranPaymentModel?> _loadLatestVerifiedPayment(String billId) async {
     final records = await pb
         .collection(AppConstants.colIuranPayments)
@@ -1033,6 +1156,30 @@ class IuranService {
       return null;
     }
     return IuranPaymentModel.fromRecord(records.first);
+  }
+
+  String _buildPeriodSummaryAnnouncement({
+    required IuranPeriodModel period,
+    required int totalTarget,
+    required int paidCount,
+    required int unpaidCount,
+    required int totalCollected,
+    required int completionPercent,
+  }) {
+    final lines = <String>[
+      'Ringkasan iuran ${period.title}.',
+      'Target KK: $totalTarget KK.',
+      'Sudah lunas: $paidCount KK.',
+      'Belum lunas: $unpaidCount KK.',
+      'Total nominal masuk: ${Formatters.rupiah(totalCollected)}.',
+      'Tingkat penyelesaian: $completionPercent%.',
+    ];
+    if (period.dueDate != null) {
+      lines.add(
+        'Batas pembayaran: ${Formatters.tanggalPendek(period.dueDate!)}.',
+      );
+    }
+    return lines.join('\n');
   }
 
   Future<_IuranFinanceEnsureResult> _ensureFinanceTransactionForPayment({
@@ -1291,6 +1438,37 @@ class IuranService {
       }
     }
     return accounts.isNotEmpty ? accounts.first : null;
+  }
+
+  OrgUnitModel? _pickIuranAnnouncementUnit({
+    required List<OrgUnitModel> orgUnits,
+    required IuranPeriodModel period,
+    required List<IuranBillModel> bills,
+  }) {
+    if (bills.isNotEmpty) {
+      final fromBill = _pickIuranOrgUnit(orgUnits, bills.first);
+      if (fromBill != null) {
+        return fromBill;
+      }
+    }
+
+    for (final unit in orgUnits) {
+      if ((period.rt ?? 0) > 0 &&
+          unit.type == AppConstants.unitTypeRt &&
+          unit.scopeRw == (period.rw ?? 0) &&
+          unit.scopeRt == period.rt &&
+          unit.status == 'active') {
+        return unit;
+      }
+    }
+    for (final unit in orgUnits) {
+      if (unit.type == AppConstants.unitTypeRw &&
+          unit.scopeRw == (period.rw ?? 0) &&
+          unit.status == 'active') {
+        return unit;
+      }
+    }
+    return null;
   }
 
   OrgUnitModel? _pickIuranOrgUnit(

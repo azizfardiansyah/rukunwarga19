@@ -8,6 +8,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/services/role_management_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_surface.dart';
 
 class RoleRequestScreen extends ConsumerStatefulWidget {
   const RoleRequestScreen({super.key});
@@ -203,95 +204,98 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Unsubscribe')),
-      body: ListView(
+      body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: AppTheme.cardDecoration(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Role Saat Ini',
-                  style: AppTheme.bodySmall.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    AppConstants.roleLabel(auth.role),
+        child: ListView(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: AppTheme.cardDecorationFor(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Role Saat Ini',
                     style: AppTheme.bodySmall.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Begitu unsubscribe dijalankan, akun langsung kembali ke role Warga tanpa review sysadmin.',
-                  style: AppTheme.caption,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: AppTheme.cardDecoration(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Dampak Unsubscribe',
-                  style: AppTheme.bodySmall.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _impactItem('Role berubah menjadi Warga'),
-                _impactItem('Subscription admin langsung dinonaktifkan'),
-                _impactItem('Akses fitur premium admin langsung dicabut'),
-                if (auth.subscriptionExpiredAt != null)
-                  _impactItem(
-                    'Masa aktif sebelumnya tidak dipakai lagi setelah unsubscribe',
-                  ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSubmitting ? null : _unsubscribe,
-                    icon: _isSubmitting
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.person_off_rounded, size: 18),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.errorColor,
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
                     ),
-                    label: const Text('Unsubscribe Sekarang'),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      AppConstants.roleLabel(auth.role),
+                      style: AppTheme.bodySmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Begitu unsubscribe dijalankan, akun langsung kembali ke role Warga tanpa review sysadmin.',
+                    style: AppTheme.caption,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: AppTheme.cardDecorationFor(context),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dampak Unsubscribe',
+                    style: AppTheme.bodySmall.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _impactItem('Role berubah menjadi Warga'),
+                  _impactItem('Subscription admin langsung dinonaktifkan'),
+                  _impactItem('Akses fitur premium admin langsung dicabut'),
+                  if (auth.subscriptionExpiredAt != null)
+                    _impactItem(
+                      'Masa aktif sebelumnya tidak dipakai lagi setelah unsubscribe',
+                    ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isSubmitting ? null : _unsubscribe,
+                      icon: _isSubmitting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.person_off_rounded, size: 18),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.errorColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      label: const Text('Unsubscribe Sekarang'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

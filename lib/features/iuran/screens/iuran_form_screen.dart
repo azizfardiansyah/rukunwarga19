@@ -395,12 +395,12 @@ class _IuranFormScreenState extends ConsumerState<IuranFormScreen>
           return Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppTheme.cardColorFor(context),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: selected
                     ? AppTheme.primaryColor.withValues(alpha: 0.24)
-                    : AppTheme.dividerColor,
+                    : AppTheme.cardBorderColorFor(context),
               ),
             ),
             child: Column(

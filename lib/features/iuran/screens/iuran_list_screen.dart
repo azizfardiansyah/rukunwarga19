@@ -18,9 +18,31 @@ import '../../../shared/widgets/floating_action_pill.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/iuran_providers.dart';
 
-enum _AdminIuranTab { tagihan, verifikasi, periode, jenis }
+enum _AdminIuranSection { operasional, master, publikasi }
+
+enum _AdminOperasionalTab { tagihan, lunas, verifikasi }
+
+enum _AdminMasterTab { periode, jenis }
+
+enum _AdminPublikasiTab { publishDataIuran, kasPendingPublish }
 
 enum _WargaIuranTab { aktif, riwayat }
+
+class _IuranPeriodPublicationStats {
+  const _IuranPeriodPublicationStats({
+    required this.totalTarget,
+    required this.paidCount,
+    required this.unpaidCount,
+    required this.totalCollected,
+    required this.completionPercent,
+  });
+
+  final int totalTarget;
+  final int paidCount;
+  final int unpaidCount;
+  final int totalCollected;
+  final int completionPercent;
+}
 
 class IuranListScreen extends ConsumerStatefulWidget {
   const IuranListScreen({super.key, this.initialStatus});
@@ -36,7 +58,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
   static const String _billStatusPaid = 'paid';
 
   String _query = '';
-  _AdminIuranTab _adminTab = _AdminIuranTab.tagihan;
+  _AdminIuranSection _adminSection = _AdminIuranSection.operasional;
+  _AdminOperasionalTab _operasionalTab = _AdminOperasionalTab.tagihan;
+  _AdminMasterTab _masterTab = _AdminMasterTab.periode;
+  _AdminPublikasiTab _publikasiTab = _AdminPublikasiTab.publishDataIuran;
   _WargaIuranTab _wargaTab = _WargaIuranTab.aktif;
   String _adminBillStatusFilter = _billStatusAll;
 
@@ -46,15 +71,18 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     final requestedStatus = (widget.initialStatus ?? '').trim();
     switch (requestedStatus) {
       case AppConstants.iuranBillSubmittedVerification:
-        _adminTab = _AdminIuranTab.verifikasi;
+        _adminSection = _AdminIuranSection.operasional;
+        _operasionalTab = _AdminOperasionalTab.verifikasi;
         _adminBillStatusFilter = _billStatusAll;
         break;
       case AppConstants.iuranBillUnpaid:
-        _adminTab = _AdminIuranTab.tagihan;
+        _adminSection = _AdminIuranSection.operasional;
+        _operasionalTab = _AdminOperasionalTab.tagihan;
         _adminBillStatusFilter = AppConstants.iuranBillUnpaid;
         break;
       case _billStatusPaid:
-        _adminTab = _AdminIuranTab.tagihan;
+        _adminSection = _AdminIuranSection.operasional;
+        _operasionalTab = _AdminOperasionalTab.lunas;
         _adminBillStatusFilter = _billStatusPaid;
         _wargaTab = _WargaIuranTab.riwayat;
         break;
@@ -84,6 +112,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
             data: data,
             isAdminView: false,
             canReviewPayments: false,
+            canPublishIuranData: false,
             canPublishFinance: false,
             showOperatorFallbackNotice: auth.isOperator,
           ),
@@ -101,6 +130,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
             data: data,
             isAdminView: access.canOpenAdminView,
             canReviewPayments: access.canReviewPayments,
+            canPublishIuranData: access.canPublishIuranData,
             canPublishFinance: access.canPublishFinance,
             showOperatorFallbackNotice: access.showOperatorFallbackNotice,
           ),
@@ -130,7 +160,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: canManageSetup
+      floatingActionButton:
+          canManageSetup &&
+              isAdminView &&
+              _adminSection == _AdminIuranSection.master
           ? FloatingActionPill(
               onTap: () async {
                 await context.push(Routes.iuranForm);
@@ -139,7 +172,9 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                 }
               },
               icon: Icons.add_card_rounded,
-              label: 'Buat Periode Iuran',
+              label: _masterTab == _AdminMasterTab.periode
+                  ? 'Buat Periode Iuran'
+                  : 'Kelola Master Iuran',
               gradientColors: const [
                 AppTheme.primaryDark,
                 AppTheme.primaryColor,
@@ -158,6 +193,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     required IuranListData data,
     required bool isAdminView,
     required bool canReviewPayments,
+    required bool canPublishIuranData,
     required bool canPublishFinance,
     required bool showOperatorFallbackNotice,
   }) {
@@ -175,7 +211,15 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           onChanged: (value) => setState(() => _query = value),
         ),
         const SizedBox(height: 8),
-        _buildTabs(isAdminView),
+        _buildTabs(
+          isAdminView,
+          canPublishIuranData: canPublishIuranData,
+          canPublishFinance: canPublishFinance,
+        ),
+        if (isAdminView) ...[
+          const SizedBox(height: 8),
+          _buildAdminContextNote(),
+        ],
         const SizedBox(height: 10),
         Expanded(
           child: RefreshIndicator(
@@ -187,6 +231,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
               data,
               isAdminView,
               canReviewPayments: canReviewPayments,
+              canPublishIuranData: canPublishIuranData,
               canPublishFinance: canPublishFinance,
             ),
           ),
@@ -300,34 +345,43 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     );
   }
 
-  Widget _buildTabs(bool isAdminView) {
+  Widget _buildTabs(
+    bool isAdminView, {
+    required bool canPublishIuranData,
+    required bool canPublishFinance,
+  }) {
     if (isAdminView) {
-      return SegmentedButton<_AdminIuranTab>(
-        segments: const [
-          ButtonSegment(
-            value: _AdminIuranTab.tagihan,
-            label: Text('Tagihan'),
-            icon: Icon(Icons.receipt_long_rounded),
+      return Column(
+        children: [
+          SegmentedButton<_AdminIuranSection>(
+            segments: const [
+              ButtonSegment(
+                value: _AdminIuranSection.operasional,
+                label: Text('Operasional'),
+                icon: Icon(Icons.dashboard_customize_outlined),
+              ),
+              ButtonSegment(
+                value: _AdminIuranSection.master,
+                label: Text('Master'),
+                icon: Icon(Icons.inventory_2_outlined),
+              ),
+              ButtonSegment(
+                value: _AdminIuranSection.publikasi,
+                label: Text('Publikasi'),
+                icon: Icon(Icons.campaign_outlined),
+              ),
+            ],
+            selected: {_adminSection},
+            onSelectionChanged: (selection) {
+              setState(() => _adminSection = selection.first);
+            },
           ),
-          ButtonSegment(
-            value: _AdminIuranTab.verifikasi,
-            label: Text('Verifikasi'),
-            icon: Icon(Icons.verified_outlined),
-          ),
-          ButtonSegment(
-            value: _AdminIuranTab.periode,
-            label: Text('Periode'),
-            icon: Icon(Icons.calendar_month_rounded),
-          ),
-          ButtonSegment(
-            value: _AdminIuranTab.jenis,
-            label: Text('Jenis'),
-            icon: Icon(Icons.category_outlined),
+          const SizedBox(height: 8),
+          _buildAdminSubTabs(
+            canPublishIuranData: canPublishIuranData,
+            canPublishFinance: canPublishFinance,
           ),
         ],
-        selected: {_adminTab},
-        onSelectionChanged: (selection) =>
-            setState(() => _adminTab = selection.first),
       );
     }
 
@@ -350,24 +404,134 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     );
   }
 
+  Widget _buildAdminSubTabs({
+    required bool canPublishIuranData,
+    required bool canPublishFinance,
+  }) {
+    switch (_adminSection) {
+      case _AdminIuranSection.operasional:
+        return SegmentedButton<_AdminOperasionalTab>(
+          segments: const [
+            ButtonSegment(
+              value: _AdminOperasionalTab.tagihan,
+              label: Text('Tagihan'),
+              icon: Icon(Icons.receipt_long_rounded),
+            ),
+            ButtonSegment(
+              value: _AdminOperasionalTab.lunas,
+              label: Text('Lunas'),
+              icon: Icon(Icons.paid_outlined),
+            ),
+            ButtonSegment(
+              value: _AdminOperasionalTab.verifikasi,
+              label: Text('Verifikasi'),
+              icon: Icon(Icons.verified_outlined),
+            ),
+          ],
+          selected: {_operasionalTab},
+          onSelectionChanged: (selection) {
+            setState(() => _operasionalTab = selection.first);
+          },
+        );
+      case _AdminIuranSection.master:
+        return SegmentedButton<_AdminMasterTab>(
+          segments: const [
+            ButtonSegment(
+              value: _AdminMasterTab.periode,
+              label: Text('Periode'),
+              icon: Icon(Icons.calendar_month_rounded),
+            ),
+            ButtonSegment(
+              value: _AdminMasterTab.jenis,
+              label: Text('Jenis'),
+              icon: Icon(Icons.category_outlined),
+            ),
+          ],
+          selected: {_masterTab},
+          onSelectionChanged: (selection) {
+            setState(() => _masterTab = selection.first);
+          },
+        );
+      case _AdminIuranSection.publikasi:
+        return SegmentedButton<_AdminPublikasiTab>(
+          segments: [
+            ButtonSegment(
+              value: _AdminPublikasiTab.publishDataIuran,
+              label: Text(
+                canPublishIuranData ? 'Publish Data Iuran' : 'Rekap Iuran',
+              ),
+              icon: const Icon(Icons.summarize_outlined),
+            ),
+            ButtonSegment(
+              value: _AdminPublikasiTab.kasPendingPublish,
+              label: Text(
+                canPublishFinance ? 'Kas Pending Publish' : 'Kas Iuran',
+              ),
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+            ),
+          ],
+          selected: {_publikasiTab},
+          onSelectionChanged: (selection) {
+            setState(() => _publikasiTab = selection.first);
+          },
+        );
+    }
+  }
+
   Widget _buildContent(
     BuildContext context,
     AuthState auth,
     IuranListData data,
     bool isAdminView, {
     required bool canReviewPayments,
+    required bool canPublishIuranData,
     required bool canPublishFinance,
   }) {
     if (isAdminView) {
-      switch (_adminTab) {
-        case _AdminIuranTab.tagihan:
-          return _buildAdminBills(data, canPublishFinance: canPublishFinance);
-        case _AdminIuranTab.verifikasi:
-          return _buildAdminVerification(data, auth, canReviewPayments);
-        case _AdminIuranTab.periode:
-          return _buildPeriods(data);
-        case _AdminIuranTab.jenis:
-          return _buildTypes(data);
+      switch (_adminSection) {
+        case _AdminIuranSection.operasional:
+          switch (_operasionalTab) {
+            case _AdminOperasionalTab.tagihan:
+              return _buildAdminBills(
+                data,
+                canPublishFinance: canPublishFinance,
+                excludePaidOnly: true,
+                emptyTitle: 'Belum ada tagihan aktif',
+                emptyMessage:
+                    'Tagihan yang belum lunas atau masih menunggu tindak lanjut akan tampil di sini.',
+              );
+            case _AdminOperasionalTab.lunas:
+              return _buildAdminBills(
+                data,
+                canPublishFinance: canPublishFinance,
+                includePaidOnly: true,
+                emptyTitle: 'Belum ada tagihan lunas',
+                emptyMessage:
+                    'Tagihan yang sudah lunas dan siap ditelusuri ke ledger kas akan tampil di sini.',
+              );
+            case _AdminOperasionalTab.verifikasi:
+              return _buildAdminVerification(data, auth, canReviewPayments);
+          }
+        case _AdminIuranSection.master:
+          switch (_masterTab) {
+            case _AdminMasterTab.periode:
+              return _buildPeriods(data);
+            case _AdminMasterTab.jenis:
+              return _buildTypes(data);
+          }
+        case _AdminIuranSection.publikasi:
+          switch (_publikasiTab) {
+            case _AdminPublikasiTab.publishDataIuran:
+              return _buildPublishIuranData(
+                data,
+                canPublishIuranData: canPublishIuranData,
+              );
+            case _AdminPublikasiTab.kasPendingPublish:
+              return _buildKasPendingPublish(
+                data,
+                canPublishFinance: canPublishFinance,
+              );
+          }
       }
     }
 
@@ -377,22 +541,26 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
   Widget _buildAdminBills(
     IuranListData data, {
     required bool canPublishFinance,
+    bool includePaidOnly = false,
+    bool excludePaidOnly = false,
+    String emptyTitle = 'Belum ada tagihan iuran',
+    String emptyMessage =
+        'Buat periode iuran terlebih dahulu untuk menghasilkan tagihan per KK.',
   }) {
     final bills = _filterBills(
       data.bills,
-      includePaidOnly: false,
-      excludePaidOnly: false,
+      includePaidOnly: includePaidOnly,
+      excludePaidOnly: excludePaidOnly,
     );
     if (bills.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(height: 80),
+        children: [
+          const SizedBox(height: 80),
           AppEmptyState(
             icon: Icons.receipt_long_outlined,
-            title: 'Belum ada tagihan iuran',
-            message:
-                'Buat periode iuran terlebih dahulu untuk menghasilkan tagihan per KK.',
+            title: emptyTitle,
+            message: emptyMessage,
           ),
         ],
       );
@@ -417,7 +585,10 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           showFinanceAction:
               canPublishFinance && financeTransaction != null && bill.isPaid,
           onPrimaryAction: bill.isSubmittedVerification
-              ? () => setState(() => _adminTab = _AdminIuranTab.verifikasi)
+              ? () => setState(() {
+                  _adminSection = _AdminIuranSection.operasional;
+                  _operasionalTab = _AdminOperasionalTab.verifikasi;
+                })
               : () => _recordCash(bill),
           onFinanceAction:
               canPublishFinance &&
@@ -528,6 +699,199 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
       itemCount: types.length,
       separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) => _buildTypeCard(types[index]),
+    );
+  }
+
+  Widget _buildPublishIuranData(
+    IuranListData data, {
+    required bool canPublishIuranData,
+  }) {
+    final periods = _filterPeriods(data.periods);
+    if (periods.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 80),
+          AppEmptyState(
+            icon: Icons.campaign_outlined,
+            title: 'Belum ada periode untuk dipublish',
+            message:
+                'Rekap iuran akan muncul setelah Anda memiliki periode dan tagihan yang aktif.',
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: periods.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final period = periods[index];
+        final bills = data.bills
+            .where((item) => item.periodId == period.id)
+            .toList(growable: false);
+        final stats = _periodPublicationStats(bills);
+        return AppSurfaceCard(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.summarize_outlined,
+                      color: AppTheme.accentColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          period.title,
+                          style: AppTheme.heading3.copyWith(fontSize: 16),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${period.typeLabel} - ${AppConstants.iuranFrequencyLabel(period.frequency)}',
+                          style: AppTheme.bodySmall.copyWith(
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _metaChip(
+                    '${stats.completionPercent}% selesai',
+                    AppTheme.primaryColor.withValues(alpha: 0.12),
+                    AppTheme.primaryColor,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _metaChip(
+                    'Target ${stats.totalTarget} KK',
+                    AppTheme.primaryColor.withValues(alpha: 0.1),
+                    AppTheme.primaryColor,
+                  ),
+                  _metaChip(
+                    'Lunas ${stats.paidCount}',
+                    AppTheme.successColor.withValues(alpha: 0.12),
+                    AppTheme.successColor,
+                  ),
+                  _metaChip(
+                    'Belum lunas ${stats.unpaidCount}',
+                    AppTheme.warningColor.withValues(alpha: 0.12),
+                    AppTheme.warningColor,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _infoRow('Total masuk', Formatters.rupiah(stats.totalCollected)),
+              _infoRow(
+                'Deadline',
+                period.dueDate == null
+                    ? '-'
+                    : Formatters.tanggalPendek(period.dueDate!),
+              ),
+              _infoRow(
+                'Privasi',
+                'Publish hanya rekap periode. Nama KK dan daftar penunggak tidak ikut dipublikasikan.',
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canPublishIuranData
+                      ? () => _publishIuranSummary(period, stats)
+                      : null,
+                  icon: const Icon(Icons.campaign_outlined),
+                  label: Text(
+                    canPublishIuranData
+                        ? 'Publish Data Iuran'
+                        : 'Butuh hak kelola iuran',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildKasPendingPublish(
+    IuranListData data, {
+    required bool canPublishFinance,
+  }) {
+    final bills = _filterBills(
+      data.bills
+          .where((item) {
+            final finance = data.financeTransactionForBill(item.id);
+            return item.isPaid && finance != null && !finance.isPublished;
+          })
+          .toList(growable: false),
+      includePaidOnly: false,
+      excludePaidOnly: false,
+    );
+
+    if (bills.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(height: 80),
+          AppEmptyState(
+            icon: Icons.account_balance_wallet_outlined,
+            title: 'Tidak ada kas pending publish',
+            message:
+                'Semua transaksi iuran yang sudah masuk ledger sudah dipublish atau belum ada yang siap dipublikasikan.',
+          ),
+        ],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: bills.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final bill = bills[index];
+        final latestPayment = data.paymentsByBill[bill.id]?.isNotEmpty == true
+            ? data.paymentsByBill[bill.id]!.first
+            : null;
+        final financeTransaction = data.financeTransactionForBill(bill.id);
+        return _buildBillCard(
+          bill,
+          data.periodsById[bill.periodId],
+          latestPayment,
+          financeTransaction: financeTransaction,
+          isAdmin: true,
+          showPrimaryAction: false,
+          showFinanceAction: canPublishFinance && financeTransaction != null,
+          onPrimaryAction: null,
+          onFinanceAction: canPublishFinance && financeTransaction != null
+              ? () => _publishFinance(bill)
+              : null,
+          primaryActionLabel: '',
+          financeActionLabel: financeTransaction?.isPublished == true
+              ? 'Sudah Dipublish'
+              : 'Publish Kas',
+        );
+      },
     );
   }
 
@@ -696,7 +1060,11 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
     required String financeActionLabel,
   }) {
     final statusColor = AppTheme.statusColor(bill.status);
-    final shouldShowPrimaryAction = showPrimaryAction && !bill.isPaid;
+    final isEffectivelyPaid =
+        bill.isPaid ||
+        latestPayment?.isVerified == true ||
+        financeTransaction != null;
+    final shouldShowPrimaryAction = showPrimaryAction && !isEffectivelyPaid;
     final shouldShowFinanceAction =
         showFinanceAction && financeTransaction != null;
     final financePublishLabel = financeTransaction == null
@@ -706,7 +1074,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
         : 'Ledger pending publish';
     final paymentInfo = latestPayment == null
         ? null
-        : '${AppConstants.iuranMethodLabel(latestPayment.method)} • ${AppConstants.iuranPaymentStatusLabel(latestPayment.status)}';
+        : '${AppConstants.iuranMethodLabel(latestPayment.method)} - ${AppConstants.iuranPaymentStatusLabel(latestPayment.status)}';
 
     return AppSurfaceCard(
       padding: const EdgeInsets.all(14),
@@ -739,7 +1107,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${bill.typeLabel} • ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber}',
+                      '${bill.typeLabel} - ${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber}',
                       style: AppTheme.bodySmall.copyWith(
                         color: AppTheme.textSecondary,
                       ),
@@ -927,7 +1295,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber} • ${AppConstants.iuranMethodLabel(payment.method)}',
+                      '${bill.kkHolderName?.trim().isNotEmpty == true ? bill.kkHolderName : bill.kkNumber} - ${AppConstants.iuranMethodLabel(payment.method)}',
                       style: AppTheme.bodySmall.copyWith(
                         color: AppTheme.textSecondary,
                       ),
@@ -1030,7 +1398,7 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${period.typeLabel} • ${AppConstants.iuranFrequencyLabel(period.frequency)}',
+                      '${period.typeLabel} - ${AppConstants.iuranFrequencyLabel(period.frequency)}',
                       style: AppTheme.bodySmall.copyWith(
                         color: AppTheme.textSecondary,
                       ),
@@ -1106,6 +1474,128 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           _infoRow('Nominal default', Formatters.rupiah(type.defaultAmount)),
         ],
       ),
+    );
+  }
+
+  Widget _buildAdminContextNote() {
+    String title;
+    String message;
+    IconData icon;
+    Color tone;
+
+    switch (_adminSection) {
+      case _AdminIuranSection.operasional:
+        switch (_operasionalTab) {
+          case _AdminOperasionalTab.tagihan:
+            title = 'Tagihan aktif';
+            message =
+                'Pantau bill yang belum lunas. Dari sini admin bisa melihat tagihan berjalan dan mencatat pembayaran cash untuk bill yang memang belum selesai.';
+            icon = Icons.receipt_long_rounded;
+            tone = AppTheme.primaryColor;
+          case _AdminOperasionalTab.lunas:
+            title = 'Riwayat lunas';
+            message =
+                'Bagian ini menampilkan bill yang sudah lunas. Gunakan untuk audit pembayaran masuk dan lanjutkan publish kas bila ledger finance masih pending.';
+            icon = Icons.paid_outlined;
+            tone = AppTheme.successColor;
+          case _AdminOperasionalTab.verifikasi:
+            title = 'Verifikasi transfer';
+            message =
+                'Bukti transfer dari warga yang masih menunggu review admin tampil di sini. Verifikasi hanya boleh dilakukan pengurus yang berwenang dan bukan untuk pembayaran miliknya sendiri.';
+            icon = Icons.verified_outlined;
+            tone = AppTheme.accentColor;
+        }
+      case _AdminIuranSection.master:
+        switch (_masterTab) {
+          case _AdminMasterTab.periode:
+            title = 'Periode iuran';
+            message =
+                'Periode dipakai untuk generate tagihan per KK pada bulan atau kegiatan tertentu. Satu periode menentukan nominal, deadline, dan target KK yang ditagih.';
+            icon = Icons.calendar_month_rounded;
+            tone = AppTheme.primaryColor;
+          case _AdminMasterTab.jenis:
+            title = 'Jenis iuran';
+            message =
+                'Jenis iuran adalah master template seperti kebersihan, keamanan, atau kas sosial. Nilai default-nya bisa dipakai ulang setiap kali admin membuat periode baru.';
+            icon = Icons.category_outlined;
+            tone = AppTheme.accentColor;
+        }
+      case _AdminIuranSection.publikasi:
+        switch (_publikasiTab) {
+          case _AdminPublikasiTab.publishDataIuran:
+            title = 'Publikasi data iuran';
+            message =
+                'Gunakan menu ini untuk mempublikasikan rekap aman per periode, seperti target KK, jumlah lunas, jumlah belum lunas, total nominal masuk, dan deadline. Nama KK tidak ikut dipublish.';
+            icon = Icons.campaign_outlined;
+            tone = AppTheme.primaryDark;
+          case _AdminPublikasiTab.kasPendingPublish:
+            title = 'Kas pending publish';
+            message =
+                'Bagian ini berisi transaksi kas dari pembayaran iuran yang sudah masuk ledger finance tetapi belum diumumkan. Ini berbeda dari publikasi rekap iuran.';
+            icon = Icons.account_balance_wallet_outlined;
+            tone = AppTheme.toneTerracotta;
+        }
+    }
+
+    return AppSurfaceCard(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: tone.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: tone, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  message,
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _IuranPeriodPublicationStats _periodPublicationStats(
+    List<IuranBillModel> bills,
+  ) {
+    final totalTarget = bills.length;
+    final paidCount = bills.where((item) => item.isPaid).length;
+    final unpaidCount = totalTarget - paidCount;
+    final totalCollected = bills
+        .where((item) => item.isPaid)
+        .fold<int>(0, (sum, item) => sum + item.amount);
+    final completionPercent = totalTarget == 0
+        ? 0
+        : ((paidCount / totalTarget) * 100).round();
+
+    return _IuranPeriodPublicationStats(
+      totalTarget: totalTarget,
+      paidCount: paidCount,
+      unpaidCount: unpaidCount,
+      totalCollected: totalCollected,
+      completionPercent: completionPercent,
     );
   }
 
@@ -1420,6 +1910,86 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
           approve
               ? 'Pembayaran berhasil diverifikasi.'
               : 'Pembayaran berhasil ditolak.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
+  Future<void> _publishIuranSummary(
+    IuranPeriodModel period,
+    _IuranPeriodPublicationStats stats,
+  ) async {
+    final titleController = TextEditingController(
+      text: 'Rekap ${period.title}',
+    );
+    final contentController = TextEditingController(
+      text: [
+        'Ringkasan iuran ${period.title}.',
+        'Target KK: ${stats.totalTarget} KK.',
+        'Sudah lunas: ${stats.paidCount} KK.',
+        'Belum lunas: ${stats.unpaidCount} KK.',
+        'Total nominal masuk: ${Formatters.rupiah(stats.totalCollected)}.',
+        if (period.dueDate != null)
+          'Batas pembayaran: ${Formatters.tanggalPendek(period.dueDate!)}.',
+      ].join('\n'),
+    );
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Publish Data Iuran'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Judul Pengumuman'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: contentController,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Isi Pengumuman Rekap',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Publish'),
+          ),
+        ],
+      ),
+    );
+
+    if (proceed != true) {
+      return;
+    }
+
+    try {
+      await ref
+          .read(iuranServiceProvider)
+          .publishPeriodSummary(
+            ref.read(authProvider),
+            period.id,
+            announcementTitle: titleController.text.trim(),
+            announcementContent: contentController.text.trim(),
+          );
+      ref.read(iuranRefreshTickProvider.notifier).bump();
+      if (mounted) {
+        ErrorClassifier.showSuccessSnackBar(
+          context,
+          'Rekap iuran berhasil dipublish.',
         );
       }
     } catch (error) {

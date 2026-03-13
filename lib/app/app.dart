@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'providers/theme_mode_provider.dart';
 import '../core/services/notification_service.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -39,13 +40,15 @@ class _RukunWargaAppState extends ConsumerState<RukunWargaApp> {
   @override
   Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
+    final themeMode =
+        ref.watch(themeModeProvider).asData?.value ?? ThemeMode.light;
 
     return MaterialApp.router(
       title: 'RukunWarga',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.light,
+      themeMode: themeMode,
       routerConfig: router,
     );
   }

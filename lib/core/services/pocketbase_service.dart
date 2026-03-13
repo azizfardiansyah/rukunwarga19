@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pocketbase/pocketbase.dart';
+
+import '../config/app_env.dart';
 import '../constants/app_constants.dart';
 
-/// URL PocketBase server - ganti sesuai environment
-const String pocketBaseUrl = 'http://127.0.0.1:8090';
+/// URL PocketBase server - dibaca dari --dart-define / .env
+const String pocketBaseUrl = AppEnv.pocketBaseUrl;
 
 /// PocketBase client instance
 final pb = PocketBase(pocketBaseUrl);

@@ -18,6 +18,7 @@ class FloatingActionPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     final colors =
         gradientColors ?? const [AppTheme.primaryColor, AppTheme.primaryLight];
 
@@ -31,8 +32,8 @@ class FloatingActionPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
         boxShadow: [
           BoxShadow(
-            color: colors.first.withValues(alpha: 0.25),
-            blurRadius: 16,
+            color: colors.first.withValues(alpha: isDark ? 0.34 : 0.25),
+            blurRadius: isDark ? 24 : 16,
             offset: const Offset(0, 6),
           ),
         ],
@@ -51,7 +52,7 @@ class FloatingActionPill extends StatelessWidget {
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
+                    color: Colors.white.withValues(alpha: isDark ? 0.14 : 0.2),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(icon, color: Colors.white, size: 16),

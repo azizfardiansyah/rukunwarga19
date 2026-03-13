@@ -10,6 +10,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/services/subscription_payment_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/widgets/app_surface.dart';
 import '../../auth/providers/auth_provider.dart';
 
 final subscriptionPlansProvider =
@@ -269,104 +270,108 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Subscription & Pembayaran')),
-      body: RefreshIndicator(
-        onRefresh: () => _refreshAccount(showFeedback: false),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
-          children: [
-            _buildHero(
-              roleLabel: AppConstants.roleLabel(auth.role),
-              statusLabel: currentStatusLabel,
-              statusColor: currentStatusColor,
-              auth: auth,
-              selectedPlan: selectedPlan,
-              canSelfSubscribe: canSelfSubscribe,
-            ),
-            const SizedBox(height: 10),
-            if (!canSelfSubscribe)
-              _buildNotice(
-                icon: Icons.lock_outline_rounded,
-                title: 'Role ini tidak bisa checkout sendiri',
-                description:
-                    'Sysadmin tidak memakai alur pembayaran self-service.',
-                action: OutlinedButton(
-                  onPressed: () => context.go(Routes.settings),
-                  child: const Text('Kembali ke Settings'),
-                ),
-              )
-            else ...[
-              _buildSteps(
-                hasCheckout: hasCheckout,
-                hasPremiumAccess: hasPremiumAccess,
+      body: AppPageBackground(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+        child: RefreshIndicator(
+          onRefresh: () => _refreshAccount(showFeedback: false),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              _buildHero(
+                roleLabel: AppConstants.roleLabel(auth.role),
+                statusLabel: currentStatusLabel,
+                statusColor: currentStatusColor,
+                auth: auth,
+                selectedPlan: selectedPlan,
+                canSelfSubscribe: canSelfSubscribe,
               ),
               const SizedBox(height: 10),
-              catalogAsync.when(
-                data: (catalog) {
-                  if (catalog.plans.isEmpty) {
-                    return _buildNotice(
-                      icon: Icons.inventory_2_outlined,
-                      title: 'Belum ada paket',
-                      description:
-                          'Aktifkan plan di subscription_plans untuk memilih role admin.',
-                    );
-                  }
+              if (!canSelfSubscribe)
+                _buildNotice(
+                  icon: Icons.lock_outline_rounded,
+                  title: 'Role ini tidak bisa checkout sendiri',
+                  description:
+                      'Sysadmin tidak memakai alur pembayaran self-service.',
+                  action: OutlinedButton(
+                    onPressed: () => context.go(Routes.settings),
+                    child: const Text('Kembali ke Settings'),
+                  ),
+                )
+              else ...[
+                _buildSteps(
+                  hasCheckout: hasCheckout,
+                  hasPremiumAccess: hasPremiumAccess,
+                ),
+                const SizedBox(height: 10),
+                catalogAsync.when(
+                  data: (catalog) {
+                    if (catalog.plans.isEmpty) {
+                      return _buildNotice(
+                        icon: Icons.inventory_2_outlined,
+                        title: 'Belum ada paket',
+                        description:
+                            'Aktifkan plan di subscription_plans untuk memilih role admin.',
+                      );
+                    }
 
-                  return Column(
-                    children: [
-                      if (!catalog.checkoutReady) ...[
-                        _buildNotice(
-                          icon: Icons.settings_ethernet_rounded,
-                          title: 'Checkout Midtrans belum siap',
-                          description:
-                              (catalog.checkoutMessage ?? '').trim().isNotEmpty
-                              ? catalog.checkoutMessage!
-                              : 'Konfigurasi Midtrans di PocketBase belum lengkap.',
-                          tone: AppTheme.errorColor,
+                    return Column(
+                      children: [
+                        if (!catalog.checkoutReady) ...[
+                          _buildNotice(
+                            icon: Icons.settings_ethernet_rounded,
+                            title: 'Checkout Midtrans belum siap',
+                            description:
+                                (catalog.checkoutMessage ?? '')
+                                    .trim()
+                                    .isNotEmpty
+                                ? catalog.checkoutMessage!
+                                : 'Konfigurasi Midtrans di PocketBase belum lengkap.',
+                            tone: AppTheme.errorColor,
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        _buildPlanSelector(
+                          auth: auth,
+                          plans: catalog.plans,
+                          selectedPlan: selectedPlan,
                         ),
                         const SizedBox(height: 10),
+                        _buildSummary(
+                          auth: auth,
+                          selectedPlan: selectedPlan,
+                          statusLabel: currentStatusLabel,
+                          statusColor: currentStatusColor,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildCheckoutCard(),
+                        const SizedBox(height: 10),
+                        _buildActionCard(
+                          auth: auth,
+                          selectedPlan: selectedPlan,
+                          hasCheckout: hasCheckout,
+                          checkoutReady: catalog.checkoutReady,
+                          checkoutMessage: catalog.checkoutMessage,
+                        ),
                       ],
-                      _buildPlanSelector(
-                        auth: auth,
-                        plans: catalog.plans,
-                        selectedPlan: selectedPlan,
-                      ),
-                      const SizedBox(height: 10),
-                      _buildSummary(
-                        auth: auth,
-                        selectedPlan: selectedPlan,
-                        statusLabel: currentStatusLabel,
-                        statusColor: currentStatusColor,
-                      ),
-                      const SizedBox(height: 10),
-                      _buildCheckoutCard(),
-                      const SizedBox(height: 10),
-                      _buildActionCard(
-                        auth: auth,
-                        selectedPlan: selectedPlan,
-                        hasCheckout: hasCheckout,
-                        checkoutReady: catalog.checkoutReady,
-                        checkoutMessage: catalog.checkoutMessage,
-                      ),
-                    ],
-                  );
-                },
-                loading: () => _buildNotice(
-                  icon: Icons.sync_rounded,
-                  title: 'Memuat paket...',
-                  description:
-                      'Mengambil daftar paket subscription dari server.',
-                  loading: true,
+                    );
+                  },
+                  loading: () => _buildNotice(
+                    icon: Icons.sync_rounded,
+                    title: 'Memuat paket...',
+                    description:
+                        'Mengambil daftar paket subscription dari server.',
+                    loading: true,
+                  ),
+                  error: (error, _) => _buildNotice(
+                    icon: Icons.warning_amber_rounded,
+                    title: 'Daftar paket belum termuat',
+                    description: ErrorClassifier.classify(error).message,
+                    tone: AppTheme.errorColor,
+                  ),
                 ),
-                error: (error, _) => _buildNotice(
-                  icon: Icons.warning_amber_rounded,
-                  title: 'Daftar paket belum termuat',
-                  description: ErrorClassifier.classify(error).message,
-                  tone: AppTheme.errorColor,
-                ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -476,7 +481,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Row(
         children: [
           Expanded(
@@ -515,7 +520,8 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: AppTheme.cardDecoration(
+      decoration: AppTheme.cardDecorationFor(
+        context,
         color: accent.withValues(alpha: 0.04),
       ),
       child: Column(
@@ -569,7 +575,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -589,6 +595,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
               currentRole: auth.role,
               targetRole: plan.targetRole,
             );
+            final benefits = _planBenefits(plan);
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -601,12 +608,12 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppTheme.primaryColor.withValues(alpha: 0.06)
-                        : Colors.white,
+                        : AppTheme.cardColorFor(context),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isSelected
                           ? AppTheme.primaryColor
-                          : AppTheme.dividerColor,
+                          : AppTheme.cardBorderColorFor(context),
                       width: isSelected ? 1.4 : 1,
                     ),
                   ),
@@ -677,6 +684,25 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ],
+                            if (benefits.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: benefits
+                                    .take(4)
+                                    .map(
+                                      (benefit) => _benefitChip(
+                                        context,
+                                        benefit,
+                                        isSelected
+                                            ? AppTheme.primaryColor
+                                            : AppTheme.secondaryColor,
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -715,7 +741,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -776,6 +802,17 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             ),
             child: Text(note, style: AppTheme.caption),
           ),
+          if (selectedPlan != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Keuntungan paket',
+              style: AppTheme.bodySmall.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            ..._planBenefits(
+              selectedPlan,
+            ).take(5).map((benefit) => _benefitRow(context, benefit)),
+          ],
         ],
       ),
     );
@@ -794,7 +831,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -863,7 +900,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1072,6 +1109,97 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
         ],
       ),
     );
+  }
+
+  Widget _benefitChip(BuildContext context, String label, Color tone) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: AppTheme.caption.copyWith(
+          color: tone,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _benefitRow(BuildContext context, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            margin: const EdgeInsets.only(top: 1),
+            decoration: BoxDecoration(
+              color: AppTheme.successColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              size: 12,
+              color: AppTheme.successColor,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(label, style: AppTheme.caption)),
+        ],
+      ),
+    );
+  }
+
+  List<String> _planBenefits(SubscriptionPlan plan) {
+    final benefits = <String>[
+      'Aktifkan role ${AppConstants.roleLabel(plan.targetRole)}',
+      'Masa aktif ${plan.durationDays} hari',
+    ];
+
+    for (final featureFlag in plan.featureFlags) {
+      final label = _featureBenefitLabel(featureFlag);
+      if (label.isNotEmpty && !benefits.contains(label)) {
+        benefits.add(label);
+      }
+    }
+
+    return benefits;
+  }
+
+  String _featureBenefitLabel(String featureFlag) {
+    switch (featureFlag.trim()) {
+      case AppConstants.featureChatBasic:
+        return 'Grup chat wilayah aktif';
+      case AppConstants.featureBroadcastRt:
+        return 'Broadcast pengumuman tingkat RT';
+      case AppConstants.featureBroadcastRw:
+        return 'Broadcast pengumuman tingkat RW';
+      case AppConstants.featureCustomGroupBasic:
+        return 'Grup custom dasar per unit';
+      case AppConstants.featureCustomGroupAdvanced:
+        return 'Grup custom lanjutan lintas unit';
+      case AppConstants.featureAgendaBasic:
+        return 'Agenda kegiatan warga dasar';
+      case AppConstants.featureAgendaAdvanced:
+        return 'Agenda lanjutan dan koordinasi';
+      case AppConstants.featureFinanceBasic:
+        return 'Operasional keuangan dan ledger';
+      case AppConstants.featureFinancePublish:
+        return 'Publish transparansi kas';
+      case AppConstants.featureVoiceNote:
+        return 'Voice note di chat';
+      case AppConstants.featurePolling:
+        return 'Polling dan voting warga';
+      case AppConstants.featureExportAdvanced:
+        return 'Ekspor laporan lanjutan';
+      default:
+        return '';
+    }
   }
 
   Widget _detailRow(String label, String value) {

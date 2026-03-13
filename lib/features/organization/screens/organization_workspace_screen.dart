@@ -8,6 +8,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/services/organization_service.dart';
 import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
+import '../../../shared/models/workspace_access_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/organization_providers.dart';
 import '../widgets/organization_widgets.dart';
@@ -77,11 +78,11 @@ class OrganizationManageScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const OrganizationSectionCard(
-                title: 'Batas Modul',
+              OrganizationSectionCard(
+                title: 'Preview Bagan Organisasi',
                 subtitle:
-                    'Yang jadi master sysadmin hanya daftar jabatan. Data organisasi lain adalah hasil input operasional.',
-                child: _ScopeNote(),
+                    'Pratinjau struktur aktif agar admin bisa cek hierarki unit tanpa keluar dari menu kelola.',
+                child: _OrganizationChartPreview(overview: overview),
               ),
             ],
           ),
@@ -130,7 +131,7 @@ class _ManageHero extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -175,7 +176,7 @@ class _ManageHero extends StatelessWidget {
                 if (locationParts.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    locationParts.join(' • '),
+                    locationParts.join(' - '),
                     style: AppTheme.caption.copyWith(
                       color: AppTheme.textTertiary,
                     ),
@@ -232,7 +233,7 @@ class _StatsGrid extends StatelessWidget {
               width: cardWidth,
               child: Container(
                 padding: const EdgeInsets.all(10),
-                decoration: AppTheme.cardDecoration(),
+                decoration: AppTheme.cardDecorationFor(context),
                 child: Row(
                   children: [
                     Container(
@@ -278,30 +279,307 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
-class _ScopeNote extends StatelessWidget {
-  const _ScopeNote();
+class _OrganizationChartPreview extends StatelessWidget {
+  const _OrganizationChartPreview({required this.overview});
+
+  final OrganizationOverviewData overview;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: const [
-        _ScopeLine(
-          title: 'jabatan_master',
-          subtitle: 'Konfigurasi awal oleh sysadmin sebagai master jabatan.',
+    final activeUnits = overview.orgUnits
+        .where((unit) => unit.status == 'active')
+        .toList(growable: false);
+    if (activeUnits.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'Belum ada unit aktif untuk ditampilkan di preview.',
+          style: AppTheme.caption,
         ),
-        SizedBox(height: 8),
-        _ScopeLine(
-          title: 'org_units',
-          subtitle: 'Hasil input dari menu Kelola Unit.',
-        ),
-        SizedBox(height: 8),
-        _ScopeLine(
-          title: 'org_memberships',
-          subtitle: 'Hasil input dari menu Kelola Pengurus.',
-        ),
-      ],
+      );
+    }
+
+    final unitById = {for (final unit in activeUnits) unit.id: unit};
+    final childrenByParent = <String, List<OrgUnitModel>>{};
+    final roots = <OrgUnitModel>[];
+    for (final unit in activeUnits) {
+      final parentId = (unit.parentUnitId ?? '').trim();
+      if (parentId.isEmpty || !unitById.containsKey(parentId)) {
+        roots.add(unit);
+        continue;
+      }
+      childrenByParent.putIfAbsent(parentId, () => <OrgUnitModel>[]).add(unit);
+    }
+
+    final levels = <List<OrgUnitModel>>[];
+    var frontier = _sortUnits(roots).take(1).toList(growable: false);
+    var depth = 0;
+    while (frontier.isNotEmpty && depth < 3) {
+      levels.add(frontier);
+      final next = <OrgUnitModel>[];
+      for (final unit in frontier) {
+        next.addAll(childrenByParent[unit.id] ?? const <OrgUnitModel>[]);
+      }
+      frontier = _sortUnits(next).take(3).toList(growable: false);
+      depth++;
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 520;
+        final itemWidth = wide
+            ? (constraints.maxWidth - 24) / 3
+            : (constraints.maxWidth - 12) / 2;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (
+              var levelIndex = 0;
+              levelIndex < levels.length;
+              levelIndex++
+            ) ...[
+              if (levelIndex > 0) const SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      levelIndex == 0
+                          ? 'Puncak organisasi'
+                          : 'Level ${levelIndex + 1}',
+                      style: AppTheme.caption.copyWith(
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: levels[levelIndex]
+                    .map(
+                      (unit) => SizedBox(
+                        width: itemWidth.clamp(140.0, 220.0),
+                        child: _OrganizationPreviewUnitCard(
+                          unit: unit,
+                          leadMembership: _leadMembership(unit.id),
+                          actor: _leadActor(unit.id),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            ],
+          ],
+        );
+      },
     );
+  }
+
+  List<OrgUnitModel> _sortUnits(List<OrgUnitModel> units) {
+    final sorted = [...units];
+    sorted.sort((a, b) {
+      final typeCompare = _typeRank(a.type).compareTo(_typeRank(b.type));
+      if (typeCompare != 0) {
+        return typeCompare;
+      }
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return sorted;
+  }
+
+  int _typeRank(String type) {
+    switch (type.trim().toLowerCase()) {
+      case AppConstants.unitTypeRw:
+        return 0;
+      case AppConstants.unitTypeRt:
+        return 1;
+      case AppConstants.unitTypeDkm:
+        return 2;
+      case AppConstants.unitTypeKarangTaruna:
+        return 3;
+      case AppConstants.unitTypePosyandu:
+        return 4;
+      default:
+        return 5;
+    }
+  }
+
+  OrgMembershipModel? _leadMembership(String unitId) {
+    final memberships = overview.orgMemberships
+        .where(
+          (membership) => membership.isActive && membership.orgUnitId == unitId,
+        )
+        .toList(growable: false);
+    if (memberships.isEmpty) {
+      return null;
+    }
+    final sorted = [...memberships];
+    sorted.sort((a, b) {
+      final primaryCompare = (a.isPrimary ? 0 : 1).compareTo(
+        b.isPrimary ? 0 : 1,
+      );
+      if (primaryCompare != 0) {
+        return primaryCompare;
+      }
+      return (a.jabatan?.sortOrder ?? 999).compareTo(
+        b.jabatan?.sortOrder ?? 999,
+      );
+    });
+    return sorted.first;
+  }
+
+  OrganizationWorkspaceActor? _leadActor(String unitId) {
+    final membership = _leadMembership(unitId);
+    if (membership == null) {
+      return null;
+    }
+    return overview.actorByMemberId(membership.workspaceMemberId);
+  }
+}
+
+class _OrganizationPreviewUnitCard extends StatelessWidget {
+  const _OrganizationPreviewUnitCard({
+    required this.unit,
+    required this.leadMembership,
+    required this.actor,
+  });
+
+  final OrgUnitModel unit;
+  final OrgMembershipModel? leadMembership;
+  final OrganizationWorkspaceActor? actor;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = _toneForUnitType(unit.type);
+    final scopeLabel = [
+      if ((unit.scopeRw ?? 0) > 0) 'RW ${unit.scopeRw}',
+      if ((unit.scopeRt ?? 0) > 0) 'RT ${unit.scopeRt}',
+    ].join(' / ');
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: AppTheme.cardDecorationFor(context, borderRadius: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  unit.name,
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.primaryTextFor(context),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _unitTypeLabel(unit.type),
+                  style: AppTheme.caption.copyWith(
+                    color: tone,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (scopeLabel.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              scopeLabel,
+              style: AppTheme.caption.copyWith(
+                color: AppTheme.tertiaryTextFor(context),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: tone.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  actor?.displayName ?? 'Pengurus belum diisi',
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryTextFor(context),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  leadMembership?.jabatan?.label ?? 'Belum ada jabatan utama',
+                  style: AppTheme.caption.copyWith(
+                    color: AppTheme.secondaryTextFor(context),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _toneForUnitType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case AppConstants.unitTypeRw:
+        return AppTheme.primaryColor;
+      case AppConstants.unitTypeRt:
+        return AppTheme.toneTerracotta;
+      case AppConstants.unitTypeDkm:
+        return AppTheme.toneSienna;
+      case AppConstants.unitTypeKarangTaruna:
+        return AppTheme.tonePink;
+      case AppConstants.unitTypePosyandu:
+        return AppTheme.successColor;
+      default:
+        return AppTheme.toneCharcoal;
+    }
+  }
+
+  String _unitTypeLabel(String type) {
+    switch (type.trim().toLowerCase()) {
+      case AppConstants.unitTypeRw:
+        return 'RW';
+      case AppConstants.unitTypeRt:
+        return 'RT';
+      case AppConstants.unitTypeDkm:
+        return 'DKM';
+      case AppConstants.unitTypeKarangTaruna:
+        return 'Karang Taruna';
+      case AppConstants.unitTypePosyandu:
+        return 'Posyandu';
+      default:
+        return 'Unit';
+    }
   }
 }
 
@@ -592,51 +870,6 @@ String _defaultBootstrapWorkspaceName(String rwText) {
     return 'Jajaran Pengurus RW';
   }
   return 'Jajaran Pengurus RW $normalizedRw';
-}
-
-class _ScopeLine extends StatelessWidget {
-  const _ScopeLine({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          margin: const EdgeInsets.only(top: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.primaryColor.withValues(alpha: 0.7),
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTheme.bodySmall.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: AppTheme.caption.copyWith(color: AppTheme.textTertiary),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _NavTile extends StatelessWidget {

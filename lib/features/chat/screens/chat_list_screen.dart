@@ -52,18 +52,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     };
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chat'),
-        actions: [
-          IconButton(
-            tooltip: 'Muat ulang',
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-      ),
       body: AppPageBackground(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
         child: Column(
           children: [
             _buildHero(
@@ -301,9 +291,9 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.92),
+        color: AppTheme.cardColorFor(context),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.dividerColor),
+        border: Border.all(color: AppTheme.cardBorderColorFor(context)),
         boxShadow: [
           BoxShadow(
             color: AppTheme.secondaryColor.withValues(alpha: 0.04),
@@ -485,12 +475,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: AppTheme.cardColorFor(context),
                     borderRadius: BorderRadius.circular(22),
                     border: Border.all(
                       color: conversation.unreadCount > 0
                           ? AppTheme.primaryColor.withValues(alpha: 0.18)
-                          : AppTheme.dividerColor.withValues(alpha: 0.92),
+                          : AppTheme.cardBorderColorFor(context),
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -914,10 +904,12 @@ class _ArchiveToggleButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: active
               ? AppTheme.secondaryColor
-              : Colors.white.withValues(alpha: 0.92),
+              : AppTheme.cardColorFor(context),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: active ? AppTheme.secondaryColor : AppTheme.dividerColor,
+            color: active
+                ? AppTheme.secondaryColor
+                : AppTheme.cardBorderColorFor(context),
           ),
           boxShadow: [
             BoxShadow(

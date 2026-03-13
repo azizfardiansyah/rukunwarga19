@@ -152,7 +152,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           label: 'Data Warga',
           subtitle: 'Kelola data penduduk',
           tone: AppTheme.toneRose,
-          onTap: () => context.go(Routes.warga),
+          onTap: () => context.push(Routes.warga),
         ),
       if (showSelfWargaSetup)
         _MenuEntry(
@@ -206,7 +206,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _MenuEntry(
         icon: Icons.payments_rounded,
         label: 'Iuran',
-        subtitle: 'Tagihan & pembayaran',
+        subtitle: 'Tagihan, lunas, dan verifikasi',
         tone: AppTheme.toneGold,
         onTap: () => context.push(Routes.iuran),
       ),
@@ -222,6 +222,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     // ── Group 3: Info Lingkungan ──
     final lingkunganItems = <_MenuEntry>[
+      _MenuEntry(
+        icon: Icons.campaign_rounded,
+        label: 'Pengumuman',
+        subtitle: 'Info & berita warga',
+        tone: AppTheme.tonePink,
+        onTap: () => context.push(Routes.announcements),
+      ),
       if (canOpenOrganization)
         _MenuEntry(
           icon: Icons.account_tree_rounded,
@@ -230,13 +237,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           tone: AppTheme.toneCharcoal,
           onTap: () => context.push(Routes.organization),
         ),
-      _MenuEntry(
-        icon: Icons.campaign_rounded,
-        label: 'Pengumuman',
-        subtitle: 'Info & berita warga',
-        tone: AppTheme.tonePink,
-        onTap: () => context.push(Routes.announcements),
-      ),
     ];
 
     // ── Group 4: Lainnya ──
@@ -367,7 +367,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
+      backgroundColor: AppTheme.pageBackgroundFor(context),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -770,11 +770,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget _buildList(List<_MenuEntry> items, {Key? key}) {
     return Container(
       key: key,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
-      ),
+      decoration: AppTheme.cardDecorationFor(context, borderRadius: 14),
       child: Column(
         children: [
           for (int i = 0; i < items.length; i++) ...[
@@ -784,7 +780,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 height: 0,
                 thickness: 0.5,
                 indent: 52,
-                color: AppTheme.dividerColor.withValues(alpha: 0.4),
+                color: AppTheme.cardBorderColorFor(context),
               ),
           ],
         ],
@@ -813,21 +809,16 @@ class _QuickStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = AppTheme.primaryTextFor(context);
+    final labelColor = AppTheme.tertiaryTextFor(context);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.15)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
+        decoration: AppTheme.cardDecorationFor(
+          context,
+          borderRadius: 16,
+          color: AppTheme.cardColorFor(context),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -854,7 +845,7 @@ class _QuickStatCard extends StatelessWidget {
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
-                color: AppTheme.textPrimary,
+                color: titleColor,
                 letterSpacing: -0.5,
                 height: 1,
               ),
@@ -863,7 +854,7 @@ class _QuickStatCard extends StatelessWidget {
             Text(
               label,
               style: AppTheme.caption.copyWith(
-                color: AppTheme.textTertiary,
+                color: labelColor,
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
@@ -891,6 +882,7 @@ class _ViewToggleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final inactiveColor = AppTheme.tertiaryTextFor(context);
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -903,7 +895,7 @@ class _ViewToggleButton extends StatelessWidget {
         child: Icon(
           icon,
           size: 17,
-          color: isActive ? Colors.white : AppTheme.textTertiary,
+          color: isActive ? Colors.white : inactiveColor,
         ),
       ),
     );
@@ -920,8 +912,9 @@ class _GridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = AppTheme.primaryTextFor(context);
     return Material(
-      color: Colors.white,
+      color: AppTheme.cardColorFor(context),
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: entry.onTap,
@@ -956,7 +949,7 @@ class _GridCard extends StatelessWidget {
                 entry.label,
                 style: AppTheme.caption.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
+                  color: titleColor,
                   fontSize: 11,
                   height: 1.2,
                 ),
@@ -982,6 +975,7 @@ class _ListRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final subtitleColor = AppTheme.tertiaryTextFor(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1024,7 +1018,7 @@ class _ListRow extends StatelessWidget {
                     Text(
                       entry.subtitle,
                       style: AppTheme.caption.copyWith(
-                        color: AppTheme.textTertiary,
+                        color: subtitleColor,
                         fontSize: 11,
                         height: 1.2,
                       ),
@@ -1056,19 +1050,14 @@ class _SuratSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardColor = AppTheme.cardColorFor(context);
+    final subtitleColor = AppTheme.secondaryTextFor(context);
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+      decoration: AppTheme.cardDecorationFor(
+        context,
+        borderRadius: 16,
+        color: cardColor,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1094,7 +1083,7 @@ class _SuratSummaryCard extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.3,
                   fontSize: 11,
-                  color: AppTheme.textSecondary,
+                  color: subtitleColor,
                 ),
               ),
             ],

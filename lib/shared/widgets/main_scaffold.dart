@@ -216,18 +216,15 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   Widget build(BuildContext context) {
     final selectedIndex = _getSelectedIndex(context);
     final unreadCount = ref.watch(chatUnreadCountProvider);
+    final surfaceColor = AppTheme.cardColorFor(context);
+    final borderColor = AppTheme.cardBorderColorFor(context);
 
     return Scaffold(
       body: widget.child,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(
-            top: BorderSide(
-              color: AppTheme.dividerColor.withValues(alpha: 0.5),
-              width: 0.5,
-            ),
-          ),
+          color: surfaceColor,
+          border: Border(top: BorderSide(color: borderColor, width: 0.5)),
         ),
         child: SafeArea(
           top: false,

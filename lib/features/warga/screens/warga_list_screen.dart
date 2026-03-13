@@ -241,6 +241,7 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
   }
 
   Widget _buildCompactHeader(BuildContext context, {required bool isAdmin}) {
+    final subtitleColor = AppTheme.secondaryTextFor(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -265,7 +266,7 @@ class _WargaListScreenState extends ConsumerState<WargaListScreen> {
                 'Dikelompokkan per KK',
                 style: AppTheme.bodySmall.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.textSecondary,
+                  color: subtitleColor,
                 ),
               ),
             ),
@@ -339,7 +340,7 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
     final kepalaName = _findKepalaName();
 
     return Container(
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
@@ -458,12 +459,16 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
 
   Widget _buildExpandedContent() {
     final kk = widget.group.kk;
+    final borderColor = AppTheme.cardBorderColorFor(context);
+    final backgroundColor = AppTheme.isDark(context)
+        ? AppTheme.darkSurfaceRaised
+        : const Color(0xFFF8FAFB);
+    final subtitleColor = AppTheme.secondaryTextFor(context);
+    final tertiaryColor = AppTheme.tertiaryTextFor(context);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFB),
-        border: Border(
-          top: BorderSide(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
-        ),
+        color: backgroundColor,
+        border: Border(top: BorderSide(color: borderColor)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -477,15 +482,13 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
                   Icon(
                     Icons.location_on_outlined,
                     size: 13,
-                    color: AppTheme.textTertiary,
+                    color: tertiaryColor,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       kk.alamat.isNotEmpty ? kk.alamat : 'Alamat belum diisi',
-                      style: AppTheme.caption.copyWith(
-                        color: AppTheme.textSecondary,
-                      ),
+                      style: AppTheme.caption.copyWith(color: subtitleColor),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -495,7 +498,7 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
                     'RT ${kk.rt}/RW ${kk.rw}',
                     style: AppTheme.caption.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.textSecondary,
+                      color: subtitleColor,
                     ),
                   ),
                   if (widget.onOpenKk != null) ...[
@@ -544,6 +547,8 @@ class _CompactWargaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tertiaryColor = AppTheme.tertiaryTextFor(context);
+    final primaryText = AppTheme.primaryTextFor(context);
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -566,7 +571,7 @@ class _CompactWargaRow extends StatelessWidget {
               child: Text(
                 Formatters.inisial(warga.namaLengkap),
                 style: AppTheme.caption.copyWith(
-                  color: isKepala ? Colors.white : AppTheme.textPrimary,
+                  color: isKepala ? Colors.white : primaryText,
                   fontWeight: FontWeight.w700,
                   fontSize: 12,
                 ),
@@ -616,20 +621,14 @@ class _CompactWargaRow extends StatelessWidget {
                   const SizedBox(height: 1),
                   Text(
                     '${Formatters.formatNik(warga.nik)}  ·  ${warga.jenisKelamin}',
-                    style: AppTheme.caption.copyWith(
-                      color: AppTheme.textTertiary,
-                    ),
+                    style: AppTheme.caption.copyWith(color: tertiaryColor),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: AppTheme.textTertiary,
-            ),
+            Icon(Icons.chevron_right_rounded, size: 18, color: tertiaryColor),
           ],
         ),
       ),

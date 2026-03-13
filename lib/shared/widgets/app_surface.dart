@@ -16,7 +16,7 @@ class AppPageBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(gradient: AppTheme.surfaceGradient),
+      decoration: BoxDecoration(gradient: AppTheme.surfaceGradientFor(context)),
       child: SafeArea(
         child: Padding(padding: padding, child: child),
       ),
@@ -41,7 +41,7 @@ class AppSurfaceCard extends StatelessWidget {
     return Container(
       margin: margin,
       padding: padding,
-      decoration: AppTheme.cardDecoration(),
+      decoration: AppTheme.cardDecorationFor(context),
       child: child,
     );
   }
@@ -68,7 +68,10 @@ class AppAccentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: margin,
-      decoration: AppTheme.accentCardDecoration(accentColor: accentColor),
+      decoration: AppTheme.accentCardDecorationFor(
+        context,
+        accentColor: accentColor,
+      ),
       clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.transparent,
@@ -104,6 +107,10 @@ class AppEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final titleColor = AppTheme.primaryTextFor(context);
+    final messageColor = AppTheme.secondaryTextFor(context);
+    final iconTone = isDark ? AppTheme.accentColor : AppTheme.primaryColor;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -116,8 +123,10 @@ class AppEmptyState extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    AppTheme.primaryColor.withValues(alpha: 0.10),
-                    AppTheme.accentColor.withValues(alpha: 0.06),
+                    iconTone.withValues(alpha: isDark ? 0.18 : 0.10),
+                    AppTheme.accentColor.withValues(
+                      alpha: isDark ? 0.12 : 0.06,
+                    ),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -127,15 +136,19 @@ class AppEmptyState extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 32,
-                color: AppTheme.primaryColor.withValues(alpha: 0.6),
+                color: iconTone.withValues(alpha: 0.75),
               ),
             ),
             const SizedBox(height: 18),
-            Text(title, style: AppTheme.heading3, textAlign: TextAlign.center),
+            Text(
+              title,
+              style: AppTheme.heading3.copyWith(color: titleColor),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 6),
             Text(
               message,
-              style: AppTheme.bodySmall,
+              style: AppTheme.bodySmall.copyWith(color: messageColor),
               textAlign: TextAlign.center,
             ),
             if (action != null) ...[const SizedBox(height: 18), action!],
@@ -160,6 +173,8 @@ class AppSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = AppTheme.primaryTextFor(context);
+    final subtitleColor = AppTheme.secondaryTextFor(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -177,10 +192,13 @@ class AppSectionHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: AppTheme.heading3),
+              Text(title, style: AppTheme.heading3.copyWith(color: titleColor)),
               if ((subtitle ?? '').isNotEmpty) ...[
                 const SizedBox(height: 2),
-                Text(subtitle!, style: AppTheme.bodySmall),
+                Text(
+                  subtitle!,
+                  style: AppTheme.bodySmall.copyWith(color: subtitleColor),
+                ),
               ],
             ],
           ),
@@ -213,6 +231,8 @@ class AppHeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final titleColor = AppTheme.primaryTextFor(context);
+    final subtitleColor = AppTheme.tertiaryTextFor(context);
     final hasEyebrow = (eyebrow ?? '').isNotEmpty;
     final trailingWidget = trailing;
     final trailingChildren = trailingWidget == null
@@ -249,16 +269,14 @@ class AppHeroPanel extends StatelessWidget {
                 title,
                 style: AppTheme.bodyMedium.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.textPrimary,
+                  color: titleColor,
                 ),
               ),
               if (subtitle.isNotEmpty) ...[
                 const SizedBox(height: 1),
                 Text(
                   subtitle,
-                  style: AppTheme.caption.copyWith(
-                    color: AppTheme.textTertiary,
-                  ),
+                  style: AppTheme.caption.copyWith(color: subtitleColor),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -363,19 +381,20 @@ class AppSearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hintColor = AppTheme.tertiaryTextFor(context);
+    final textColor = AppTheme.primaryTextFor(context);
     return Container(
-      decoration: AppTheme.cardDecoration(borderRadius: AppTheme.radiusMedium),
+      decoration: AppTheme.cardDecorationFor(
+        context,
+        borderRadius: AppTheme.radiusMedium,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
       child: TextField(
         controller: controller,
         decoration: InputDecoration(
           hintText: hintText,
-          hintStyle: AppTheme.bodySmall.copyWith(color: AppTheme.textTertiary),
-          prefixIcon: Icon(
-            Icons.search_rounded,
-            color: AppTheme.textTertiary,
-            size: 18,
-          ),
+          hintStyle: AppTheme.bodySmall.copyWith(color: hintColor),
+          prefixIcon: Icon(Icons.search_rounded, color: hintColor, size: 18),
           border: InputBorder.none,
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
@@ -387,15 +406,11 @@ class AppSearchBar extends StatelessWidget {
               ? null
               : IconButton(
                   onPressed: () => onChanged(''),
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: AppTheme.textTertiary,
-                    size: 16,
-                  ),
+                  icon: Icon(Icons.close_rounded, color: hintColor, size: 16),
                 ),
         ),
         onChanged: onChanged,
-        style: AppTheme.bodyMedium.copyWith(fontSize: 13),
+        style: AppTheme.bodyMedium.copyWith(fontSize: 13, color: textColor),
       ),
     );
   }

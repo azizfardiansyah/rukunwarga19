@@ -28,6 +28,13 @@ class AppTheme {
   static const Color extraLightGray = Color(0xFFF9FAFB);
   static const Color darkGray = Color(0xFF1F2937);
   static const Color surfaceColor = Colors.white;
+  static const Color darkBackgroundColor = Color(0xFF16110F);
+  static const Color darkSurfaceColor = Color(0xFF221B18);
+  static const Color darkSurfaceRaised = Color(0xFF2C231F);
+  static const Color darkBorderColor = Color(0xFF4B3D36);
+  static const Color darkTextPrimary = Color(0xFFF7F1EC);
+  static const Color darkTextSecondary = Color(0xFFD8C9BC);
+  static const Color darkTextTertiary = Color(0xFF9D8E84);
   static const Color textPrimary = Color(0xFF1A1A1A); // near-black
   static const Color textSecondary = Color(0xFF6B6B6B); // warm gray
   static const Color textTertiary = Color(0xFFA3A3A3); // light warm gray
@@ -388,43 +395,72 @@ class AppTheme {
   // DARK THEME
   // ═══════════════════════════════════════════════════════════════════
   static ThemeData get darkTheme {
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: primaryColor,
+          brightness: Brightness.dark,
+        ).copyWith(
+          primary: primaryLight,
+          secondary: accentColor,
+          surface: darkSurfaceColor,
+          surfaceContainerHighest: darkSurfaceRaised,
+          error: errorColor,
+          onPrimary: Colors.white,
+          onSurface: darkTextPrimary,
+          onSecondary: Colors.white,
+          outline: darkBorderColor,
+        );
+
+    final baseTextTheme = Typography.material2021().white.apply(
+      bodyColor: darkTextPrimary,
+      displayColor: darkTextPrimary,
+    );
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primaryColor,
-        brightness: Brightness.dark,
-        primary: primaryLight,
-        secondary: secondaryColor,
-        error: errorColor,
+      colorScheme: colorScheme,
+      textTheme: baseTextTheme.copyWith(
+        headlineLarge: heading1.copyWith(color: darkTextPrimary),
+        headlineMedium: heading2.copyWith(color: darkTextPrimary),
+        titleLarge: heading3.copyWith(color: darkTextPrimary),
+        bodyLarge: bodyLarge.copyWith(color: darkTextPrimary),
+        bodyMedium: bodyMedium.copyWith(color: darkTextPrimary),
+        bodySmall: bodySmall.copyWith(color: darkTextSecondary),
+        labelSmall: caption.copyWith(color: darkTextSecondary),
+        labelMedium: labelMedium.copyWith(color: darkTextPrimary),
       ),
-      appBarTheme: const AppBarTheme(
+      scaffoldBackgroundColor: darkBackgroundColor,
+      appBarTheme: AppBarTheme(
+        backgroundColor: darkSurfaceColor.withValues(alpha: 0.92),
+        foregroundColor: darkTextPrimary,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0.5,
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: TextStyle(
+        titleTextStyle: const TextStyle(
           fontSize: 17,
           fontWeight: FontWeight.w700,
-          color: Colors.white,
+          color: darkTextPrimary,
         ),
       ),
       cardTheme: CardThemeData(
-        elevation: 1,
+        color: darkSurfaceColor,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusLarge),
+          side: const BorderSide(color: darkBorderColor),
         ),
         margin: const EdgeInsets.symmetric(
           horizontal: paddingMedium,
           vertical: paddingSmall,
         ),
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
           backgroundColor: primaryLight,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(
-            horizontal: paddingLarge,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusMedium),
           ),
@@ -432,26 +468,230 @@ class AppTheme {
           elevation: 0,
         ),
       ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: primaryLight,
+          side: BorderSide(color: primaryLight.withValues(alpha: 0.35)),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(radiusMedium),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: primaryLight,
+          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
+        fillColor: darkSurfaceRaised,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: paddingMedium,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusMedium),
+          borderSide: const BorderSide(color: darkBorderColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(radiusMedium),
+          borderSide: const BorderSide(color: darkBorderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusMedium),
           borderSide: const BorderSide(color: primaryLight, width: 1.5),
         ),
+        labelStyle: bodyMedium.copyWith(color: darkTextSecondary),
+        hintStyle: bodyMedium.copyWith(color: darkTextTertiary),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: darkSurfaceColor.withValues(alpha: 0.95),
+        elevation: 0,
+        indicatorColor: primaryLight.withValues(alpha: 0.18),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          return caption.copyWith(
+            color: states.contains(WidgetState.selected)
+                ? primaryLight
+                : darkTextTertiary,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w700
+                : FontWeight.w500,
+            fontSize: 11,
+          );
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          return IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? primaryLight
+                : darkTextTertiary,
+            size: 22,
+          );
+        }),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: darkSurfaceRaised,
+        selectedColor: primaryLight.withValues(alpha: 0.18),
+        labelStyle: bodySmall.copyWith(
+          fontWeight: FontWeight.w500,
+          color: darkTextPrimary,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusXLarge),
+        ),
+        side: BorderSide.none,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: darkBorderColor,
+        thickness: 0.5,
+        space: 0,
       ),
       snackBarTheme: SnackBarThemeData(
+        backgroundColor: darkSurfaceRaised,
+        contentTextStyle: bodyMedium.copyWith(color: darkTextPrimary),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusMedium),
         ),
+        elevation: 4,
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: darkSurfaceColor,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusXLarge),
+        ),
+        elevation: 8,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: darkSurfaceColor,
+        surfaceTintColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(radiusXLarge),
+          ),
+        ),
+        elevation: 8,
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: darkSurfaceRaised,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusMedium),
+        ),
+        elevation: 4,
+        surfaceTintColor: Colors.transparent,
+      ),
+    );
+  }
+
+  static bool isDark(BuildContext context) {
+    return Theme.of(context).brightness == Brightness.dark;
+  }
+
+  static LinearGradient surfaceGradientFor(BuildContext context) {
+    if (isDark(context)) {
+      return const LinearGradient(
+        colors: [Color(0xFF16110F), Color(0xFF1E1714), Color(0xFF281F1B)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+      );
+    }
+    return surfaceGradient;
+  }
+
+  static LinearGradient headerGradientFor(BuildContext context) {
+    if (isDark(context)) {
+      return const LinearGradient(
+        colors: [Color(0xFF110D0B), Color(0xFF1D1512), Color(0xFF2A1C18)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      );
+    }
+    return headerGradient;
+  }
+
+  static Color pageBackgroundFor(BuildContext context) {
+    return isDark(context) ? darkBackgroundColor : backgroundColor;
+  }
+
+  static Color cardColorFor(BuildContext context) {
+    return isDark(context) ? darkSurfaceColor : surfaceColor;
+  }
+
+  static Color cardBorderColorFor(BuildContext context) {
+    return isDark(context)
+        ? darkBorderColor.withValues(alpha: 0.8)
+        : dividerColor.withValues(alpha: 0.5);
+  }
+
+  static Color primaryTextFor(BuildContext context) {
+    return isDark(context) ? darkTextPrimary : textPrimary;
+  }
+
+  static Color secondaryTextFor(BuildContext context) {
+    return isDark(context) ? darkTextSecondary : textSecondary;
+  }
+
+  static Color tertiaryTextFor(BuildContext context) {
+    return isDark(context) ? darkTextTertiary : textTertiary;
+  }
+
+  static BoxDecoration cardDecorationFor(
+    BuildContext context, {
+    double borderRadius = radiusLarge,
+    Color? color,
+    bool hasBorder = true,
+  }) {
+    final background = color ?? cardColorFor(context);
+    final borderColor = cardBorderColorFor(context);
+    final shadowBase = isDark(context)
+        ? Colors.black.withValues(alpha: 0.28)
+        : Colors.black.withValues(alpha: 0.03);
+    final shadowSoft = isDark(context)
+        ? Colors.black.withValues(alpha: 0.18)
+        : Colors.black.withValues(alpha: 0.02);
+    return BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: hasBorder ? Border.all(color: borderColor) : null,
+      boxShadow: [
+        BoxShadow(
+          color: shadowBase,
+          blurRadius: isDark(context) ? 18 : 12,
+          offset: const Offset(0, 2),
+        ),
+        BoxShadow(
+          color: shadowSoft,
+          blurRadius: isDark(context) ? 28 : 24,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    );
+  }
+
+  static BoxDecoration accentCardDecorationFor(
+    BuildContext context, {
+    required Color accentColor,
+    double borderRadius = radiusLarge,
+  }) {
+    return BoxDecoration(
+      color: cardColorFor(context),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: Border.all(color: cardBorderColorFor(context)),
+      boxShadow: [
+        BoxShadow(
+          color: accentColor.withValues(alpha: isDark(context) ? 0.16 : 0.08),
+          blurRadius: 16,
+          offset: const Offset(0, 4),
+        ),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: isDark(context) ? 0.18 : 0.03),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
     );
   }
 

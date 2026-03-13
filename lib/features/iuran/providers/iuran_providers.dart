@@ -21,6 +21,7 @@ class IuranAccessState {
     required this.canOpenAdminView,
     required this.canManageSetup,
     required this.canReviewPayments,
+    required this.canPublishIuranData,
     required this.canPublishFinance,
     required this.showOperatorFallbackNotice,
   });
@@ -28,6 +29,7 @@ class IuranAccessState {
   final bool canOpenAdminView;
   final bool canManageSetup;
   final bool canReviewPayments;
+  final bool canPublishIuranData;
   final bool canPublishFinance;
   final bool showOperatorFallbackNotice;
 
@@ -43,6 +45,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
       canOpenAdminView: false,
       canManageSetup: false,
       canReviewPayments: false,
+      canPublishIuranData: false,
       canPublishFinance: false,
       showOperatorFallbackNotice: false,
     );
@@ -52,6 +55,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
       canOpenAdminView: true,
       canManageSetup: true,
       canReviewPayments: true,
+      canPublishIuranData: true,
       canPublishFinance: true,
       showOperatorFallbackNotice: false,
     );
@@ -61,6 +65,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
       canOpenAdminView: false,
       canManageSetup: false,
       canReviewPayments: false,
+      canPublishIuranData: false,
       canPublishFinance: false,
       showOperatorFallbackNotice: false,
     );
@@ -75,6 +80,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
         canOpenAdminView: false,
         canManageSetup: false,
         canReviewPayments: false,
+        canPublishIuranData: false,
         canPublishFinance: false,
         showOperatorFallbackNotice: true,
       );
@@ -88,6 +94,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
           membership.isActive &&
           (membership.canManageIuran || membership.canVerifyIuranPayment),
     );
+    final canPublishIuranData = canManageSetup;
     final canPublishFinance =
         profile.canPublishFinanceByPlan &&
         profile.orgMemberships.any(
@@ -99,6 +106,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
       canOpenAdminView: canOpenAdminView,
       canManageSetup: canManageSetup,
       canReviewPayments: canReviewPayments,
+      canPublishIuranData: canPublishIuranData,
       canPublishFinance: canPublishFinance,
       showOperatorFallbackNotice: !canOpenAdminView,
     );
@@ -107,6 +115,7 @@ final iuranAccessProvider = FutureProvider.autoDispose<IuranAccessState>((
       canOpenAdminView: false,
       canManageSetup: false,
       canReviewPayments: false,
+      canPublishIuranData: false,
       canPublishFinance: false,
       showOperatorFallbackNotice: true,
     );
