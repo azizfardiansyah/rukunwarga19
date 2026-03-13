@@ -704,7 +704,7 @@ class _AnnouncementCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accentColor = item.isDraft
-        ? const Color(0xFF8C6B55)
+        ? AppTheme.warningColor
         : item.targetType == 'rt'
         ? AppTheme.primaryColor
         : AppTheme.accentColor;
@@ -728,7 +728,7 @@ class _AnnouncementCard extends StatelessWidget {
                     _InfoPill(
                       label: item.isDraft ? 'Draft' : 'Published',
                       color: item.isDraft
-                          ? const Color(0xFF8C6B55)
+                          ? AppTheme.warningColor
                           : AppTheme.secondaryColor,
                     ),
                     _InfoPill(
@@ -783,7 +783,7 @@ class _AnnouncementCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF7F3EE),
+                color: AppTheme.extraLightGray,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppTheme.dividerColor),
               ),
@@ -866,3 +866,4 @@ class _InfoPill extends StatelessWidget {
     );
   }
 }
+

@@ -1215,7 +1215,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     filled: true,
                     fillColor: isEditing
                         ? Colors.white
-                        : const Color(0xFFF5F7FA),
+                        : AppTheme.extraLightGray,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 13,
@@ -1272,7 +1272,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                     filled: true,
                     fillColor: isEditing
                         ? Colors.white
-                        : const Color(0xFFF5F7FA),
+                        : AppTheme.extraLightGray,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 2,
@@ -1356,7 +1356,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
                       filled: true,
                       fillColor: isEditing
                           ? Colors.white
-                          : const Color(0xFFF5F7FA),
+                          : AppTheme.extraLightGray,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 13,
@@ -1813,7 +1813,7 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F4F8),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
@@ -3268,3 +3268,4 @@ class _KkFormScreenState extends ConsumerState<KkFormScreen> {
     );
   }
 }
+

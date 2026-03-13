@@ -29,6 +29,9 @@ import '../features/chat/screens/announcement_form_screen.dart';
 import '../features/chat/screens/announcement_stats_screen.dart';
 import '../features/notifikasi/screens/notifikasi_screen.dart';
 import '../features/settings/screens/settings_screen.dart';
+import '../features/settings/screens/change_password_screen.dart';
+import '../features/settings/screens/about_app_screen.dart';
+import '../features/settings/screens/app_policy_screen.dart';
 import '../features/settings/screens/role_request_screen.dart';
 import '../features/settings/screens/subscription_screen.dart';
 import '../features/settings/screens/user_role_management_screen.dart';
@@ -71,6 +74,9 @@ class Routes {
   static const String announcementStats = '/pengumuman/:id/stats';
   static const String notifikasi = '/notifikasi';
   static const String settings = '/settings';
+  static const String changePassword = '/settings/change-password';
+  static const String aboutApp = '/settings/about-app';
+  static const String appPolicy = '/settings/app-policy';
   static const String subscription = '/subscription';
   static const String roleRequests = '/settings/role-requests';
   static const String userManagement = '/settings/user-management';
@@ -297,6 +303,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.notifikasi,
         builder: (context, state) => const NotifikasiScreen(),
+      ),
+      GoRoute(
+        path: Routes.changePassword,
+        builder: (context, state) => const ChangePasswordScreen(),
+      ),
+      GoRoute(
+        path: Routes.aboutApp,
+        builder: (context, state) => const AboutAppScreen(),
+      ),
+      GoRoute(
+        path: Routes.appPolicy,
+        builder: (context, state) => const AppPolicyScreen(),
       ),
       GoRoute(
         path: Routes.roleRequests,

@@ -462,7 +462,7 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
     final borderColor = AppTheme.cardBorderColorFor(context);
     final backgroundColor = AppTheme.isDark(context)
         ? AppTheme.darkSurfaceRaised
-        : const Color(0xFFF8FAFB);
+        : AppTheme.extraLightGray;
     final subtitleColor = AppTheme.secondaryTextFor(context);
     final tertiaryColor = AppTheme.tertiaryTextFor(context);
     return Container(
@@ -563,7 +563,7 @@ class _CompactWargaRow extends StatelessWidget {
                 gradient: isKepala
                     ? AppTheme.primaryGradient
                     : const LinearGradient(
-                        colors: [Color(0xFFE5E0DA), Color(0xFFD4CDC5)],
+                        colors: [AppTheme.extraLightGray, AppTheme.lightGray],
                       ),
                 borderRadius: BorderRadius.circular(11),
               ),
@@ -635,3 +635,4 @@ class _CompactWargaRow extends StatelessWidget {
     );
   }
 }
+

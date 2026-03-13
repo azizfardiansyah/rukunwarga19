@@ -84,12 +84,11 @@ class _RoleRequestScreenState extends ConsumerState<RoleRequestScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const Text(
+                    Text(
                       'Unsubscribe Berhasil',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: AppTheme.heading2.copyWith(
                         color: Colors.white,
-                        fontSize: 22,
                         fontWeight: FontWeight.w800,
                       ),
                     ),

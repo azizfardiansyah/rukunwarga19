@@ -403,7 +403,7 @@ class _SuratListCard extends StatelessWidget {
                 ),
                 _metaChip(
                   AppConstants.suratCategoryLabel(surat.category),
-                  const Color(0xFFF1F3F2),
+                  AppTheme.extraLightGray,
                   AppTheme.textSecondary,
                 ),
               ],
@@ -446,3 +446,4 @@ class _SuratListCard extends StatelessWidget {
     );
   }
 }
+

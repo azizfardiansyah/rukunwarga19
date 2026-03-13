@@ -10,6 +10,7 @@ import '../../../core/services/chat_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/models/chat_model.dart';
+import '../../../shared/widgets/app_badge.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -177,15 +178,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF171414), Color(0xFF2D2222), Color(0xFF443030)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        gradient: AppTheme.headerGradientFor(context),
         borderRadius: const BorderRadius.all(Radius.circular(28)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
+            color: Colors.black.withValues(
+              alpha: AppTheme.isDark(context) ? 0.18 : 0.12,
+            ),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -200,7 +199,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 size: 42,
                 showRing: true,
                 ringColor: Colors.white24,
-                backgroundColor: Color(0x33FFFFFF),
+                backgroundColor: Colors.white24,
                 textColor: Colors.white,
               ),
               const SizedBox(width: 12),
@@ -227,22 +226,11 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   ],
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  roleLabel,
-                  style: AppTheme.caption.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+              AppBadge(
+                label: roleLabel,
+                type: AppBadgeType.info,
+                size: AppBadgeSize.small,
+                style: AppBadgeStyle.solid,
               ),
             ],
           ),
@@ -427,7 +415,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 children: [
                   SlidableAction(
                     onPressed: (_) => _showConversationMore(conversation),
-                    backgroundColor: const Color(0xFF54616B),
+                    backgroundColor: AppTheme.secondaryColor,
                     foregroundColor: Colors.white,
                     icon: Icons.more_horiz_rounded,
                     label: 'More',
@@ -437,7 +425,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                       conversation: conversation,
                       action: 'mute',
                     ),
-                    backgroundColor: const Color(0xFF5E6B66),
+                    backgroundColor: AppTheme.textSecondary,
                     foregroundColor: Colors.white,
                     icon: conversation.isMuted
                         ? Icons.notifications_active_rounded
@@ -553,11 +541,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                     label: 'Mute',
                                   ),
                                 if (conversation.isPinned)
-                                  const _ConversationMetaChip(
+                                  _ConversationMetaChip(
                                     icon: Icons.push_pin_rounded,
                                     label: 'Dipin',
                                     foregroundColor: AppTheme.accentColor,
-                                    backgroundColor: Color(0x1AE8983C),
+                                    backgroundColor: AppTheme.accentColor
+                                        .withValues(alpha: 0.10),
                                   ),
                               ],
                             ),
@@ -972,7 +961,7 @@ class _ConversationMetaChip extends StatelessWidget {
     required this.label,
     this.icon,
     this.foregroundColor = AppTheme.textSecondary,
-    this.backgroundColor = const Color(0xFFF6F1EC),
+    this.backgroundColor = AppTheme.extraLightGray,
   });
 
   final String label;
@@ -1028,14 +1017,14 @@ class _ConversationLeadingAvatar extends StatelessWidget {
     return Container(
       width: 44,
       height: 44,
-      decoration: BoxDecoration(
-        gradient: conversation.isGroupRt
-            ? const LinearGradient(
-                colors: [Color(0xFF2D2222), AppTheme.primaryColor],
-              )
-            : const LinearGradient(
-                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
-              ),
+        decoration: BoxDecoration(
+          gradient: conversation.isGroupRt
+              ? const LinearGradient(
+                  colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
+                )
+              : const LinearGradient(
+                  colors: [AppTheme.accentColor, AppTheme.primaryLight],
+                ),
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(

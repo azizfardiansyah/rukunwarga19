@@ -499,7 +499,7 @@ class _PhotoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFB),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
       ),
@@ -597,3 +597,4 @@ class _AvatarCircle extends StatelessWidget {
     );
   }
 }
+

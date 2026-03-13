@@ -1,6 +1,9 @@
 import 'dart:io';
-import 'package:pocketbase/pocketbase.dart';
+
 import 'package:flutter/material.dart';
+import 'package:pocketbase/pocketbase.dart';
+
+import '../../app/theme.dart';
 
 /// Tipe-tipe error yang mungkin terjadi
 enum ErrorType {
@@ -163,18 +166,48 @@ class ErrorClassifier {
   static void showErrorSnackBar(BuildContext context, dynamic error) {
     final classified = classify(error);
     final snackBar = SnackBar(
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
+      content: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            classified.message,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
           ),
-          if (classified.detail != null) ...[
-            const SizedBox(height: 4),
-            Text(classified.detail!, style: const TextStyle(fontSize: 12)),
-          ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  classified.message,
+                  style: AppTheme.bodyMedium.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (classified.detail != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    classified.detail!,
+                    style: AppTheme.bodySmall.copyWith(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
       backgroundColor: _colorForType(classified.type),
@@ -193,8 +226,34 @@ class ErrorClassifier {
   /// Tampilkan snackbar sukses
   static void showSuccessSnackBar(BuildContext context, String message) {
     final snackBar = SnackBar(
-      content: Text(message),
-      backgroundColor: Colors.green[700],
+      content: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTheme.bodyMedium.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: AppTheme.successColor,
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 3),
     );
@@ -207,19 +266,19 @@ class ErrorClassifier {
     switch (type) {
       case ErrorType.network:
       case ErrorType.timeout:
-        return Colors.orange[800]!;
+        return AppTheme.warningColor;
       case ErrorType.auth:
-        return Colors.red[700]!;
+        return AppTheme.errorColor;
       case ErrorType.forbidden:
-        return Colors.red[900]!;
+        return AppTheme.primaryDark;
       case ErrorType.notFound:
-        return Colors.grey[700]!;
+        return AppTheme.secondaryColor;
       case ErrorType.validation:
-        return Colors.amber[800]!;
+        return AppTheme.warningColor;
       case ErrorType.server:
-        return Colors.red[800]!;
+        return AppTheme.errorColor;
       case ErrorType.unknown:
-        return Colors.grey[800]!;
+        return AppTheme.textPrimary;
     }
   }
 

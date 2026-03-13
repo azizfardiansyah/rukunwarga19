@@ -22,30 +22,21 @@ class MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final labelColor = isActive
+        ? activeColor
+        : AppTheme.secondaryTextFor(context);
+    final valueColor = isActive
+        ? activeColor
+        : AppTheme.primaryTextFor(context);
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: AppTheme.fastDuration,
         padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isActive ? activeColor.withValues(alpha: 0.12) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isActive
-                ? activeColor.withValues(alpha: 0.35)
-                : AppTheme.lightGray,
-            width: isActive ? 1.5 : 1,
-          ),
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: activeColor.withValues(alpha: 0.12),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : null,
+        decoration: AppTheme.cardDecorationFor(
+          context,
+          color: isActive ? activeColor.withValues(alpha: 0.10) : null,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -61,9 +52,9 @@ class MetricCard extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
-                style: AppTheme.heading1.copyWith(
+                style: AppTypography.metricValue.copyWith(
                   fontSize: 28,
-                  color: isActive ? activeColor : AppTheme.darkGray,
+                  color: valueColor,
                   height: 1,
                 ),
               ),
@@ -71,9 +62,9 @@ class MetricCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               label,
-              style: AppTheme.labelMedium.copyWith(
+              style: AppTypography.metricLabel.copyWith(
                 fontSize: 12,
-                color: AppTheme.statusInfo,
+                color: labelColor,
               ),
             ),
           ],

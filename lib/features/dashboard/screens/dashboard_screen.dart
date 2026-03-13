@@ -10,7 +10,9 @@ import '../../../core/services/pocketbase_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/surat_service.dart';
 import '../../../core/utils/area_access.dart';
+import '../../../shared/widgets/app_badge.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
+import '../../../shared/widgets/menu_item_card.dart';
 import '../../surat/providers/surat_providers.dart';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -18,10 +20,17 @@ import '../../surat/providers/surat_providers.dart';
 // ═══════════════════════════════════════════════════════════════════
 
 class DashboardStats {
-  const DashboardStats({required this.totalWarga, required this.totalKk});
+  const DashboardStats({
+    required this.totalWarga,
+    required this.totalKk,
+    required this.totalLakiLaki,
+    required this.totalPerempuan,
+  });
 
   final int totalWarga;
   final int totalKk;
+  final int totalLakiLaki;
+  final int totalPerempuan;
 }
 
 /// Represents a single menu entry with grouping info
@@ -31,6 +40,7 @@ class _MenuEntry {
   final String subtitle;
   final Color tone;
   final VoidCallback onTap;
+  final Widget? badge;
 
   const _MenuEntry({
     required this.icon,
@@ -38,6 +48,7 @@ class _MenuEntry {
     required this.subtitle,
     required this.tone,
     required this.onTap,
+    this.badge,
   });
 }
 
@@ -92,12 +103,25 @@ final hasKartuKeluargaProvider = FutureProvider<bool>((ref) async {
 final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final auth = ref.watch(authProvider);
   if (auth.user == null) {
-    return const DashboardStats(totalWarga: 0, totalKk: 0);
+    return const DashboardStats(
+      totalWarga: 0,
+      totalKk: 0,
+      totalLakiLaki: 0,
+      totalPerempuan: 0,
+    );
   }
 
   final access = await resolveAreaAccessContext(auth);
   final wargaFilter = buildWargaScopeFilter(auth, context: access);
   final kkFilter = buildKkScopeFilter(auth, context: access);
+  final lakiLakiFilter = _appendFilter(
+    wargaFilter,
+    'jenis_kelamin = "Laki-laki"',
+  );
+  final perempuanFilter = _appendFilter(
+    wargaFilter,
+    'jenis_kelamin = "Perempuan"',
+  );
 
   final wargaResult = await pb
       .collection(AppConstants.colWarga)
@@ -105,12 +129,28 @@ final dashboardStatsProvider = FutureProvider<DashboardStats>((ref) async {
   final kkResult = await pb
       .collection(AppConstants.colKartuKeluarga)
       .getList(page: 1, perPage: 1, filter: kkFilter);
+  final lakiLakiResult = await pb
+      .collection(AppConstants.colWarga)
+      .getList(page: 1, perPage: 1, filter: lakiLakiFilter);
+  final perempuanResult = await pb
+      .collection(AppConstants.colWarga)
+      .getList(page: 1, perPage: 1, filter: perempuanFilter);
 
   return DashboardStats(
     totalWarga: wargaResult.totalItems,
     totalKk: kkResult.totalItems,
+    totalLakiLaki: lakiLakiResult.totalItems,
+    totalPerempuan: perempuanResult.totalItems,
   );
 });
+
+String _appendFilter(String base, String condition) {
+  final trimmedBase = base.trim();
+  if (trimmedBase.isEmpty) {
+    return condition;
+  }
+  return '($trimmedBase) && $condition';
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // DASHBOARD SCREEN
@@ -143,16 +183,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required bool showSelfKkSetup,
     required bool canOpenFinance,
     required bool canOpenOrganization,
+    DashboardStats? stats,
+    SuratDashboardSummary? suratSummary,
   }) {
+    final wargaSubtitle = stats == null
+        ? 'Kelola data penduduk'
+        : 'L ${stats.totalLakiLaki} · P ${stats.totalPerempuan}';
+    final kkSubtitle = stats == null
+        ? 'Data KK warga'
+        : '${stats.totalWarga} warga · L ${stats.totalLakiLaki} · P ${stats.totalPerempuan}';
+    final suratSubtitle = suratSummary == null
+        ? 'Ajukan & pantau surat'
+        : '${suratSummary.total} total · ${suratSummary.needRevision} revisi · ${suratSummary.completed} selesai';
     // ── Group 1: Data Penduduk ──
     final dataItems = <_MenuEntry>[
       if (!isWarga)
         _MenuEntry(
           icon: Icons.people_rounded,
           label: 'Data Warga',
-          subtitle: 'Kelola data penduduk',
+          subtitle: wargaSubtitle,
           tone: AppTheme.toneRose,
           onTap: () => context.push(Routes.warga),
+          badge: stats == null
+              ? null
+              : AppBadge(
+                  label: '${stats.totalWarga}',
+                  type: AppBadgeType.info,
+                  size: AppBadgeSize.small,
+                ),
         ),
       if (showSelfWargaSetup)
         _MenuEntry(
@@ -166,7 +224,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _MenuEntry(
           icon: Icons.family_restroom_rounded,
           label: 'Kartu Keluarga',
-          subtitle: 'Data KK warga',
+          subtitle: kkSubtitle,
           tone: AppTheme.toneAmber,
           onTap: () {
             final hasKK = ref
@@ -176,6 +234,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 ? context.push(Routes.kartuKeluarga)
                 : context.go(Routes.kkForm);
           },
+          badge: stats == null
+              ? null
+              : AppBadge(
+                  label: '${stats.totalKk} KK',
+                  type: AppBadgeType.warning,
+                  size: AppBadgeSize.small,
+                ),
         ),
       if (showSelfKkSetup)
         _MenuEntry(
@@ -199,9 +264,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _MenuEntry(
         icon: Icons.mail_rounded,
         label: 'Surat Pengantar',
-        subtitle: 'Ajukan & pantau surat',
+        subtitle: suratSubtitle,
         tone: AppTheme.toneCrimson,
         onTap: () => context.push(Routes.surat),
+        badge: suratSummary == null
+            ? null
+            : AppBadge(
+                label: suratSummary.actionRequired > 0
+                    ? '${suratSummary.actionRequired} aksi'
+                    : '${suratSummary.total} total',
+                type: suratSummary.actionRequired > 0
+                    ? AppBadgeType.warning
+                    : AppBadgeType.info,
+                size: AppBadgeSize.small,
+              ),
       ),
       _MenuEntry(
         icon: Icons.payments_rounded,
@@ -339,6 +415,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final canOpenOrganization = authState.isAuthenticated;
     final canOpenFinance = authState.isOperator || authState.isSysadmin;
     final suratSummaryAsync = ref.watch(suratDashboardSummaryProvider);
+    final stats = statsAsync.asData?.value;
+    final suratSummary = suratSummaryAsync.asData?.value;
 
     ref.listen<AsyncValue<bool>>(hasKartuKeluargaProvider, (prev, next) {
       next.whenData(_navigateToKkFormIfNeeded);
@@ -364,6 +442,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       showSelfKkSetup: showSelfKkSetup,
       canOpenFinance: canOpenFinance,
       canOpenOrganization: canOpenOrganization,
+      stats: stats,
+      suratSummary: suratSummary,
     );
 
     return Scaffold(
@@ -373,26 +453,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         children: [
           // ── Header hero ──
           _buildHeader(
-            authState: authState,
             userName: userName,
             roleLabel: roleLabel,
             isWarga: isWarga,
-            statsAsync: statsAsync,
-            suratSummaryAsync: suratSummaryAsync,
           ),
 
           // ── Quick stat cards (admin only) ──
-          if (!isWarga) ...[
-            const SizedBox(height: 16),
-            _buildQuickStats(statsAsync, suratSummaryAsync),
-          ],
 
           // ── Setup hint ──
           if (showSetupMenu) _buildSetupHint(showSelfKkSetup: showSelfKkSetup),
 
           // ── Menu section header with view toggle ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 12, 0),
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
             child: Row(
               children: [
                 // Accent bar
@@ -444,21 +517,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           const SizedBox(height: 12),
           for (final group in menuGroups) ...[_buildGroupSection(group)],
 
-          // ── Surat summary (admin only) ──
-          if (!isWarga)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: suratSummaryAsync.when(
-                data: (summary) => _SuratSummaryCard(
-                  summary: summary,
-                  onOpenFocus: (focus) =>
-                      context.push('${Routes.laporan}?focus=$focus'),
-                ),
-                loading: () => const SizedBox.shrink(),
-                error: (_, _) => const SizedBox.shrink(),
-              ),
-            ),
-
           const SizedBox(height: 24),
         ],
       ),
@@ -466,69 +524,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   // ─────────────────────────────────────────────────────────
-  // Quick stat cards — signature horizontal cards below header
-  // ─────────────────────────────────────────────────────────
-  Widget _buildQuickStats(
-    AsyncValue<DashboardStats> statsAsync,
-    AsyncValue<SuratDashboardSummary> suratSummaryAsync,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          Expanded(
-            child: _QuickStatCard(
-              label: 'Warga',
-              value: statsAsync.maybeWhen(
-                data: (s) => s.totalWarga.toString(),
-                orElse: () => '—',
-              ),
-              icon: Icons.people_rounded,
-              color: AppTheme.toneRose,
-              onTap: () => context.push('${Routes.laporan}?focus=warga_total'),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _QuickStatCard(
-              label: 'KK',
-              value: statsAsync.maybeWhen(
-                data: (s) => s.totalKk.toString(),
-                orElse: () => '—',
-              ),
-              icon: Icons.family_restroom_rounded,
-              color: AppTheme.toneAmber,
-              onTap: () => context.push('${Routes.laporan}?focus=kk_total'),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _QuickStatCard(
-              label: 'Surat',
-              value: suratSummaryAsync.maybeWhen(
-                data: (s) => s.total.toString(),
-                orElse: () => '—',
-              ),
-              icon: Icons.mail_rounded,
-              color: AppTheme.toneCrimson,
-              onTap: () => context.push('${Routes.laporan}?focus=surat_total'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // Header — dark, bold, with warm accent
-  // ─────────────────────────────────────────────────────────
   Widget _buildHeader({
-    required AuthState authState,
     required String userName,
     required String roleLabel,
     required bool isWarga,
-    required AsyncValue<DashboardStats> statsAsync,
-    required AsyncValue<SuratDashboardSummary> suratSummaryAsync,
   }) {
     // Time-based greeting
     final hour = DateTime.now().hour;
@@ -558,7 +557,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     size: 40,
                     showRing: true,
                     ringColor: Colors.white24,
-                    backgroundColor: Color(0x33FFFFFF),
+                    backgroundColor: Colors.white24,
                     textColor: Colors.white,
                   ),
                   const SizedBox(width: 12),
@@ -592,24 +591,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               ),
                             ),
                             const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.warmGradient,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                roleLabel,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.3,
-                                ),
-                              ),
+                            AppBadge(
+                              label: roleLabel,
+                              type: AppBadgeType.info,
+                              size: AppBadgeSize.small,
+                              style: AppBadgeStyle.solid,
+                              icon: isWarga
+                                  ? Icons.person_outline_rounded
+                                  : Icons.workspace_premium_outlined,
                             ),
                           ],
                         ),
@@ -654,12 +643,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
+        decoration: AppTheme.cardDecorationFor(
+          context,
           color: AppTheme.warningColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppTheme.warningColor.withValues(alpha: 0.25),
-          ),
         ),
         child: Row(
           children: [
@@ -754,7 +740,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               if (j > 0) const SizedBox(width: 10),
               Expanded(
                 child: j < rowItems.length
-                    ? _GridCard(entry: rowItems[j])
+                    ? MenuItemCard(
+                        icon: rowItems[j].icon,
+                        label: rowItems[j].label,
+                        helperText: rowItems[j].subtitle,
+                        badge: rowItems[j].badge,
+                        iconColor: rowItems[j].tone,
+                        onTap: rowItems[j].onTap,
+                      )
                     : const SizedBox.shrink(),
               ),
             ],
@@ -789,85 +782,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// QUICK STAT CARD — signature stat tile
-// ═══════════════════════════════════════════════════════════════════
-class _QuickStatCard extends StatelessWidget {
-  const _QuickStatCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.onTap,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final titleColor = AppTheme.primaryTextFor(context);
-    final labelColor = AppTheme.tertiaryTextFor(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: AppTheme.cardDecorationFor(
-          context,
-          borderRadius: 16,
-          color: AppTheme.cardColorFor(context),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    color.withValues(alpha: 0.15),
-                    color.withValues(alpha: 0.05),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, size: 17, color: color),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: titleColor,
-                letterSpacing: -0.5,
-                height: 1,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: AppTheme.caption.copyWith(
-                color: labelColor,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// VIEW TOGGLE BUTTON
 // ═══════════════════════════════════════════════════════════════════
 class _ViewToggleButton extends StatelessWidget {
   final IconData icon;
@@ -905,66 +819,6 @@ class _ViewToggleButton extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════
 // GRID CARD — bold, warm-toned 3-column card
 // ═══════════════════════════════════════════════════════════════════
-class _GridCard extends StatelessWidget {
-  final _MenuEntry entry;
-
-  const _GridCard({required this.entry});
-
-  @override
-  Widget build(BuildContext context) {
-    final titleColor = AppTheme.primaryTextFor(context);
-    return Material(
-      color: AppTheme.cardColorFor(context),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: entry.onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: entry.tone.withValues(alpha: 0.12)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      entry.tone.withValues(alpha: 0.14),
-                      entry.tone.withValues(alpha: 0.04),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(entry.icon, size: 22, color: entry.tone),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                entry.label,
-                style: AppTheme.caption.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: titleColor,
-                  fontSize: 11,
-                  height: 1.2,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // LIST ROW — detailed row (icon + label + subtitle + chevron)
 // ═══════════════════════════════════════════════════════════════════
@@ -1026,6 +880,10 @@ class _ListRow extends StatelessWidget {
                   ],
                 ),
               ),
+              if (entry.badge != null) ...[
+                entry.badge!,
+                const SizedBox(width: 8),
+              ],
               Icon(
                 Icons.chevron_right_rounded,
                 color: entry.tone.withValues(alpha: 0.4),
@@ -1040,132 +898,3 @@ class _ListRow extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SURAT SUMMARY — warm-toned horizontal chips
-// ═══════════════════════════════════════════════════════════════════
-class _SuratSummaryCard extends StatelessWidget {
-  const _SuratSummaryCard({required this.summary, required this.onOpenFocus});
-
-  final SuratDashboardSummary summary;
-  final ValueChanged<String> onOpenFocus;
-
-  @override
-  Widget build(BuildContext context) {
-    final cardColor = AppTheme.cardColorFor(context);
-    final subtitleColor = AppTheme.secondaryTextFor(context);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: AppTheme.cardDecorationFor(
-        context,
-        borderRadius: 16,
-        color: cardColor,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: Icon(
-                  Icons.mail_outline_rounded,
-                  size: 14,
-                  color: AppTheme.primaryColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Ringkasan Surat',
-                style: AppTheme.caption.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.3,
-                  fontSize: 11,
-                  color: subtitleColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _chip(
-                'Total',
-                summary.total,
-                AppTheme.toneRose,
-                () => onOpenFocus('surat_total'),
-              ),
-              const SizedBox(width: 6),
-              _chip(
-                'Aksi',
-                summary.actionRequired,
-                AppTheme.toneAmber,
-                () => onOpenFocus('surat_action'),
-              ),
-              const SizedBox(width: 6),
-              _chip(
-                'Revisi',
-                summary.needRevision,
-                AppTheme.toneGold,
-                () => onOpenFocus('surat_revision'),
-              ),
-              const SizedBox(width: 6),
-              _chip(
-                'Selesai',
-                summary.completed,
-                AppTheme.successColor,
-                () => onOpenFocus('surat_completed'),
-              ),
-              const SizedBox(width: 6),
-              _chip(
-                'Tolak',
-                summary.rejected,
-                AppTheme.errorColor,
-                () => onOpenFocus('surat_rejected'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String label, int value, Color color, VoidCallback onTap) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                value.toString(),
-                style: TextStyle(
-                  color: color,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                label,
-                style: AppTheme.caption.copyWith(
-                  fontSize: 9,
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -241,27 +241,33 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         );
   }
 
-  Future<void> _syncAvatar(String userId) async {
+  Future<String?> _syncAvatar(String userId) async {
     if (_fotoWargaBytes == null ||
         (_fotoWargaFilename ?? '').isEmpty ||
         userId.isEmpty) {
-      return;
+      return null;
     }
-    await pb
-        .collection(AppConstants.colUsers)
-        .update(
-          userId,
-          body: {'name': _namaCtrl.text.trim()},
-          files: [
-            http.MultipartFile.fromBytes(
-              'avatar',
-              _fotoWargaBytes!,
-              filename: _fotoWargaFilename,
-            ),
-          ],
-        );
-    if (ref.read(authProvider).user?.id == userId) {
-      await ref.read(authProvider.notifier).refreshAuth();
+    try {
+      await pb
+          .collection(AppConstants.colUsers)
+          .update(
+            userId,
+            body: {'name': _namaCtrl.text.trim()},
+            files: [
+              http.MultipartFile.fromBytes(
+                'avatar',
+                _fotoWargaBytes!,
+                filename: _fotoWargaFilename,
+              ),
+            ],
+          );
+      if (ref.read(authProvider).user?.id == userId) {
+        await ref.read(authProvider.notifier).refreshAuth();
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[WARGA FORM] Avatar sync gagal: $e');
+      return 'Foto warga tersimpan, tetapi avatar user belum berhasil disinkronkan.';
     }
   }
 
@@ -277,7 +283,8 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
 
     setState(() => _isLoading = true);
     try {
-      final authUserId = ref.read(authProvider).user?.id ?? '';
+      final authState = ref.read(authProvider);
+      final authUserId = authState.user?.id ?? '';
       final rt = int.tryParse(_rtCtrl.text.trim());
       final rw = int.tryParse(_rwCtrl.text.trim());
       final noHpRaw = _noHpCtrl.text.trim();
@@ -289,9 +296,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         throw Exception('No. HP harus berupa angka.');
       }
 
-      final linkedUserId = _linkedUserId.isNotEmpty
-          ? _linkedUserId
-          : authUserId;
+      final linkedUserId = _linkedUserId.trim().isNotEmpty
+          ? _linkedUserId.trim()
+          : (!authState.isAdmin ? authUserId : '');
       final body = <String, dynamic>{
         'nik': _nikCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
         'no_kk': _noKkCtrl.text.trim(),
@@ -357,14 +364,17 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         );
       }
 
-      await _syncAvatar(wargaRecord.getStringValue('user_id'));
+      final avatarSyncMessage = await _syncAvatar(
+        wargaRecord.getStringValue('user_id'),
+      );
 
       if (mounted) {
         ErrorClassifier.showSuccessSnackBar(
           context,
-          _isEdit
-              ? 'Data warga berhasil diperbarui'
-              : 'Data warga berhasil ditambahkan',
+          avatarSyncMessage ??
+              (_isEdit
+                  ? 'Data warga berhasil diperbarui'
+                  : 'Data warga berhasil ditambahkan'),
         );
         if (context.canPop()) {
           context.pop(true);
@@ -381,19 +391,40 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localTheme = Theme.of(context);
+    final isDark = AppTheme.isDark(context);
+    final formTheme = localTheme.copyWith(
+      inputDecorationTheme: localTheme.inputDecorationTheme.copyWith(
+        fillColor: isDark
+            ? AppTheme.darkSurfaceRaised
+            : AppTheme.cardColorFor(context),
+        labelStyle: AppTheme.bodySmall.copyWith(
+          color: AppTheme.secondaryTextFor(context),
+        ),
+        floatingLabelStyle: AppTheme.bodySmall.copyWith(
+          color: isDark ? AppTheme.primaryLight : AppTheme.primaryColor,
+          fontWeight: FontWeight.w700,
+        ),
+        prefixIconColor: AppTheme.secondaryTextFor(context),
+      ),
+    );
+
     return Scaffold(
       appBar: AppBar(title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga')),
       body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: SingleChildScrollView(
-          child: Form(
+        child: Theme(
+          data: formTheme,
+          child: SingleChildScrollView(
+            child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _hero(),
+                  _hero(context),
                   const SizedBox(height: 16),
                   _section(
+                    context: context,
                     title: 'Identitas Warga',
                     icon: Icons.badge_rounded,
                     child: Column(
@@ -519,6 +550,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                   ),
                   const SizedBox(height: 14),
                   _section(
+                    context: context,
                     title: 'Alamat & Kontak',
                     icon: Icons.home_rounded,
                     child: Column(
@@ -601,6 +633,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                   ),
                   const SizedBox(height: 14),
                   _section(
+                    context: context,
                     title: 'Dokumen & Foto',
                     icon: Icons.photo_library_rounded,
                     child: Column(
@@ -666,26 +699,30 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                 ],
               ),
             ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _hero() => AppTheme.glassContainer(
-    opacity: 0.78,
-    padding: EdgeInsets.zero,
+  Widget _hero(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [
+          AppTheme.primaryColor.withValues(alpha: 0.95),
+          AppTheme.primaryLight.withValues(alpha: 0.92),
+          AppTheme.secondaryColor.withValues(alpha: 0.86),
+        ],
+      ),
+      borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+      border: Border.all(
+        color: Colors.white.withValues(
+          alpha: AppTheme.isDark(context) ? 0.08 : 0.18,
+        ),
+      ),
+    ),
     child: Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppTheme.primaryColor.withValues(alpha: 0.95),
-            AppTheme.primaryLight.withValues(alpha: 0.92),
-            AppTheme.secondaryColor.withValues(alpha: 0.86),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
-      ),
       child: Row(
         children: [
           Container(
@@ -726,11 +763,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   );
 
   Widget _section({
+    required BuildContext context,
     required String title,
     required IconData icon,
     required Widget child,
-  }) => AppTheme.glassContainer(
-    opacity: 0.74,
+  }) => AppSurfaceCard(
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -745,7 +782,12 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
               child: Icon(icon, size: 18, color: AppTheme.primaryColor),
             ),
             const SizedBox(width: 10),
-            Text(title, style: AppTheme.heading3),
+            Text(
+              title,
+              style: AppTheme.heading3.copyWith(
+                color: AppTheme.primaryTextFor(context),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 14),
@@ -765,6 +807,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     String? Function(String?)? validator,
   }) => TextFormField(
     controller: controller,
+    style: AppTheme.bodyMedium.copyWith(
+      color: AppTheme.primaryTextFor(context),
+    ),
     keyboardType: keyboardType,
     maxLength: maxLength,
     maxLines: maxLines,
@@ -785,10 +830,35 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     void Function(String?) onChanged,
   ) => DropdownButtonFormField<String>(
     initialValue: items.contains(value) ? value : items.first,
+    isExpanded: true,
+    menuMaxHeight: 320,
     onChanged: onChanged,
     decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+    style: AppTheme.bodyMedium.copyWith(
+      color: AppTheme.primaryTextFor(context),
+    ),
+    selectedItemBuilder: (context) => items
+        .map(
+          (item) => Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              item,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.bodyMedium.copyWith(
+                color: AppTheme.primaryTextFor(context),
+              ),
+            ),
+          ),
+        )
+        .toList(),
     items: items
-        .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+        .map(
+          (item) => DropdownMenuItem(
+            value: item,
+            child: Text(item, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        )
         .toList(),
   );
 
@@ -814,8 +884,8 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
             : Formatters.tanggalLengkap(_tanggalLahir!),
         style: AppTheme.bodyMedium.copyWith(
           color: _tanggalLahir == null
-              ? AppTheme.textSecondary
-              : AppTheme.textPrimary,
+              ? AppTheme.secondaryTextFor(context)
+              : AppTheme.primaryTextFor(context),
         ),
       ),
     ),
@@ -823,11 +893,15 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
 
   Widget _noteBox() {
     final avatarUrl = _avatarUrl();
+    final noteColor = AppTheme.isDark(context)
+        ? AppTheme.darkSurfaceRaised.withValues(alpha: 0.92)
+        : AppTheme.secondaryColor.withValues(alpha: 0.08);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.secondaryColor.withValues(alpha: 0.08),
+        color: noteColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.cardBorderColorFor(context)),
       ),
       child: Row(
         children: [
@@ -848,7 +922,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
             child: Text(
               'Foto warga yang baru akan otomatis mengisi avatar user bila warga ini sudah terhubung ke akun.',
               style: AppTheme.bodySmall.copyWith(
-                color: AppTheme.textPrimary,
+                color: AppTheme.primaryTextFor(context),
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -862,12 +936,16 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     width: 48,
     height: 48,
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.8),
+      color: AppTheme.primaryColor.withValues(
+        alpha: AppTheme.isDark(context) ? 0.18 : 0.10,
+      ),
       borderRadius: BorderRadius.circular(12),
     ),
-    child: const Icon(
+    child: Icon(
       Icons.account_circle_rounded,
-      color: AppTheme.primaryColor,
+      color: AppTheme.primaryColor.withValues(
+        alpha: AppTheme.isDark(context) ? 0.95 : 1,
+      ),
     ),
   );
 
@@ -881,9 +959,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   }) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.72),
+      color: AppTheme.cardColorFor(context),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+      border: Border.all(color: AppTheme.cardBorderColorFor(context)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -924,11 +1002,13 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   );
 
   Widget _imageFallback(IconData icon) => Container(
-    color: AppTheme.backgroundColor,
+    color: AppTheme.isDark(context)
+        ? AppTheme.darkSurfaceRaised
+        : AppTheme.backgroundColor,
     child: Icon(
       icon,
       size: 42,
-      color: AppTheme.textSecondary.withValues(alpha: 0.45),
+      color: AppTheme.secondaryTextFor(context).withValues(alpha: 0.55),
     ),
   );
 

@@ -431,11 +431,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                   children: [
                     Text(
                       'Subscription & Pembayaran',
-                      style: const TextStyle(
+                      style: AppTheme.heading4.copyWith(
                         color: Colors.white,
-                        fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
                       ),
                     ),
                     Text(
@@ -456,7 +454,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
             runSpacing: 6,
             children: [
               _pill(statusLabel, statusColor, filled: true),
-              _pill(targetRoleLabel, Colors.white, filled: true),
+              _pill(targetRoleLabel, AppTheme.bgWhite, filled: true),
             ],
           ),
           const SizedBox(height: 8),
@@ -1223,9 +1221,9 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
 
   Widget _pill(String label, Color color, {bool filled = false}) {
     final background = filled
-        ? color.withValues(alpha: color == Colors.white ? 0.92 : 0.18)
+        ? color.withValues(alpha: color == AppTheme.bgWhite ? 0.92 : 0.18)
         : color.withValues(alpha: 0.12);
-    final foreground = color == Colors.white ? AppTheme.primaryDark : color;
+    final foreground = color == AppTheme.bgWhite ? AppTheme.primaryDark : color;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1235,7 +1233,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: AppTheme.caption.copyWith(
           fontSize: 10,
           fontWeight: FontWeight.w700,
           color: foreground,

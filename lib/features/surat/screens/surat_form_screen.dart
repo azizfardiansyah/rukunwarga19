@@ -517,7 +517,7 @@ class _AttachmentTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7F9F8),
+          color: AppTheme.extraLightGray,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: AppTheme.dividerColor),
         ),
@@ -546,3 +546,4 @@ class _AttachmentTile extends StatelessWidget {
     );
   }
 }
+

@@ -87,6 +87,35 @@ flutter:
     - assets/rw.png
     - assets/datasets/indonesia_regions.json
 
+  fonts:
+    - family: Plus Jakarta Sans
+      fonts:
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Variable.ttf
+          weight: 700
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Variable.ttf
+          weight: 800
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Italic-Variable.ttf
+          style: italic
+          weight: 400
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Italic-Variable.ttf
+          style: italic
+          weight: 500
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Italic-Variable.ttf
+          style: italic
+          weight: 600
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Italic-Variable.ttf
+          style: italic
+          weight: 700
+        - asset: assets/fonts/plus_jakarta_sans/PlusJakartaSans-Italic-Variable.ttf
+          style: italic
+          weight: 800
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

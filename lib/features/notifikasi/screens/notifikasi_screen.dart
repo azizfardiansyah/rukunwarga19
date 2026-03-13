@@ -146,7 +146,7 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
                                         children: [
                                           _chip(
                                             item.wargaName,
-                                            const Color(0xFFF3F5F4),
+                                            AppTheme.extraLightGray,
                                             AppTheme.textSecondary,
                                           ),
                                           _chip(
@@ -219,3 +219,4 @@ class _NotifikasiScreenState extends ConsumerState<NotifikasiScreen> {
     );
   }
 }
+

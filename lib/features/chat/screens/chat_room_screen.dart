@@ -841,8 +841,8 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                       leading: CircleAvatar(
                         radius: 18,
                         backgroundColor: item.isPrivate
-                            ? const Color(0xFFE0F2F1)
-                            : const Color(0xFFEAF4F1),
+                            ? AppTheme.accentColor.withValues(alpha: 0.16)
+                            : AppTheme.primaryColor.withValues(alpha: 0.10),
                         child: Icon(
                           item.isPrivate
                               ? Icons.support_agent_rounded
@@ -850,7 +850,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                               ? Icons.groups_rounded
                               : Icons.hub_rounded,
                           color: item.isPrivate
-                              ? const Color(0xFF00796B)
+                              ? AppTheme.accentColor
                               : AppTheme.primaryColor,
                           size: 18,
                         ),
@@ -1700,17 +1700,15 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
         titleSpacing: 0,
         flexibleSpace: Container(
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF171414), Color(0xFF2B2121), Color(0xFF3C2A2A)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            gradient: AppTheme.headerGradientFor(context),
             borderRadius: const BorderRadius.vertical(
               bottom: Radius.circular(28),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
+                color: Colors.black.withValues(
+                  alpha: AppTheme.isDark(context) ? 0.18 : 0.12,
+                ),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
@@ -1843,9 +1841,9 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Color(0xFFF6F1EC),
-                  Color(0xFFFCFBF9),
-                  Color(0xFFF2ECE6),
+                  AppTheme.extraLightGray,
+                  AppTheme.bgWhite,
+                  AppTheme.backgroundColor,
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -2047,7 +2045,7 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
                                 ? null
                                 : _showComposerActions,
                             style: IconButton.styleFrom(
-                              backgroundColor: const Color(0xFFF3E7E2),
+                              backgroundColor: AppTheme.extraLightGray,
                               foregroundColor: AppTheme.primaryColor,
                               padding: const EdgeInsets.all(14),
                             ),
@@ -2381,7 +2379,7 @@ class _ComposerHint extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBF6F1),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
@@ -2542,7 +2540,7 @@ class _AttachmentDraftPreview extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBF6F1),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
@@ -2669,7 +2667,7 @@ class _MentionSuggestionStrip extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBF6F1),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.7)),
       ),
@@ -2770,7 +2768,7 @@ class _MessageAttachmentPreview extends StatelessWidget {
         decoration: BoxDecoration(
           color: isMine
               ? Colors.white.withValues(alpha: 0.14)
-              : const Color(0xFFF8F3EE),
+              : AppTheme.extraLightGray,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
@@ -2936,7 +2934,7 @@ class _LinkifiedText extends StatelessWidget {
                 ? style.color == Colors.white
                       ? Colors.white
                       : AppTheme.primaryColor
-                : const Color(0xFFE85B4A),
+                : AppTheme.errorColor,
             decoration: isUrl ? TextDecoration.underline : TextDecoration.none,
             fontWeight: FontWeight.w600,
           ),
@@ -2982,7 +2980,7 @@ class _VoiceMessageCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isMine
               ? Colors.white.withValues(alpha: 0.14)
-              : const Color(0xFFF8F3EE),
+              : AppTheme.extraLightGray,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -3064,7 +3062,7 @@ class _PollMessageCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isMine
             ? Colors.white.withValues(alpha: 0.14)
-            : const Color(0xFFF8F3EE),
+            : AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -3264,7 +3262,7 @@ class _PollOptionTile extends StatelessWidget {
                 minHeight: 6,
                 backgroundColor: isMine
                     ? Colors.white.withValues(alpha: 0.12)
-                    : const Color(0xFFE3ECE8),
+                    : AppTheme.extraLightGray,
                 valueColor: AlwaysStoppedAnimation<Color>(
                   isMine ? Colors.white : AppTheme.primaryColor,
                 ),
@@ -3415,7 +3413,7 @@ class _MessageBubble extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isMine
                       ? Colors.white.withValues(alpha: 0.14)
-                      : const Color(0xFFF8F3EE),
+                      : AppTheme.extraLightGray,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -3806,24 +3804,24 @@ class _MessageSubscriptionBadge extends StatelessWidget {
 
     if (normalizedSystemRole == AppConstants.systemRoleSysadmin) {
       foreground = Colors.white;
-      background = const [Color(0xFF2B2F38), Color(0xFF515B70)];
+      background = [AppTheme.secondaryColor, AppTheme.primaryDark];
     } else {
       switch (normalizedPlanCode) {
         case AppConstants.planRwPro:
-          foreground = const Color(0xFF5C3A00);
-          background = const [Color(0xFFFFD977), Color(0xFFFFF2C2)];
+          foreground = AppTheme.primaryDark;
+          background = [AppTheme.warningColor, AppTheme.bgWhite];
           break;
         case AppConstants.planRw:
           foreground = Colors.white;
-          background = const [Color(0xFFC02E25), Color(0xFFE85B4A)];
+          background = [AppTheme.errorColor, AppTheme.primaryColor];
           break;
         case AppConstants.planRt:
           foreground = Colors.white;
-          background = const [Color(0xFF3C3C3C), Color(0xFF6B6B6B)];
+          background = [AppTheme.textSecondary, AppTheme.secondaryColor];
           break;
         default:
           foreground = AppTheme.textSecondary;
-          background = const [Color(0xFFF1ECE7), Color(0xFFFBF8F4)];
+          background = [AppTheme.bgLighter, AppTheme.bgWhite];
       }
     }
 
@@ -3941,10 +3939,10 @@ class _RoomConversationAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: conversation.isGroupRt
             ? const LinearGradient(
-                colors: [Color(0xFF2D2222), AppTheme.primaryColor],
+                colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
               )
             : const LinearGradient(
-                colors: [AppTheme.accentColor, Color(0xFFE2B96D)],
+                colors: [AppTheme.accentColor, AppTheme.primaryLight],
               ),
         shape: BoxShape.circle,
       ),
@@ -4135,7 +4133,7 @@ class _ConversationMediaTab extends StatelessWidget {
                   message.attachmentUrl ?? '',
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => Container(
-                    color: const Color(0xFFF4F7F5),
+                    color: AppTheme.extraLightGray,
                     alignment: Alignment.center,
                     child: const Icon(Icons.broken_image_outlined),
                   ),

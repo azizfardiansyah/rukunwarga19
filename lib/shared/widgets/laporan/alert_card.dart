@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/theme.dart';
+import '../app_badge.dart';
 
 enum AlertStatus { error, warning, success, info }
 
@@ -42,15 +43,15 @@ class AlertCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor;
+    final isDark = AppTheme.isDark(context);
+    final textColor = AppTheme.primaryTextFor(context);
+    final secondaryColor = AppTheme.secondaryTextFor(context);
 
-    return Container(
+    return AnimatedContainer(
+      duration: AppTheme.fastDuration,
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.lightGray),
-      ),
+      decoration: AppTheme.cardDecorationFor(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -68,23 +69,39 @@ class AlertCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  title,
-                  style: AppTheme.heading3.copyWith(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    AppBadge(
+                      label: status.name.toUpperCase(),
+                      type: switch (status) {
+                        AlertStatus.error => AppBadgeType.error,
+                        AlertStatus.warning => AppBadgeType.warning,
+                        AlertStatus.success => AppBadgeType.success,
+                        AlertStatus.info => AppBadgeType.info,
+                      },
+                      size: AppBadgeSize.small,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      title,
+                      style: AppTheme.heading3.copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           if ((value ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
               value!,
-              style: AppTheme.heading1.copyWith(
-                fontSize: 28,
+              style: AppTypography.metricValue.copyWith(
+                fontSize: 30,
                 color: color,
                 height: 1,
               ),
@@ -95,7 +112,7 @@ class AlertCard extends StatelessWidget {
             subtitle,
             style: AppTheme.bodyMedium.copyWith(
               fontSize: 14,
-              color: AppTheme.statusInfo,
+              color: secondaryColor,
             ),
           ),
           if ((meta ?? '').trim().isNotEmpty) ...[
@@ -104,8 +121,8 @@ class AlertCard extends StatelessWidget {
               meta!,
               style: AppTheme.caption.copyWith(
                 fontSize: 12,
-                color: AppTheme.textTertiary,
-                fontWeight: FontWeight.w500,
+                color: AppTheme.tertiaryTextFor(context),
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -120,8 +137,9 @@ class AlertCard extends StatelessWidget {
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                elevation: 0,
               ),
               icon: const Icon(Icons.arrow_forward_rounded, size: 18),
               label: Text(
@@ -133,6 +151,7 @@ class AlertCard extends StatelessWidget {
               ),
             ),
           ),
+          if (isDark) const SizedBox.shrink(),
         ],
       ),
     );

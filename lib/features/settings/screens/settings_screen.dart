@@ -10,6 +10,7 @@ import '../../../core/utils/area_access.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_badge.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/current_user_avatar.dart';
 
@@ -86,6 +87,9 @@ class SettingsScreen extends ConsumerWidget {
     final themeSubtitle = isDarkMode
         ? 'Tema gelap dipakai di aplikasi untuk redupkan cahaya layar saat kerja malam.'
         : 'Tema terang dipakai di aplikasi untuk tampilan yang lebih cerah dan kontras di siang hari.';
+    final themeIcon = isDarkMode
+        ? Icons.dark_mode_rounded
+        : Icons.light_mode_rounded;
 
     return Scaffold(
       body: AppPageBackground(
@@ -131,7 +135,7 @@ class SettingsScreen extends ConsumerWidget {
                   icon: Icons.lock_outlined,
                   title: 'Ganti Password',
                   subtitle: 'Perbarui password untuk keamanan akun',
-                  onTap: () {},
+                  onTap: () => context.push(Routes.changePassword),
                 ),
               ],
             ),
@@ -189,7 +193,7 @@ class SettingsScreen extends ConsumerWidget {
             _ActionGroup(
               children: [
                 _SettingsToggleTile(
-                  icon: Icons.dark_mode_outlined,
+                  icon: themeIcon,
                   title: themeLabel,
                   subtitle: themeSubtitle,
                   value: isDarkMode,
@@ -200,34 +204,14 @@ class SettingsScreen extends ConsumerWidget {
                 _SettingsActionTile(
                   icon: Icons.info_outlined,
                   title: 'Tentang Aplikasi',
-                  subtitle: 'Versi ${AppConstants.appVersion}',
-                  onTap: () {
-                    showAboutDialog(
-                      context: context,
-                      applicationName: AppConstants.appFullName,
-                      applicationVersion: AppConstants.appVersion,
-                      children: [
-                        const Text('Sistem Manajemen Rukun Warga'),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Lihat Lisensi akan menampilkan lisensi paket Flutter, Riverpod, PocketBase SDK, GoRouter, notifikasi, file picker, printing, dan dependency open-source lain yang dipakai aplikasi ini.',
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            showLicensePage(
-                              context: context,
-                              applicationName: AppConstants.appFullName,
-                              applicationVersion: AppConstants.appVersion,
-                            );
-                          },
-                          icon: const Icon(Icons.article_outlined),
-                          label: const Text('Lihat Lisensi'),
-                        ),
-                      ],
-                    );
-                  },
+                  subtitle: 'Kenali fungsi aplikasi dan ringkasan menunya',
+                  onTap: () => context.push(Routes.aboutApp),
+                ),
+                _SettingsActionTile(
+                  icon: Icons.gavel_rounded,
+                  title: 'View Lisensi',
+                  subtitle: 'Baca aturan penggunaan dan kebijakan aplikasi',
+                  onTap: () => context.push(Routes.appPolicy),
                 ),
               ],
             ),
@@ -457,23 +441,12 @@ class _ProfileHero extends StatelessWidget {
                   ),
                 ),
                 // Role badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: AppTheme.warmGradient,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    roleLabel,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                const SizedBox(width: 8),
+                AppBadge(
+                  label: roleLabel,
+                  type: AppBadgeType.info,
+                  size: AppBadgeSize.small,
+                  style: AppBadgeStyle.solid,
                 ),
               ],
             ),
@@ -652,25 +625,18 @@ class _SettingsActionTile extends StatelessWidget {
               ),
               if ((badgeLabel ?? '').isNotEmpty) ...[
                 const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: (badgeColor ?? AppTheme.primaryColor).withValues(
-                      alpha: 0.10,
-                    ),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    badgeLabel!,
-                    style: AppTheme.caption.copyWith(
-                      color: badgeColor ?? AppTheme.primaryColor,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 10,
-                    ),
-                  ),
+                AppBadge(
+                  label: badgeLabel!,
+                  type: switch (badgeColor ?? AppTheme.primaryColor) {
+                    final color when color == AppTheme.successColor =>
+                      AppBadgeType.success,
+                    final color when color == AppTheme.warningColor =>
+                      AppBadgeType.warning,
+                    final color when color == AppTheme.errorColor =>
+                      AppBadgeType.error,
+                    _ => AppBadgeType.info,
+                  },
+                  size: AppBadgeSize.small,
                 ),
               ],
               const SizedBox(width: 4),

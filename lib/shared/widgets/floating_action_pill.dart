@@ -20,7 +20,8 @@ class FloatingActionPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = AppTheme.isDark(context);
     final colors =
-        gradientColors ?? const [AppTheme.primaryColor, AppTheme.primaryLight];
+        gradientColors ??
+        const [AppTheme.primaryColor, AppTheme.secondaryColor];
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -52,7 +53,8 @@ class FloatingActionPill extends StatelessWidget {
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: isDark ? 0.14 : 0.2),
+                    color: (isDark ? Colors.white : AppTheme.primaryDark)
+                        .withValues(alpha: isDark ? 0.14 : 0.10),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(icon, color: Colors.white, size: 16),

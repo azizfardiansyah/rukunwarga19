@@ -238,7 +238,7 @@ class _AnnouncementDetailScreenState
                     _MetaPill(
                       label: item.isDraft ? 'Draft' : 'Published',
                       color: item.isDraft
-                          ? const Color(0xFF8C6B55)
+                          ? AppTheme.warningColor
                           : AppTheme.secondaryColor,
                     ),
                     _MetaPill(
@@ -281,7 +281,7 @@ class _AnnouncementDetailScreenState
                         item.attachmentUrl!,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => Container(
-                          color: const Color(0xFFF4F1EC),
+                          color: AppTheme.extraLightGray,
                           alignment: Alignment.center,
                           child: const Icon(Icons.broken_image_outlined),
                         ),
@@ -440,7 +440,7 @@ class _AttachmentCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F3EE),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.dividerColor),
       ),
@@ -490,3 +490,4 @@ class _AttachmentCard extends StatelessWidget {
     );
   }
 }
+

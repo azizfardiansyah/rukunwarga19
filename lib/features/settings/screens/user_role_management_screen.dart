@@ -299,7 +299,10 @@ class _UserRoleManagementScreenState
                         backgroundColor: AppTheme.roleColor(role),
                         child: Text(
                           Formatters.inisial(_displayName(user)),
-                          style: const TextStyle(color: Colors.white),
+                          style: AppTheme.bodySmall.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),

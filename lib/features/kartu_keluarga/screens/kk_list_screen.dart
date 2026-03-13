@@ -393,7 +393,7 @@ class _KkCompactTileState extends State<_KkCompactTile> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFB),
+        color: AppTheme.extraLightGray,
         border: Border(
           top: BorderSide(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
         ),
@@ -458,3 +458,4 @@ class _KkCompactTileState extends State<_KkCompactTile> {
     );
   }
 }
+

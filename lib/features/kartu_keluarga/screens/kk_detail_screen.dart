@@ -495,7 +495,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFB),
+          color: AppTheme.extraLightGray,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: AppTheme.dividerColor.withValues(alpha: 0.5),
@@ -536,7 +536,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
             aspectRatio: 16 / 10,
             child: isPdf
                 ? Container(
-                    color: const Color(0xFFF8FAFB),
+                    color: AppTheme.extraLightGray,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -564,7 +564,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                         fileUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) => Container(
-                          color: const Color(0xFFF8FAFB),
+                          color: AppTheme.extraLightGray,
                           child: const Center(
                             child: Text('Preview file tidak tersedia'),
                           ),
@@ -642,7 +642,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFB),
+            color: AppTheme.extraLightGray,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: AppTheme.dividerColor.withValues(alpha: 0.5),
@@ -658,7 +658,7 @@ class _KkDetailScreenState extends ConsumerState<KkDetailScreen> {
                   gradient: index == 0
                       ? AppTheme.primaryGradient
                       : const LinearGradient(
-                          colors: [Color(0xFFD4CDC5), Color(0xFFA3A3A3)],
+                          colors: [AppTheme.lightGray, AppTheme.textTertiary],
                         ),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -900,3 +900,4 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
+

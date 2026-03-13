@@ -289,6 +289,9 @@ class _OrganizationChartPreview extends StatelessWidget {
     final activeUnits = overview.orgUnits
         .where((unit) => unit.status == 'active')
         .toList(growable: false);
+    final activeMemberships = overview.orgMemberships
+        .where((membership) => membership.isActive)
+        .toList(growable: false);
     if (activeUnits.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
@@ -312,7 +315,7 @@ class _OrganizationChartPreview extends StatelessWidget {
     }
 
     final levels = <List<OrgUnitModel>>[];
-    var frontier = _sortUnits(roots).take(1).toList(growable: false);
+    var frontier = _sortUnits(roots);
     var depth = 0;
     while (frontier.isNotEmpty && depth < 3) {
       levels.add(frontier);
@@ -320,7 +323,7 @@ class _OrganizationChartPreview extends StatelessWidget {
       for (final unit in frontier) {
         next.addAll(childrenByParent[unit.id] ?? const <OrgUnitModel>[]);
       }
-      frontier = _sortUnits(next).take(3).toList(growable: false);
+      frontier = _sortUnits(next);
       depth++;
     }
 
@@ -333,6 +336,47 @@ class _OrganizationChartPreview extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${activeMemberships.length} pengurus aktif',
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accentColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${activeUnits.length} unit aktif',
+                    style: AppTheme.caption.copyWith(
+                      color: AppTheme.accentColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             for (
               var levelIndex = 0;
               levelIndex < levels.length;
@@ -372,8 +416,11 @@ class _OrganizationChartPreview extends StatelessWidget {
                         width: itemWidth.clamp(140.0, 220.0),
                         child: _OrganizationPreviewUnitCard(
                           unit: unit,
-                          leadMembership: _leadMembership(unit.id),
-                          actor: _leadActor(unit.id),
+                          memberships: _membershipsForUnit(unit.id),
+                          actorByMemberId: {
+                            for (final actor in overview.workspaceActors)
+                              actor.member.id: actor,
+                          },
                         ),
                       ),
                     )
@@ -415,14 +462,14 @@ class _OrganizationChartPreview extends StatelessWidget {
     }
   }
 
-  OrgMembershipModel? _leadMembership(String unitId) {
+  List<OrgMembershipModel> _membershipsForUnit(String unitId) {
     final memberships = overview.orgMemberships
         .where(
           (membership) => membership.isActive && membership.orgUnitId == unitId,
         )
         .toList(growable: false);
     if (memberships.isEmpty) {
-      return null;
+      return const [];
     }
     final sorted = [...memberships];
     sorted.sort((a, b) {
@@ -436,28 +483,20 @@ class _OrganizationChartPreview extends StatelessWidget {
         b.jabatan?.sortOrder ?? 999,
       );
     });
-    return sorted.first;
-  }
-
-  OrganizationWorkspaceActor? _leadActor(String unitId) {
-    final membership = _leadMembership(unitId);
-    if (membership == null) {
-      return null;
-    }
-    return overview.actorByMemberId(membership.workspaceMemberId);
+    return sorted;
   }
 }
 
 class _OrganizationPreviewUnitCard extends StatelessWidget {
   const _OrganizationPreviewUnitCard({
     required this.unit,
-    required this.leadMembership,
-    required this.actor,
+    required this.memberships,
+    required this.actorByMemberId,
   });
 
   final OrgUnitModel unit;
-  final OrgMembershipModel? leadMembership;
-  final OrganizationWorkspaceActor? actor;
+  final List<OrgMembershipModel> memberships;
+  final Map<String, OrganizationWorkspaceActor> actorByMemberId;
 
   @override
   Widget build(BuildContext context) {
@@ -511,38 +550,55 @@ class _OrganizationPreviewUnitCard extends StatelessWidget {
               ),
             ),
           ],
+          if (memberships.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: tone.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${memberships.length} pengurus',
+                style: AppTheme.caption.copyWith(
+                  color: tone,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: tone.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  actor?.displayName ?? 'Pengurus belum diisi',
-                  style: AppTheme.bodySmall.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primaryTextFor(context),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+          if (memberships.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: tone.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Pengurus belum diisi',
+                style: AppTheme.bodySmall.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primaryTextFor(context),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  leadMembership?.jabatan?.label ?? 'Belum ada jabatan utama',
-                  style: AppTheme.caption.copyWith(
-                    color: AppTheme.secondaryTextFor(context),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+              ),
+            )
+          else
+            Column(
+              children: memberships
+                  .map(
+                    (membership) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _OrganizationPreviewMemberTile(
+                        membership: membership,
+                        actor: actorByMemberId[membership.workspaceMemberId],
+                        tone: tone,
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
             ),
-          ),
         ],
       ),
     );
@@ -580,6 +636,77 @@ class _OrganizationPreviewUnitCard extends StatelessWidget {
       default:
         return 'Unit';
     }
+  }
+}
+
+class _OrganizationPreviewMemberTile extends StatelessWidget {
+  const _OrganizationPreviewMemberTile({
+    required this.membership,
+    required this.actor,
+    required this.tone,
+  });
+
+  final OrgMembershipModel membership;
+  final OrganizationWorkspaceActor? actor;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: membership.isPrimary ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  actor?.displayName ?? 'Pengurus belum diisi',
+                  style: AppTheme.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryTextFor(context),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (membership.isPrimary)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Utama',
+                    style: AppTheme.caption.copyWith(
+                      color: tone,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            membership.jabatan?.label ?? 'Belum ada jabatan utama',
+            style: AppTheme.caption.copyWith(
+              color: AppTheme.secondaryTextFor(context),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
   }
 }
 

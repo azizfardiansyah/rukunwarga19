@@ -59,20 +59,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final obscureConfirmPassword = _obscureConfirmPassword ?? true;
+    final heroGradient = AppTheme.headerGradientFor(context);
+    final subtitleColor = Colors.white.withValues(alpha: 0.82);
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              AppTheme.primaryDark,
-              AppTheme.primaryColor,
-              AppTheme.secondaryColor,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
+        decoration: BoxDecoration(gradient: heroGradient),
         child: Stack(
           children: [
             Positioned(
@@ -153,23 +145,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           ),
                         ),
                         const SizedBox(height: 20),
-                        const Text(
+                        Text(
                           'Daftar Akun Warga',
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w700,
+                          style: AppTheme.heading1.copyWith(
                             color: Colors.white,
-                            letterSpacing: -0.5,
+                            fontSize: 31,
                           ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Buat akun warga untuk mulai mengakses layanan, pengajuan surat, dan data keluarga.',
-                          style: TextStyle(
-                            fontSize: 14,
-                            height: 1.5,
-                            color: Colors.white.withValues(alpha: 0.86),
+                          style: AppTheme.bodySmall.copyWith(
+                            color: subtitleColor,
+                            fontSize: 13,
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -187,7 +176,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 Text(
                                   'Lengkapi data akun',
                                   style: AppTheme.heading3.copyWith(
-                                    color: AppTheme.textPrimary,
+                                    color: AppTheme.primaryTextFor(context),
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Isi data akun utama lebih dulu. Pengaturan peran dan wilayah bisa dilengkapi setelah akun aktif.',
+                                  style: AppTheme.bodySmall.copyWith(
+                                    color: AppTheme.secondaryTextFor(context),
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
@@ -221,7 +218,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                         child: Text(
                                           'Pendaftaran publik akan membuat akun warga terlebih dahulu. Akses fitur pengurus bisa dibuka nanti sesuai paket langganan dan wilayah yang dikelola.',
                                           style: AppTheme.bodySmall.copyWith(
-                                            color: AppTheme.textPrimary,
+                                            color: AppTheme.primaryTextFor(
+                                              context,
+                                            ),
                                             height: 1.45,
                                             fontWeight: FontWeight.w600,
                                           ),
@@ -236,6 +235,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                   textInputAction: TextInputAction.next,
                                   autofillHints: const [AutofillHints.name],
                                   decoration: _fieldDecoration(
+                                    context,
                                     label: 'Nama Lengkap',
                                     icon: Icons.person_outline_rounded,
                                   ),
@@ -251,6 +251,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                   textInputAction: TextInputAction.next,
                                   autofillHints: const [AutofillHints.email],
                                   decoration: _fieldDecoration(
+                                    context,
                                     label: 'Email',
                                     icon: Icons.email_outlined,
                                   ),
@@ -273,6 +274,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                     AutofillHints.newPassword,
                                   ],
                                   decoration: _fieldDecoration(
+                                    context,
                                     label: 'Password',
                                     icon: Icons.lock_outline_rounded,
                                     suffixIcon: IconButton(
@@ -311,6 +313,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                     }
                                   },
                                   decoration: _fieldDecoration(
+                                    context,
                                     label: 'Konfirmasi Password',
                                     icon: Icons.lock_person_outlined,
                                     suffixIcon: IconButton(
@@ -338,18 +341,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 const SizedBox(height: 24),
                                 SizedBox(
                                   height: 54,
-                                  child: ElevatedButton(
+                                  child: FilledButton(
                                     onPressed: _isLoading ? null : _register,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.primaryColor,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          AppTheme.radiusMedium,
-                                        ),
-                                      ),
-                                    ),
                                     child: _isLoading
                                         ? const SizedBox(
                                             height: 22,
@@ -359,11 +352,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                               color: Colors.white,
                                             ),
                                           )
-                                        : const Text(
+                                        : Text(
                                             'Daftar',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
+                                            style: AppTheme.buttonText.copyWith(
+                                              fontSize: 15,
                                             ),
                                           ),
                                   ),
@@ -374,13 +366,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                   children: [
                                     Text(
                                       'Sudah punya akun? ',
-                                      style: AppTheme.bodySmall,
+                                      style: AppTheme.bodySmall.copyWith(
+                                        color: AppTheme.secondaryTextFor(
+                                          context,
+                                        ),
+                                      ),
                                     ),
                                     TextButton(
                                       onPressed: () => context.go(Routes.login),
-                                      child: const Text(
+                                      child: Text(
                                         'Masuk',
-                                        style: TextStyle(
+                                        style: AppTheme.bodySmall.copyWith(
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -403,7 +399,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  InputDecoration _fieldDecoration({
+  InputDecoration _fieldDecoration(
+    BuildContext context, {
     required String label,
     required IconData icon,
     Widget? suffixIcon,
@@ -413,7 +410,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       prefixIcon: Icon(icon),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.92),
+      fillColor: AppTheme.cardColorFor(context).withValues(alpha: 0.96),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
       ),

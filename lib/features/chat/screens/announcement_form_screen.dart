@@ -581,7 +581,7 @@ class _FormSection extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBF8F4),
+        color: AppTheme.extraLightGray,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.dividerColor),
       ),
@@ -700,3 +700,4 @@ class _ExistingAttachmentTile extends StatelessWidget {
     );
   }
 }
+

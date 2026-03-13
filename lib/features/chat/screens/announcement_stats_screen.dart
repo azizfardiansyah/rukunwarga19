@@ -44,7 +44,8 @@ class _AnnouncementStatsScreenState
           .subscribe('*', (event) {
             final record = event.record;
             if (record == null ||
-                record.getStringValue('announcement') != widget.announcementId) {
+                record.getStringValue('announcement') !=
+                    widget.announcementId) {
               return;
             }
             _scheduleRefresh();
@@ -88,7 +89,9 @@ class _AnnouncementStatsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final statsAsync = ref.watch(announcementStatsProvider(widget.announcementId));
+    final statsAsync = ref.watch(
+      announcementStatsProvider(widget.announcementId),
+    );
     final detailAsync = ref.watch(
       announcementDetailProvider(
         AnnouncementDetailRequest(
@@ -105,7 +108,9 @@ class _AnnouncementStatsScreenState
           data: (stats) => detailAsync.when(
             data: (detail) => RefreshIndicator(
               onRefresh: () async {
-                ref.invalidate(announcementStatsProvider(widget.announcementId));
+                ref.invalidate(
+                  announcementStatsProvider(widget.announcementId),
+                );
                 ref.invalidate(
                   announcementDetailProvider(
                     AnnouncementDetailRequest(
@@ -114,7 +119,9 @@ class _AnnouncementStatsScreenState
                     ),
                   ),
                 );
-                await ref.read(announcementStatsProvider(widget.announcementId).future);
+                await ref.read(
+                  announcementStatsProvider(widget.announcementId).future,
+                );
               },
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -182,7 +189,9 @@ class _AnnouncementStatsScreenState
                           child: LinearProgressIndicator(
                             minHeight: 12,
                             value: stats.percentage,
-                            backgroundColor: const Color(0xFFF2E7DE),
+                            backgroundColor: AppTheme.warningColor.withValues(
+                              alpha: 0.14,
+                            ),
                             valueColor: const AlwaysStoppedAnimation<Color>(
                               AppTheme.primaryColor,
                             ),
@@ -249,8 +258,9 @@ class _AnnouncementStatsScreenState
                   ),
                   const SizedBox(height: 12),
                   FilledButton(
-                    onPressed: () =>
-                        ref.invalidate(announcementStatsProvider(widget.announcementId)),
+                    onPressed: () => ref.invalidate(
+                      announcementStatsProvider(widget.announcementId),
+                    ),
                     child: const Text('Coba Lagi'),
                   ),
                 ],
@@ -286,10 +296,7 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             value,
-            style: AppTheme.heading2.copyWith(
-              color: accentColor,
-              fontSize: 28,
-            ),
+            style: AppTheme.heading2.copyWith(color: accentColor, fontSize: 28),
           ),
           const SizedBox(height: 4),
           Text(helper, style: AppTheme.caption),
@@ -312,9 +319,7 @@ class _TimelineRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: AppTheme.bodySmall.copyWith(
-              color: AppTheme.textSecondary,
-            ),
+            style: AppTheme.bodySmall.copyWith(color: AppTheme.textSecondary),
           ),
         ),
         Text(
