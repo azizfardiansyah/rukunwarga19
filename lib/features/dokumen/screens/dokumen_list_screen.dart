@@ -68,7 +68,10 @@ final dokumenListProvider = FutureProvider.autoDispose<DokumenListData>((
 });
 
 class DokumenListScreen extends ConsumerStatefulWidget {
-  const DokumenListScreen({super.key});
+  const DokumenListScreen({super.key, this.initialSection, this.initialStatus});
+
+  final String? initialSection;
+  final String? initialStatus;
 
   @override
   ConsumerState<DokumenListScreen> createState() => _DokumenListScreenState();
@@ -77,6 +80,21 @@ class DokumenListScreen extends ConsumerStatefulWidget {
 class _DokumenListScreenState extends ConsumerState<DokumenListScreen> {
   _DokumenSection _section = _DokumenSection.mine;
   String _verificationStatusFilter = AppConstants.statusPending;
+
+  @override
+  void initState() {
+    super.initState();
+    final requestedSection = (widget.initialSection ?? '').trim().toLowerCase();
+    final requestedStatus = (widget.initialStatus ?? '').trim();
+
+    if (requestedSection == 'verification') {
+      _section = _DokumenSection.verification;
+    }
+
+    if (requestedStatus.isNotEmpty) {
+      _verificationStatusFilter = requestedStatus;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

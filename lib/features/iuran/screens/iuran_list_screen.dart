@@ -23,16 +23,45 @@ enum _AdminIuranTab { tagihan, verifikasi, periode, jenis }
 enum _WargaIuranTab { aktif, riwayat }
 
 class IuranListScreen extends ConsumerStatefulWidget {
-  const IuranListScreen({super.key});
+  const IuranListScreen({super.key, this.initialStatus});
+
+  final String? initialStatus;
 
   @override
   ConsumerState<IuranListScreen> createState() => _IuranListScreenState();
 }
 
 class _IuranListScreenState extends ConsumerState<IuranListScreen> {
+  static const String _billStatusAll = 'all';
+  static const String _billStatusPaid = 'paid';
+
   String _query = '';
   _AdminIuranTab _adminTab = _AdminIuranTab.tagihan;
   _WargaIuranTab _wargaTab = _WargaIuranTab.aktif;
+  String _adminBillStatusFilter = _billStatusAll;
+
+  @override
+  void initState() {
+    super.initState();
+    final requestedStatus = (widget.initialStatus ?? '').trim();
+    switch (requestedStatus) {
+      case AppConstants.iuranBillSubmittedVerification:
+        _adminTab = _AdminIuranTab.verifikasi;
+        _adminBillStatusFilter = _billStatusAll;
+        break;
+      case AppConstants.iuranBillUnpaid:
+        _adminTab = _AdminIuranTab.tagihan;
+        _adminBillStatusFilter = AppConstants.iuranBillUnpaid;
+        break;
+      case _billStatusPaid:
+        _adminTab = _AdminIuranTab.tagihan;
+        _adminBillStatusFilter = _billStatusPaid;
+        _wargaTab = _WargaIuranTab.riwayat;
+        break;
+      default:
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -425,6 +454,18 @@ class _IuranListScreenState extends ConsumerState<IuranListScreen> {
   }) {
     final query = _query.trim().toLowerCase();
     return bills.where((bill) {
+      if (_adminBillStatusFilter == AppConstants.iuranBillUnpaid &&
+          bill.isPaid) {
+        return false;
+      }
+      if (_adminBillStatusFilter ==
+              AppConstants.iuranBillSubmittedVerification &&
+          !bill.isSubmittedVerification) {
+        return false;
+      }
+      if (_adminBillStatusFilter == _billStatusPaid && !bill.isPaid) {
+        return false;
+      }
       if (includePaidOnly && !bill.isPaid) {
         return false;
       }

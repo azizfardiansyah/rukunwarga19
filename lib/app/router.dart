@@ -208,7 +208,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.dokumen,
-        builder: (context, state) => const DokumenListScreen(),
+        builder: (context, state) => DokumenListScreen(
+          initialSection: state.uri.queryParameters['section'],
+          initialStatus: state.uri.queryParameters['status'],
+        ),
       ),
       GoRoute(
         path: Routes.dokumenUpload,
@@ -216,7 +219,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.surat,
-        builder: (context, state) => const SuratListScreen(),
+        builder: (context, state) =>
+            SuratListScreen(initialStatus: state.uri.queryParameters['status']),
       ),
       GoRoute(
         path: Routes.suratForm,
@@ -234,7 +238,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: Routes.iuran,
-        builder: (context, state) => const IuranListScreen(),
+        builder: (context, state) =>
+            IuranListScreen(initialStatus: state.uri.queryParameters['status']),
       ),
       GoRoute(
         path: Routes.iuranForm,

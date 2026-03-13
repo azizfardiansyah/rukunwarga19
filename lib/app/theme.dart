@@ -10,21 +10,28 @@ class AppTheme {
   // COLORS — warm, bold, signature palette
   // No green, blue, or purple. Coral / Charcoal / Amber identity.
   // ═══════════════════════════════════════════════════════════════════
-  static const Color primaryColor = Color(0xFFE8453C);     // bold coral-red
-  static const Color primaryLight = Color(0xFFFF6F61);     // soft coral
-  static const Color primaryDark = Color(0xFFC02E25);      // deep crimson
-  static const Color secondaryColor = Color(0xFF3C3C3C);   // charcoal
-  static const Color accentColor = Color(0xFFE8983C);      // warm amber
-  static const Color errorColor = Color(0xFFD32F2F);       // classic red
-  static const Color successColor = Color(0xFF2E7D32);     // dark forest (muted)
-  static const Color warningColor = Color(0xFFF9A825);     // golden yellow
-  static const Color infoColor = Color(0xFFE8453C);        // same as primary — no blue
-  static const Color backgroundColor = Color(0xFFF5F2EE);  // warm off-white
+  static const Color primaryColor = Color(0xFFE8453C); // bold coral-red
+  static const Color primaryLight = Color(0xFFFF6F61); // soft coral
+  static const Color primaryDark = Color(0xFFC02E25); // deep crimson
+  static const Color secondaryColor = Color(0xFF3C3C3C); // charcoal
+  static const Color accentColor = Color(0xFFE8983C); // warm amber
+  static const Color errorColor = Color(0xFFD32F2F); // classic red
+  static const Color successColor = Color(0xFF2E7D32); // dark forest (muted)
+  static const Color warningColor = Color(0xFFF9A825); // golden yellow
+  static const Color infoColor = Color(0xFFE8453C); // same as primary — no blue
+  static const Color backgroundColor = Color(0xFFF5F2EE); // warm off-white
+  static const Color statusError = Color(0xFFEF4444);
+  static const Color statusWarning = Color(0xFFF59E0B);
+  static const Color statusSuccess = Color(0xFF10B981);
+  static const Color statusInfo = Color(0xFF6B7280);
+  static const Color lightGray = Color(0xFFE5E7EB);
+  static const Color extraLightGray = Color(0xFFF9FAFB);
+  static const Color darkGray = Color(0xFF1F2937);
   static const Color surfaceColor = Colors.white;
-  static const Color textPrimary = Color(0xFF1A1A1A);      // near-black
-  static const Color textSecondary = Color(0xFF6B6B6B);    // warm gray
-  static const Color textTertiary = Color(0xFFA3A3A3);     // light warm gray
-  static const Color dividerColor = Color(0xFFE5E0DA);     // warm divider
+  static const Color textPrimary = Color(0xFF1A1A1A); // near-black
+  static const Color textSecondary = Color(0xFF6B6B6B); // warm gray
+  static const Color textTertiary = Color(0xFFA3A3A3); // light warm gray
+  static const Color dividerColor = Color(0xFFE5E0DA); // warm divider
 
   // Semantic tones for menus (distinct, warm-family, NO blue/green/purple)
   static const Color toneRose = Color(0xFFE8453C);

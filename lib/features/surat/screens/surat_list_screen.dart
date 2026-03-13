@@ -23,7 +23,9 @@ final suratListProvider = FutureProvider.autoDispose<SuratListData>((
 });
 
 class SuratListScreen extends ConsumerStatefulWidget {
-  const SuratListScreen({super.key});
+  const SuratListScreen({super.key, this.initialStatus});
+
+  final String? initialStatus;
 
   @override
   ConsumerState<SuratListScreen> createState() => _SuratListScreenState();
@@ -31,9 +33,19 @@ class SuratListScreen extends ConsumerStatefulWidget {
 
 class _SuratListScreenState extends ConsumerState<SuratListScreen> {
   static const String _statusAll = 'all';
+  static const String _statusActionRequired = 'action_required';
 
   String _query = '';
   String _statusFilter = _statusAll;
+
+  @override
+  void initState() {
+    super.initState();
+    final requestedStatus = (widget.initialStatus ?? '').trim();
+    if (requestedStatus.isNotEmpty) {
+      _statusFilter = requestedStatus;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -185,8 +197,9 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
   }
 
   Widget _buildStatusFilters() {
-    const statuses = <String>[
+    final statuses = <String>[
       _statusAll,
+      _statusActionRequired,
       AppConstants.suratSubmitted,
       AppConstants.suratNeedRevision,
       AppConstants.suratApprovedRt,
@@ -203,6 +216,8 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
           final selected = _statusFilter == status;
           final label = status == _statusAll
               ? 'Semua'
+              : status == _statusActionRequired
+              ? 'Perlu Aksi'
               : AppConstants.suratStatusLabel(status);
           return Padding(
             padding: const EdgeInsets.only(right: 8),
@@ -225,7 +240,11 @@ class _SuratListScreenState extends ConsumerState<SuratListScreen> {
     final query = _query.trim().toLowerCase();
 
     return requests.where((surat) {
-      if (_statusFilter != _statusAll && surat.status != _statusFilter) {
+      if (_statusFilter == _statusActionRequired) {
+        if (!_requiresActionForRole(surat, role)) {
+          return false;
+        }
+      } else if (_statusFilter != _statusAll && surat.status != _statusFilter) {
         return false;
       }
 

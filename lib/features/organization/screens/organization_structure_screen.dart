@@ -700,45 +700,56 @@ class _PyramidNodeCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            if (isTopLevel && visibleSupportMemberships.length > 1)
-              GridView.count(
-                crossAxisCount: 2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 0.95,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                children: visibleSupportMemberships
-                    .map(
-                      (membership) => _SupportMemberChip(
-                        membership: membership,
-                        actor: overview.actorByMemberId(
-                          membership.workspaceMemberId,
-                        ),
-                        inverted: true,
-                        isCompact: false,
-                      ),
-                    )
-                    .toList(growable: false),
-              )
-            else
-              Column(
-                children: visibleSupportMemberships
-                    .map(
-                      (membership) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _SupportMemberChip(
-                          membership: membership,
-                          actor: overview.actorByMemberId(
-                            membership.workspaceMemberId,
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final estimatedGridItemWidth = (constraints.maxWidth - 8) / 2;
+                final canUseSupportGrid =
+                    isTopLevel &&
+                    visibleSupportMemberships.length > 1 &&
+                    estimatedGridItemWidth >= 118;
+
+                if (canUseSupportGrid) {
+                  return GridView.count(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 0.78,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: visibleSupportMemberships
+                        .map(
+                          (membership) => _SupportMemberChip(
+                            membership: membership,
+                            actor: overview.actorByMemberId(
+                              membership.workspaceMemberId,
+                            ),
+                            inverted: true,
+                            isCompact: false,
                           ),
-                          inverted: isTopLevel,
-                          isCompact: true,
+                        )
+                        .toList(growable: false),
+                  );
+                }
+
+                return Column(
+                  children: visibleSupportMemberships
+                      .map(
+                        (membership) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _SupportMemberChip(
+                            membership: membership,
+                            actor: overview.actorByMemberId(
+                              membership.workspaceMemberId,
+                            ),
+                            inverted: isTopLevel,
+                            isCompact: true,
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
+                      )
+                      .toList(growable: false),
+                );
+              },
+            ),
             if (supportMemberships.length > supportLimit)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
@@ -785,156 +796,200 @@ class _LeadMemberBlock extends StatelessWidget {
         membership.periodLabel!,
       if (_dateRangeLabel(membership).isNotEmpty) _dateRangeLabel(membership),
     ];
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: inverted ? Colors.white.withValues(alpha: 0.08) : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: inverted
-              ? Colors.white.withValues(alpha: 0.14)
-              : roleTone.withValues(alpha: 0.16),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: (inverted ? Colors.black : tone).withValues(
-              alpha: inverted ? 0.1 : 0.08,
-            ),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 30,
-            backgroundColor: inverted
-                ? Colors.white.withValues(alpha: 0.14)
-                : roleTone.withValues(alpha: 0.12),
-            backgroundImage: avatarUrl == null ? null : NetworkImage(avatarUrl),
-            child: avatarUrl == null
-                ? Text(
-                    _initials(displayName),
-                    style: AppTheme.caption.copyWith(
-                      color: inverted ? Colors.white : roleTone,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  displayName,
-                  style: AppTheme.bodySmall.copyWith(
-                    color: inverted ? Colors.white : AppTheme.textPrimary,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    letterSpacing: -0.2,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 180;
+        final avatarRadius = isNarrow ? 24.0 : 30.0;
+        final avatarTextSize = isNarrow ? 12.0 : 14.0;
+        final nameFontSize = isNarrow ? 14.0 : 15.0;
+        final gap = isNarrow ? 10.0 : 14.0;
+        final primaryBadge = membership.isPrimary
+            ? Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      roleIcon,
-                      size: 14,
+                  decoration: BoxDecoration(
+                    color: inverted
+                        ? Colors.white.withValues(alpha: 0.14)
+                        : roleTone.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
                       color: inverted
-                          ? Colors.white.withValues(alpha: 0.88)
-                          : roleTone,
+                          ? Colors.white.withValues(alpha: 0.24)
+                          : roleTone.withValues(alpha: 0.22),
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        jabatanLabel,
-                        style: AppTheme.caption.copyWith(
-                          color: inverted
-                              ? Colors.white.withValues(alpha: 0.84)
-                              : AppTheme.textSecondary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (metadata.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.calendar_today_rounded,
-                        size: 12,
-                        color: inverted
-                            ? Colors.white.withValues(alpha: 0.62)
-                            : AppTheme.textTertiary,
+                        Icons.auto_awesome_rounded,
+                        size: 11,
+                        color: inverted ? Colors.white : roleTone,
                       ),
                       const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          metadata.join(' | '),
-                          style: AppTheme.caption.copyWith(
-                            color: inverted
-                                ? Colors.white.withValues(alpha: 0.68)
-                                : AppTheme.textTertiary,
-                            fontSize: 10,
-                          ),
+                      Text(
+                        'Utama',
+                        style: AppTheme.caption.copyWith(
+                          color: inverted ? Colors.white : roleTone,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 10,
                         ),
                       ),
                     ],
                   ),
-                ],
+                ),
+              )
+            : null;
+        final avatar = CircleAvatar(
+          radius: avatarRadius,
+          backgroundColor: inverted
+              ? Colors.white.withValues(alpha: 0.14)
+              : roleTone.withValues(alpha: 0.12),
+          backgroundImage: avatarUrl == null ? null : NetworkImage(avatarUrl),
+          child: avatarUrl == null
+              ? Text(
+                  _initials(displayName),
+                  style: AppTheme.caption.copyWith(
+                    color: inverted ? Colors.white : roleTone,
+                    fontWeight: FontWeight.w900,
+                    fontSize: avatarTextSize,
+                  ),
+                )
+              : null,
+        );
+        final details = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              displayName,
+              maxLines: isNarrow ? 3 : 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.bodySmall.copyWith(
+                color: inverted ? Colors.white : AppTheme.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: nameFontSize,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  roleIcon,
+                  size: 14,
+                  color: inverted
+                      ? Colors.white.withValues(alpha: 0.88)
+                      : roleTone,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    jabatanLabel,
+                    maxLines: isNarrow ? 2 : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTheme.caption.copyWith(
+                      color: inverted
+                          ? Colors.white.withValues(alpha: 0.84)
+                          : AppTheme.textSecondary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
               ],
             ),
-          ),
-          if (membership.isPrimary) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: inverted
-                    ? Colors.white.withValues(alpha: 0.14)
-                    : roleTone.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: inverted
-                      ? Colors.white.withValues(alpha: 0.24)
-                      : roleTone.withValues(alpha: 0.22),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+            if (metadata.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 11,
-                    color: inverted ? Colors.white : roleTone,
+                    Icons.calendar_today_rounded,
+                    size: 12,
+                    color: inverted
+                        ? Colors.white.withValues(alpha: 0.62)
+                        : AppTheme.textTertiary,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    'Utama',
-                    style: AppTheme.caption.copyWith(
-                      color: inverted ? Colors.white : roleTone,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 10,
+                  Expanded(
+                    child: Text(
+                      metadata.join(' | '),
+                      maxLines: isNarrow ? 3 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTheme.caption.copyWith(
+                        color: inverted
+                            ? Colors.white.withValues(alpha: 0.68)
+                            : AppTheme.textTertiary,
+                        fontSize: 10,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
+            ],
           ],
-        ],
-      ),
+        );
+
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: inverted
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: inverted
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : roleTone.withValues(alpha: 0.16),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: (inverted ? Colors.black : tone).withValues(
+                  alpha: inverted ? 0.1 : 0.08,
+                ),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: isNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        avatar,
+                        SizedBox(width: gap),
+                        Expanded(child: details),
+                      ],
+                    ),
+                    if (primaryBadge != null) ...[
+                      const SizedBox(height: 10),
+                      primaryBadge,
+                    ],
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    avatar,
+                    SizedBox(width: gap),
+                    Expanded(child: details),
+                    if (primaryBadge != null) ...[
+                      const SizedBox(width: 8),
+                      primaryBadge,
+                    ],
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -1057,7 +1112,7 @@ class _SupportMemberChip extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: inverted ? Colors.white.withValues(alpha: 0.08) : Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -1081,7 +1136,7 @@ class _SupportMemberChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           CircleAvatar(
-            radius: 22,
+            radius: 18,
             backgroundColor: inverted
                 ? Colors.white.withValues(alpha: 0.14)
                 : roleTone.withValues(alpha: 0.12),
@@ -1092,12 +1147,12 @@ class _SupportMemberChip extends StatelessWidget {
                     style: AppTheme.caption.copyWith(
                       color: inverted ? Colors.white : roleTone,
                       fontWeight: FontWeight.w800,
-                      fontSize: 11,
+                      fontSize: 10,
                     ),
                   )
                 : null,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Text(
             displayName,
             maxLines: 2,
@@ -1108,21 +1163,21 @@ class _SupportMemberChip extends StatelessWidget {
                   ? Colors.white.withValues(alpha: 0.88)
                   : AppTheme.textPrimary,
               fontWeight: FontWeight.w800,
-              fontSize: 10,
+              fontSize: 9,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 roleIcon,
-                size: 12,
+                size: 10,
                 color: inverted
                     ? Colors.white.withValues(alpha: 0.78)
                     : roleTone,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               Flexible(
                 child: Text(
                   jabatanLabel,
@@ -1133,7 +1188,7 @@ class _SupportMemberChip extends StatelessWidget {
                     color: inverted
                         ? Colors.white.withValues(alpha: 0.7)
                         : AppTheme.textSecondary,
-                    fontSize: 8.5,
+                    fontSize: 8,
                   ),
                 ),
               ),

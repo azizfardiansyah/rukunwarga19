@@ -12,7 +12,11 @@ import '../../../core/services/laporan_service.dart';
 import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/models/iuran_model.dart';
+import '../../../shared/models/surat_model.dart';
 import '../../../shared/widgets/app_surface.dart';
+import '../../../shared/widgets/laporan/alert_card.dart';
+import '../../../shared/widgets/laporan/metric_card.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/laporan_providers.dart';
 
@@ -27,7 +31,7 @@ class LaporanScreen extends ConsumerStatefulWidget {
 
 class _LaporanScreenState extends ConsumerState<LaporanScreen> {
   LaporanRangePreset _preset = LaporanRangePreset.month;
-  String _selectedFocus = 'surat_total';
+  String _selectedFocus = '';
   Timer? _refreshDebounce;
   final List<Future<void> Function()> _unsubscribers = [];
 
@@ -63,6 +67,11 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     });
   }
 
+  Future<void> _refreshReport() async {
+    ref.read(laporanRefreshTickProvider.notifier).bump();
+    await ref.read(laporanOperationalProvider(_preset).future);
+  }
+
   @override
   void dispose() {
     _refreshDebounce?.cancel();
@@ -90,6 +99,7 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     }
 
     final reportAsync = ref.watch(laporanOperationalProvider(_preset));
+    final readyReport = reportAsync.asData?.value;
     final userName = auth.user?.getStringValue('name').trim().isNotEmpty == true
         ? auth.user!.getStringValue('name').trim()
         : 'Admin';
@@ -98,9 +108,16 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
       appBar: AppBar(
         title: const Text('Laporan Operasional'),
         actions: [
+          if (readyReport != null && readyReport.unpaidBills.isNotEmpty)
+            IconButton(
+              tooltip: 'PDF iuran belum lunas',
+              onPressed: () => _shareOutstandingPdf(readyReport, userName),
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+            ),
           IconButton(
             tooltip: 'Refresh laporan',
-            onPressed: () => ref.read(laporanRefreshTickProvider.notifier).bump(),
+            onPressed: () =>
+                ref.read(laporanRefreshTickProvider.notifier).bump(),
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -109,63 +126,18 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: reportAsync.when(
           data: (report) => RefreshIndicator(
-            onRefresh: () async =>
-                ref.read(laporanRefreshTickProvider.notifier).bump(),
+            onRefresh: _refreshReport,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                AppHeroPanel(
-                  eyebrow: AppConstants.roleLabel(normalizedRole),
-                  icon: Icons.insights_rounded,
-                  title: 'Pantau layanan RT/RW secara real-time',
-                  subtitle:
-                      'Gunakan KPI interaktif untuk menelusuri Surat Pengantar, iuran, dokumen, mutasi, serta data warga dan KK dalam satu dashboard operasional.',
-                  chips: [
-                    _heroChip(Icons.date_range_rounded, report.preset.label),
-                    _heroChip(
-                      Icons.people_outline_rounded,
-                      '${report.wargaRecords.length} warga',
-                    ),
-                    _heroChip(
-                      Icons.account_balance_wallet_outlined,
-                      Formatters.rupiah(report.iuranSummary.totalTunggakan),
-                    ),
-                  ],
-                  trailing: FilledButton.tonalIcon(
-                    onPressed: report.unpaidBills.isEmpty
-                        ? null
-                        : () => _shareOutstandingPdf(report, userName),
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('PDF Iuran'),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                AppSurfaceCard(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: LaporanRangePreset.values
-                        .map(
-                          (preset) => ChoiceChip(
-                            label: Text(preset.label),
-                            selected: _preset == preset,
-                            onSelected: (_) => setState(() => _preset = preset),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _buildOverviewCard(report),
-                const SizedBox(height: 10),
-                _buildSuratCard(report),
-                const SizedBox(height: 10),
-                _buildIuranCard(report),
-                const SizedBox(height: 10),
-                _buildDokumenCard(report),
-                const SizedBox(height: 10),
-                _buildMutasiCard(report),
-                const SizedBox(height: 10),
+                _buildContextCard(normalizedRole, report),
+                const SizedBox(height: 12),
+                _buildPresetSelector(),
+                const SizedBox(height: 18),
+                _buildAlertsSection(report),
+                const SizedBox(height: 18),
+                _buildSnapshotSection(report),
+                const SizedBox(height: 18),
                 _buildDetailPanel(report),
               ],
             ),
@@ -196,184 +168,71 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     );
   }
 
-  Widget _buildOverviewCard(LaporanOperationalData report) {
+  Widget _buildContextCard(
+    String normalizedRole,
+    LaporanOperationalData report,
+  ) {
     return AppSurfaceCard(
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const AppSectionHeader(
-            title: 'Ringkasan Inti',
-            subtitle: 'Snapshot operasional saat ini di wilayah akses admin.',
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _metricCard(
-                keyId: 'warga_total',
-                label: 'Total Warga',
-                value: '${report.wargaRecords.length}',
-                tone: AppTheme.primaryColor,
-                icon: Icons.people_alt_outlined,
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppTheme.statusInfo.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.track_changes_rounded,
+                  color: AppTheme.statusInfo,
+                ),
               ),
-              _metricCard(
-                keyId: 'kk_total',
-                label: 'Total KK',
-                value: '${report.kkRecords.length}',
-                tone: AppTheme.secondaryColor,
-                icon: Icons.family_restroom_outlined,
-              ),
-              _metricCard(
-                keyId: 'surat_total',
-                label: 'Surat Pengantar',
-                value: '${report.suratSummary.total}',
-                tone: const Color(0xFF64748B),
-                icon: Icons.description_outlined,
-              ),
-              _metricCard(
-                keyId: 'iuran_outstanding',
-                label: 'Iuran Belum Lunas',
-                value: '${report.iuranSummary.outstandingBills}',
-                tone: AppTheme.primaryDark,
-                icon: Icons.payments_outlined,
-              ),
-              _metricCard(
-                keyId: 'dokumen_pending',
-                label: 'Dokumen Pending',
-                value: '${report.dokumenSummary.pending}',
-                tone: AppTheme.warningColor,
-                icon: Icons.folder_outlined,
-              ),
-              _metricCard(
-                keyId: 'mutasi_total',
-                label: 'Mutasi Warga',
-                value: '${report.mutasiSummary.total}',
-                tone: AppTheme.accentColor,
-                icon: Icons.swap_horiz_rounded,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSuratCard(LaporanOperationalData report) {
-    final summary = report.suratSummary;
-    return AppSurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppSectionHeader(
-            title: 'Surat Pengantar',
-            subtitle: 'Aktivitas pengajuan dan tindakan admin yang perlu diproses.',
-            action: TextButton(
-              onPressed: () => context.push(Routes.surat),
-              child: const Text('Buka Modul'),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _metricCard(
-                keyId: 'surat_submitted',
-                label: 'Masuk',
-                value: '${summary.submitted}',
-                tone: AppTheme.primaryColor,
-                icon: Icons.mark_email_unread_outlined,
-              ),
-              _metricCard(
-                keyId: 'surat_action',
-                label: 'Perlu Aksi',
-                value: '${summary.actionRequired}',
-                tone: AppTheme.accentColor,
-                icon: Icons.pending_actions_outlined,
-              ),
-              _metricCard(
-                keyId: 'surat_revision',
-                label: 'Perlu Revisi',
-                value: '${summary.needRevision}',
-                tone: AppTheme.warningColor,
-                icon: Icons.edit_note_rounded,
-              ),
-              _metricCard(
-                keyId: 'surat_completed',
-                label: 'Selesai',
-                value: '${summary.completed}',
-                tone: AppTheme.successColor,
-                icon: Icons.task_alt_rounded,
-              ),
-              _metricCard(
-                keyId: 'surat_rejected',
-                label: 'Ditolak',
-                value: '${summary.rejected}',
-                tone: AppTheme.errorColor,
-                icon: Icons.cancel_outlined,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIuranCard(LaporanOperationalData report) {
-    final summary = report.iuranSummary;
-    return AppSurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppSectionHeader(
-            title: 'Iuran',
-            subtitle:
-                'Rekap tagihan per KK, pembayaran lunas, dan bukti transfer yang belum tervalidasi.',
-            action: TextButton.icon(
-              onPressed: report.unpaidBills.isEmpty
-                  ? null
-                  : () => _shareOutstandingPdf(
-                        report,
-                        ref.read(authProvider).user?.getStringValue('name') ??
-                            'Admin',
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppConstants.roleLabel(normalizedRole),
+                      style: AppTheme.labelMedium.copyWith(
+                        color: AppTheme.statusInfo,
                       ),
-              icon: const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('PDF Belum Masuk'),
-            ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Real-time view untuk tindakan operasional harian',
+                      style: AppTheme.heading3.copyWith(fontSize: 16),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Scan antrian penting dulu, lalu buka detail hanya saat dibutuhkan.',
+                      style: AppTheme.bodyMedium.copyWith(
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              _metricCard(
-                keyId: 'iuran_total',
-                label: 'Total Tagihan',
-                value: Formatters.rupiah(summary.totalTagihan),
-                tone: AppTheme.primaryDark,
-                icon: Icons.summarize_outlined,
+              _summaryChip(Icons.date_range_rounded, report.preset.label),
+              _summaryChip(
+                Icons.people_alt_outlined,
+                '${report.wargaRecords.length} warga',
               ),
-              _metricCard(
-                keyId: 'iuran_paid',
-                label: 'Total Lunas',
-                value: Formatters.rupiah(summary.totalLunas),
-                tone: AppTheme.successColor,
-                icon: Icons.paid_outlined,
-              ),
-              _metricCard(
-                keyId: 'iuran_outstanding',
-                label: 'Total Tunggakan',
-                value: Formatters.rupiah(summary.totalTunggakan),
-                tone: AppTheme.errorColor,
-                icon: Icons.warning_amber_rounded,
-              ),
-              _metricCard(
-                keyId: 'iuran_pending',
-                label: 'Menunggu Verifikasi',
-                value: '${summary.pendingVerificationBills}',
-                tone: AppTheme.accentColor,
-                icon: Icons.fact_check_outlined,
+              _summaryChip(
+                Icons.pending_actions_outlined,
+                '${report.suratSummary.actionRequired} surat perlu aksi',
               ),
             ],
           ),
@@ -382,113 +241,225 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     );
   }
 
-  Widget _buildDokumenCard(LaporanOperationalData report) {
-    final summary = report.dokumenSummary;
+  Widget _buildPresetSelector() {
     return AppSurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AppSectionHeader(
-            title: 'Dokumen',
-            subtitle:
-                'Lihat antrean verifikasi dan tindak lanjut dokumen warga dalam scope saat ini.',
-            action: TextButton(
-              onPressed: () => context.push(Routes.dokumen),
-              child: const Text('Buka Modul'),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _metricCard(
-                keyId: 'dokumen_pending',
-                label: 'Pending',
-                value: '${summary.pending}',
-                tone: AppTheme.warningColor,
-                icon: Icons.schedule_outlined,
+      padding: const EdgeInsets.all(10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: LaporanRangePreset.values
+            .map(
+              (preset) => ChoiceChip(
+                label: Text(preset.label),
+                selected: _preset == preset,
+                onSelected: (_) => setState(() => _preset = preset),
               ),
-              _metricCard(
-                keyId: 'dokumen_revision',
-                label: 'Perlu Revisi',
-                value: '${summary.needRevision}',
-                tone: AppTheme.accentColor,
-                icon: Icons.rule_folder_outlined,
-              ),
-              _metricCard(
-                keyId: 'dokumen_verified',
-                label: 'Terverifikasi',
-                value: '${summary.verified}',
-                tone: AppTheme.successColor,
-                icon: Icons.verified_outlined,
-              ),
-              _metricCard(
-                keyId: 'dokumen_rejected',
-                label: 'Ditolak',
-                value: '${summary.rejected}',
-                tone: AppTheme.errorColor,
-                icon: Icons.block_outlined,
-              ),
-            ],
-          ),
-        ],
+            )
+            .toList(growable: false),
       ),
     );
   }
 
-  Widget _buildMutasiCard(LaporanOperationalData report) {
-    final summary = report.mutasiSummary;
-    return AppSurfaceCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const AppSectionHeader(
-            title: 'Mutasi Warga',
-            subtitle:
-                'Mutasi dihitung dari Surat Pengantar yang berkaitan dengan pindah, kematian, dan perubahan KK.',
+  Widget _buildAlertsSection(LaporanOperationalData report) {
+    final alerts = _collectAlerts(report);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.priority_high_rounded,
+          title: 'Tindakan Urgent',
+          subtitle: 'Fokuskan 2-3 item yang paling perlu aksi terlebih dahulu.',
+          tone: AppTheme.statusError,
+        ),
+        const SizedBox(height: 12),
+        if (alerts.isEmpty)
+          AppSurfaceCard(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+            child: Column(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: AppTheme.statusSuccess.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppTheme.statusSuccess,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Semua berjalan baik',
+                  style: AppTheme.heading3.copyWith(fontSize: 18),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Tidak ada tindakan yang perlu ditangani pada rentang laporan ini.',
+                  style: AppTheme.bodyMedium.copyWith(
+                    color: AppTheme.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final maxWidth = constraints.maxWidth;
+              final columns = maxWidth >= 1080
+                  ? 3
+                  : maxWidth >= 720
+                  ? 2
+                  : 1;
+              final itemWidth = columns == 1
+                  ? maxWidth
+                  : (maxWidth - ((columns - 1) * 12)) / columns;
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: alerts
+                    .map(
+                      (alert) => SizedBox(
+                        width: itemWidth,
+                        child: AlertCard(
+                          title: alert.title,
+                          value: alert.value,
+                          subtitle: alert.subtitle,
+                          meta: alert.meta,
+                          ctaLabel: alert.ctaLabel,
+                          onTap: alert.onTap,
+                          status: alert.status,
+                          icon: alert.icon,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              );
+            },
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _metricCard(
-                keyId: 'mutasi_total',
-                label: 'Total Mutasi',
-                value: '${summary.total}',
-                tone: AppTheme.accentColor,
-                icon: Icons.swap_horiz_rounded,
+      ],
+    );
+  }
+
+  Widget _buildSnapshotSection(LaporanOperationalData report) {
+    final metrics = <_SnapshotMetric>[
+      _SnapshotMetric(
+        focus: 'warga_total',
+        label: 'WARGA',
+        value: '${report.wargaRecords.length}',
+        icon: Icons.people_alt_outlined,
+        color: AppTheme.statusInfo,
+      ),
+      _SnapshotMetric(
+        focus: 'kk_total',
+        label: 'KK',
+        value: '${report.kkRecords.length}',
+        icon: Icons.family_restroom_outlined,
+        color: AppTheme.statusInfo,
+      ),
+      _SnapshotMetric(
+        focus: 'surat_completed',
+        label: 'SURAT SELESAI',
+        value: '${report.suratSummary.completed}',
+        icon: Icons.description_outlined,
+        color: AppTheme.statusSuccess,
+      ),
+      _SnapshotMetric(
+        focus: 'iuran_paid',
+        label: 'IURAN LUNAS',
+        value: Formatters.rupiahPendek(report.iuranSummary.totalLunas),
+        icon: Icons.paid_outlined,
+        color: AppTheme.statusSuccess,
+      ),
+      _SnapshotMetric(
+        focus: 'dokumen_pending',
+        label: 'DOKUMEN PENDING',
+        value: '${report.dokumenSummary.pending}',
+        icon: Icons.schedule_outlined,
+        color: AppTheme.statusWarning,
+      ),
+      _SnapshotMetric(
+        focus: 'mutasi_total',
+        label: 'MUTASI',
+        value: '${report.mutasiSummary.total}',
+        icon: Icons.swap_horiz_rounded,
+        color: AppTheme.statusInfo,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.dashboard_outlined,
+          title: 'Snapshot Operasional',
+          subtitle: 'Tap kartu untuk membuka detail di layer berikutnya.',
+          tone: AppTheme.darkGray,
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = constraints.maxWidth;
+            final crossAxisCount = maxWidth >= 1080
+                ? 4
+                : maxWidth >= 720
+                ? 3
+                : 2;
+
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: maxWidth >= 720 ? 1.15 : 1.08,
               ),
-              _metricCard(
-                keyId: 'mutasi_masuk',
-                label: 'Pindah Datang',
-                value: '${summary.masuk}',
-                tone: AppTheme.primaryColor,
-                icon: Icons.south_west_rounded,
-              ),
-              _metricCard(
-                keyId: 'mutasi_keluar',
-                label: 'Pindah Keluar',
-                value: '${summary.keluar}',
-                tone: AppTheme.warningColor,
-                icon: Icons.north_east_rounded,
-              ),
-              _metricCard(
-                keyId: 'mutasi_kematian',
-                label: 'Kematian',
-                value: '${summary.kematian}',
-                tone: AppTheme.errorColor,
-                icon: Icons.health_and_safety_outlined,
-              ),
-              _metricCard(
-                keyId: 'mutasi_perubahan_kk',
-                label: 'Perubahan KK',
-                value: '${summary.perubahanKk}',
-                tone: AppTheme.secondaryColor,
-                icon: Icons.groups_rounded,
-              ),
-            ],
+              itemCount: metrics.length,
+              itemBuilder: (context, index) {
+                final metric = metrics[index];
+                return MetricCard(
+                  label: metric.label,
+                  value: metric.value,
+                  icon: metric.icon,
+                  isActive: _selectedFocus == metric.focus,
+                  activeColor: metric.color,
+                  onTap: () => setState(() => _selectedFocus = metric.focus),
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _summaryChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.extraLightGray,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppTheme.lightGray),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: AppTheme.statusInfo),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTheme.caption.copyWith(
+              fontSize: 12,
+              color: AppTheme.darkGray,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -496,14 +467,69 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
   }
 
   Widget _buildDetailPanel(LaporanOperationalData report) {
+    if (_selectedFocus.isEmpty) {
+      return AppSurfaceCard(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _SectionTitle(
+              icon: Icons.insights_outlined,
+              title: 'Detail Dashboard',
+              subtitle: 'Pilih salah satu snapshot untuk membuka detail.',
+              tone: AppTheme.darkGray,
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppTheme.extraLightGray,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.lightGray),
+              ),
+              child: Text(
+                'Konten detail disembunyikan dulu agar layar tetap ringan. Tap snapshot di atas saat Anda ingin drill-down.',
+                style: AppTheme.bodyMedium.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final detail = _buildDetailForFocus(report, _selectedFocus);
+    final visibleItems = detail.items.take(5).toList(growable: false);
+
     return AppSurfaceCard(
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppSectionHeader(
-            title: detail.title,
-            subtitle: detail.subtitle,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _SectionTitle(
+                  icon: Icons.insights_outlined,
+                  title: detail.title,
+                  subtitle: detail.subtitle,
+                  tone: AppTheme.darkGray,
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.tonalIcon(
+                onPressed: detail.onOpenModule,
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: Text(detail.ctaLabel),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  foregroundColor: AppTheme.darkGray,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           if (detail.items.isEmpty)
@@ -511,16 +537,16 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
               icon: Icons.inbox_outlined,
               title: 'Belum ada data',
               message:
-                  'Tidak ada item yang cocok untuk KPI ini pada rentang laporan yang dipilih.',
+                  'Tidak ada item yang cocok untuk snapshot ini pada rentang laporan yang dipilih.',
             )
           else
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: detail.items.length,
+              itemCount: visibleItems.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
-                final item = detail.items[index];
+                final item = visibleItems[index];
                 return InkWell(
                   borderRadius: BorderRadius.circular(16),
                   onTap: item.onTap,
@@ -529,7 +555,7 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                      border: Border.all(color: AppTheme.lightGray),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -561,6 +587,7 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
                                 Text(
                                   item.meta!,
                                   style: AppTheme.caption.copyWith(
+                                    fontSize: 12,
                                     color: AppTheme.textSecondary,
                                   ),
                                 ),
@@ -586,13 +613,14 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
                                 style: AppTheme.caption.copyWith(
                                   color: item.tone,
                                   fontWeight: FontWeight.w700,
+                                  fontSize: 10,
                                 ),
                               ),
                             ),
                             const SizedBox(height: 8),
                             Text(
                               Formatters.tanggalRelatif(item.timestamp),
-                              style: AppTheme.caption,
+                              style: AppTheme.caption.copyWith(fontSize: 12),
                             ),
                           ],
                         ),
@@ -602,71 +630,209 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
                 );
               },
             ),
+          if (detail.items.length > visibleItems.length) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: detail.onOpenModule,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: Text(
+                'Lihat ${detail.items.length - visibleItems.length} item lainnya',
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _metricCard({
-    required String keyId,
-    required String label,
-    required String value,
-    required Color tone,
-    required IconData icon,
-  }) {
-    final isActive = _selectedFocus == keyId;
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => setState(() => _selectedFocus = keyId),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        width: 150,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isActive ? tone.withValues(alpha: 0.12) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isActive
-                ? tone.withValues(alpha: 0.35)
-                : const Color(0xFFE5E7EB),
+  List<_DashboardAlert> _collectAlerts(LaporanOperationalData report) {
+    final alerts = <_DashboardAlert>[];
+    final unpaidBills = report.unpaidBills;
+    final pendingVerificationBills = report.pendingVerificationBills;
+    final pendingDocuments = report.filteredDokumen
+        .where((item) => item.isPending)
+        .toList(growable: false);
+    final actionRequiredSurat = _actionRequiredSurat(report);
+
+    if (unpaidBills.isNotEmpty) {
+      alerts.add(
+        _DashboardAlert(
+          title: '${report.iuranSummary.outstandingBills} IURAN BELUM LUNAS',
+          value: Formatters.rupiah(report.iuranSummary.totalTunggakan),
+          subtitle:
+              '${_countDistinctKk(unpaidBills)} KK masih memiliki tagihan aktif.',
+          meta: _timestampMeta(
+            unpaidBills
+                .map((bill) => bill.dueDate ?? bill.updated ?? bill.created)
+                .whereType<DateTime>()
+                .toList(growable: false),
           ),
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: tone.withValues(alpha: 0.12),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ]
-              : null,
+          ctaLabel: 'Proses Iuran',
+          status: AlertStatus.error,
+          icon: Icons.warning_amber_rounded,
+          onTap: () => context.push(
+            _routeWithQuery(Routes.iuran, {
+              'status': AppConstants.iuranBillUnpaid,
+            }),
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: tone, size: 20),
-            const SizedBox(height: 14),
-            Text(value, style: AppTheme.heading2.copyWith(color: tone)),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: AppTheme.bodySmall.copyWith(
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
+      );
+    }
+
+    if (pendingDocuments.isNotEmpty) {
+      alerts.add(
+        _DashboardAlert(
+          title: '${pendingDocuments.length} DOKUMEN PERLU REVIEW',
+          subtitle: _topBreakdown(
+            pendingDocuments,
+            labelOf: (document) => document.jenis,
+          ),
+          meta: _timestampMeta(
+            pendingDocuments
+                .map((document) => document.created ?? document.updated)
+                .whereType<DateTime>()
+                .toList(growable: false),
+          ),
+          ctaLabel: 'Review Dokumen',
+          status: AlertStatus.warning,
+          icon: Icons.description_outlined,
+          onTap: () => context.push(
+            _routeWithQuery(Routes.dokumen, {
+              'section': 'verification',
+              'status': AppConstants.statusPending,
+            }),
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (actionRequiredSurat.isNotEmpty) {
+      alerts.add(
+        _DashboardAlert(
+          title: '${report.suratSummary.actionRequired} SURAT PERLU APPROVAL',
+          subtitle: _topBreakdown(
+            actionRequiredSurat,
+            labelOf: (surat) => AppConstants.suratTypeLabel(surat.jenisSurat),
+          ),
+          meta: _timestampMeta(
+            actionRequiredSurat
+                .map(
+                  (surat) =>
+                      surat.submittedAt ?? surat.updated ?? surat.created,
+                )
+                .whereType<DateTime>()
+                .toList(growable: false),
+          ),
+          ctaLabel: 'Proses Surat',
+          status: AlertStatus.warning,
+          icon: Icons.pending_actions_outlined,
+          onTap: () => context.push(
+            _routeWithQuery(Routes.surat, {
+              'status': _SuratActionFilter.actionRequired,
+            }),
+          ),
+        ),
+      );
+    }
+
+    if (pendingVerificationBills.isNotEmpty) {
+      alerts.add(
+        _DashboardAlert(
+          title: '${pendingVerificationBills.length} BUKTI TRANSFER MENUNGGU',
+          subtitle: 'Bukti transfer warga belum divalidasi admin.',
+          meta: _timestampMeta(
+            report.filteredPendingPayments
+                .map((payment) => payment.submittedAt ?? payment.created)
+                .whereType<DateTime>()
+                .toList(growable: false),
+          ),
+          ctaLabel: 'Validasi Bukti',
+          status: AlertStatus.info,
+          icon: Icons.fact_check_outlined,
+          onTap: () => context.push(
+            _routeWithQuery(Routes.iuran, {
+              'status': AppConstants.iuranBillSubmittedVerification,
+            }),
+          ),
+        ),
+      );
+    }
+
+    return alerts;
   }
 
-  AppHeroBadge _heroChip(IconData icon, String label) {
-    return AppHeroBadge(
-      label: label,
-      icon: icon,
-      foregroundColor: Colors.white,
-      backgroundColor: Colors.white.withValues(alpha: 0.16),
-    );
+  String _routeWithQuery(String path, Map<String, String?> query) {
+    final filtered = <String, String>{};
+    query.forEach((key, value) {
+      if ((value ?? '').trim().isNotEmpty) {
+        filtered[key] = value!;
+      }
+    });
+    return Uri(path: path, queryParameters: filtered).toString();
+  }
+
+  List<SuratModel> _actionRequiredSurat(LaporanOperationalData report) {
+    final normalizedRole = AppConstants.normalizeRole(report.role);
+    return report.filteredSurat
+        .where((surat) {
+          switch (normalizedRole) {
+            case AppConstants.roleAdminRt:
+              return surat.isSubmitted ||
+                  (!surat.requiresRwApproval && surat.isApprovedRt);
+            case AppConstants.roleAdminRw:
+            case AppConstants.roleAdminRwPro:
+            case AppConstants.roleSysadmin:
+              return surat.isForwardedToRw || surat.isApprovedRw;
+            default:
+              return false;
+          }
+        })
+        .toList(growable: false);
+  }
+
+  int _countDistinctKk(List<IuranBillModel> bills) {
+    return bills.map((bill) => bill.kkId).toSet().length;
+  }
+
+  String _topBreakdown<T>(
+    List<T> items, {
+    required String Function(T item) labelOf,
+    int take = 2,
+  }) {
+    if (items.isEmpty) {
+      return 'Belum ada item pada kategori ini.';
+    }
+
+    final counts = <String, int>{};
+    for (final item in items) {
+      final label = labelOf(item).trim();
+      if (label.isEmpty) {
+        continue;
+      }
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+
+    final sorted = counts.entries.toList(growable: false)
+      ..sort((a, b) {
+        final countCompare = b.value.compareTo(a.value);
+        if (countCompare != 0) {
+          return countCompare;
+        }
+        return a.key.compareTo(b.key);
+      });
+
+    return sorted
+        .take(take)
+        .map((entry) => '${entry.key} (${entry.value})')
+        .join(' | ');
+  }
+
+  String? _timestampMeta(List<DateTime> timestamps) {
+    if (timestamps.isEmpty) {
+      return null;
+    }
+    final sorted = [...timestamps]..sort();
+    return 'Tertua ${Formatters.tanggalRelatif(sorted.first)}';
   }
 
   Future<void> _shareOutstandingPdf(
@@ -693,13 +859,16 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
         final items = [...report.wargaRecords]
           ..sort((a, b) => a.namaLengkap.compareTo(b.namaLengkap));
         return _DetailBlock(
-          title: 'Daftar Warga',
-          subtitle: 'Klik item untuk membuka detail data warga.',
+          title: 'Detail Warga',
+          subtitle: 'Daftar warga dalam scope akses Anda.',
+          ctaLabel: 'Buka Modul Warga',
+          onOpenModule: () => context.push(Routes.warga),
           items: items
               .map(
                 (warga) => _ReportDetailItem(
                   title: warga.namaLengkap,
-                  subtitle: 'NIK ${warga.nik} • RT ${warga.rt} / RW ${warga.rw}',
+                  subtitle:
+                      'NIK ${warga.nik} • RT ${warga.rt} / RW ${warga.rw}',
                   meta: warga.alamat,
                   statusLabel: 'Warga',
                   timestamp: warga.updated ?? warga.created ?? DateTime.now(),
@@ -714,8 +883,10 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
         final items = [...report.kkRecords]
           ..sort((a, b) => a.noKk.compareTo(b.noKk));
         return _DetailBlock(
-          title: 'Daftar Kartu Keluarga',
-          subtitle: 'Klik item untuk membuka detail KK.',
+          title: 'Detail Kartu Keluarga',
+          subtitle: 'Daftar KK aktif pada wilayah laporan saat ini.',
+          ctaLabel: 'Buka Modul KK',
+          onOpenModule: () => context.push(Routes.kartuKeluarga),
           items: items
               .map(
                 (kk) => _ReportDetailItem(
@@ -756,42 +927,51 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
       case 'mutasi_perubahan_kk':
         return _buildMutasiDetails(report, focus);
       default:
-        return _buildSuratDetails(report, 'surat_total');
+        return _DetailBlock(
+          title: 'Detail Dashboard',
+          subtitle: 'Pilih snapshot lain untuk melihat rincian item.',
+          ctaLabel: 'Buka Laporan',
+          onOpenModule: () => context.push(Routes.laporan),
+          items: const [],
+        );
     }
   }
 
   _DetailBlock _buildSuratDetails(LaporanOperationalData report, String focus) {
-    final items = switch (focus) {
-      'surat_submitted' => report.filteredSurat
-          .where((item) => item.isSubmitted)
-          .toList(),
-      'surat_action' => report.filteredSurat
-          .where(
-            (item) => item.isSubmitted ||
-                (!item.requiresRwApproval && item.isApprovedRt),
-          )
-          .toList(),
-      'surat_revision' => report.filteredSurat
-          .where((item) => item.isNeedRevision)
-          .toList(),
-      'surat_completed' => report.filteredSurat
-          .where((item) => item.isCompleted)
-          .toList(),
-      'surat_rejected' => report.filteredSurat
-          .where((item) => item.isRejected)
-          .toList(),
-      _ => report.filteredSurat,
-    }..sort(
-        (a, b) =>
-            (b.submittedAt ?? b.updated ?? b.created ?? DateTime.now())
-                .compareTo(
-                  a.submittedAt ?? a.updated ?? a.created ?? DateTime.now(),
-                ),
-      );
+    final items =
+        switch (focus) {
+          'surat_submitted' =>
+            report.filteredSurat.where((item) => item.isSubmitted).toList(),
+          'surat_action' => _actionRequiredSurat(report),
+          'surat_revision' =>
+            report.filteredSurat.where((item) => item.isNeedRevision).toList(),
+          'surat_completed' =>
+            report.filteredSurat.where((item) => item.isCompleted).toList(),
+          'surat_rejected' =>
+            report.filteredSurat.where((item) => item.isRejected).toList(),
+          _ => report.filteredSurat,
+        }..sort(
+          (a, b) => (b.submittedAt ?? b.updated ?? b.created ?? DateTime.now())
+              .compareTo(
+                a.submittedAt ?? a.updated ?? a.created ?? DateTime.now(),
+              ),
+        );
+
+    final routeStatus = switch (focus) {
+      'surat_submitted' => AppConstants.suratSubmitted,
+      'surat_action' => _SuratActionFilter.actionRequired,
+      'surat_revision' => AppConstants.suratNeedRevision,
+      'surat_completed' => AppConstants.suratCompleted,
+      'surat_rejected' => AppConstants.suratRejected,
+      _ => null,
+    };
 
     return _DetailBlock(
-      title: 'Detail Surat Pengantar',
-      subtitle: 'Klik item untuk membuka halaman detail surat.',
+      title: 'Detail Surat',
+      subtitle: 'Item terbaru yang terkait dengan workflow surat pengantar.',
+      ctaLabel: 'Buka Modul Surat',
+      onOpenModule: () =>
+          context.push(_routeWithQuery(Routes.surat, {'status': routeStatus})),
       items: items
           .map(
             (surat) => _ReportDetailItem(
@@ -801,7 +981,10 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
               meta: AppConstants.suratApprovalLabel(surat.approvalLevel),
               statusLabel: AppConstants.suratStatusLabel(surat.status),
               timestamp:
-                  surat.submittedAt ?? surat.updated ?? surat.created ?? DateTime.now(),
+                  surat.submittedAt ??
+                  surat.updated ??
+                  surat.created ??
+                  DateTime.now(),
               icon: Icons.description_outlined,
               tone: AppTheme.statusColor(surat.status),
               onTap: () => context.push('/surat/${surat.id}'),
@@ -819,10 +1002,19 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
       _ => report.filteredBills,
     };
 
+    final routeStatus = switch (focus) {
+      'iuran_paid' => 'paid',
+      'iuran_pending' => AppConstants.iuranBillSubmittedVerification,
+      'iuran_outstanding' => AppConstants.iuranBillUnpaid,
+      _ => null,
+    };
+
     return _DetailBlock(
-      title: 'Detail Iuran per KK',
-      subtitle:
-          'Klik item untuk membuka modul Iuran dan tindak lanjuti pembayaran.',
+      title: 'Detail Iuran',
+      subtitle: 'Tagihan terbaru per KK untuk tindak lanjut pembayaran.',
+      ctaLabel: 'Buka Modul Iuran',
+      onOpenModule: () =>
+          context.push(_routeWithQuery(Routes.iuran, {'status': routeStatus})),
       items: items
           .map(
             (bill) => _ReportDetailItem(
@@ -833,10 +1025,15 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
                   '${Formatters.rupiah(bill.amount)} • ${bill.dueDate == null ? '-' : Formatters.tanggalPendek(bill.dueDate!)}',
               statusLabel: AppConstants.iuranBillStatusLabel(bill.status),
               timestamp:
-                  bill.dueDate ?? bill.updated ?? bill.created ?? DateTime.now(),
+                  bill.dueDate ??
+                  bill.updated ??
+                  bill.created ??
+                  DateTime.now(),
               icon: Icons.payments_outlined,
               tone: AppTheme.statusColor(bill.status),
-              onTap: () => context.push(Routes.iuran),
+              onTap: () => context.push(
+                _routeWithQuery(Routes.iuran, {'status': routeStatus}),
+              ),
             ),
           )
           .toList(),
@@ -848,36 +1045,53 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     String focus,
   ) {
     final items = switch (focus) {
-      'dokumen_pending' => report.filteredDokumen
-          .where((item) => item.isPending)
-          .toList(),
-      'dokumen_revision' => report.filteredDokumen
-          .where((item) => item.isNeedRevision)
-          .toList(),
-      'dokumen_verified' => report.filteredDokumen
-          .where((item) => item.isVerified)
-          .toList(),
-      'dokumen_rejected' => report.filteredDokumen
-          .where((item) => item.isRejected)
-          .toList(),
+      'dokumen_pending' =>
+        report.filteredDokumen.where((item) => item.isPending).toList(),
+      'dokumen_revision' =>
+        report.filteredDokumen.where((item) => item.isNeedRevision).toList(),
+      'dokumen_verified' =>
+        report.filteredDokumen.where((item) => item.isVerified).toList(),
+      'dokumen_rejected' =>
+        report.filteredDokumen.where((item) => item.isRejected).toList(),
       _ => report.filteredDokumen,
+    };
+
+    final routeStatus = switch (focus) {
+      'dokumen_pending' => AppConstants.statusPending,
+      'dokumen_revision' => AppConstants.statusNeedRevision,
+      'dokumen_verified' => AppConstants.statusVerified,
+      'dokumen_rejected' => AppConstants.statusRejected,
+      _ => 'all',
     };
 
     return _DetailBlock(
       title: 'Detail Dokumen',
-      subtitle: 'Klik item untuk membuka modul Dokumen.',
+      subtitle: 'Antrean dokumen warga sesuai filter yang dipilih.',
+      ctaLabel: 'Buka Modul Dokumen',
+      onOpenModule: () => context.push(
+        _routeWithQuery(Routes.dokumen, {
+          'section': 'verification',
+          'status': routeStatus,
+        }),
+      ),
       items: items
           .map(
             (document) => _ReportDetailItem(
               title: document.jenis,
               subtitle:
-                  report.dokumenWargaById[document.warga]?.namaLengkap ?? 'Warga',
+                  report.dokumenWargaById[document.warga]?.namaLengkap ??
+                  'Warga',
               meta: document.catatan,
               statusLabel: _dokumenStatusLabel(document.statusVerifikasi),
               timestamp: document.updated ?? document.created ?? DateTime.now(),
               icon: Icons.folder_open_outlined,
               tone: AppTheme.statusColor(document.statusVerifikasi),
-              onTap: () => context.push(Routes.dokumen),
+              onTap: () => context.push(
+                _routeWithQuery(Routes.dokumen, {
+                  'section': 'verification',
+                  'status': routeStatus,
+                }),
+              ),
             ),
           )
           .toList(),
@@ -899,17 +1113,23 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
     return _DetailBlock(
       title: 'Detail Mutasi Warga',
       subtitle:
-          'Mutasi disusun dari jenis Surat Pengantar yang berkaitan dengan perpindahan, kematian, dan perubahan KK.',
+          'Mutasi dirangkum dari surat pindah, kematian, dan perubahan KK.',
+      ctaLabel: 'Buka Modul Surat',
+      onOpenModule: () => context.push(Routes.surat),
       items: items
           .map(
             (surat) => _ReportDetailItem(
               title: surat.title,
               subtitle:
-                  report.suratData.wargaById[surat.wargaId]?.namaLengkap ?? 'Warga',
+                  report.suratData.wargaById[surat.wargaId]?.namaLengkap ??
+                  'Warga',
               meta: surat.purpose,
               statusLabel: AppConstants.suratStatusLabel(surat.status),
               timestamp:
-                  surat.submittedAt ?? surat.updated ?? surat.created ?? DateTime.now(),
+                  surat.submittedAt ??
+                  surat.updated ??
+                  surat.created ??
+                  DateTime.now(),
               icon: Icons.swap_horiz_rounded,
               tone: AppTheme.accentColor,
               onTap: () => context.push('/surat/${surat.id}'),
@@ -935,15 +1155,100 @@ class _LaporanScreenState extends ConsumerState<LaporanScreen> {
   }
 }
 
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.tone,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: tone, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTheme.heading3.copyWith(fontSize: 16, color: tone),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: AppTheme.bodySmall.copyWith(
+            fontSize: 12,
+            color: AppTheme.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardAlert {
+  const _DashboardAlert({
+    required this.title,
+    required this.subtitle,
+    required this.ctaLabel,
+    required this.onTap,
+    required this.status,
+    required this.icon,
+    this.value,
+    this.meta,
+  });
+
+  final String title;
+  final String subtitle;
+  final String ctaLabel;
+  final VoidCallback onTap;
+  final AlertStatus status;
+  final IconData icon;
+  final String? value;
+  final String? meta;
+}
+
+class _SnapshotMetric {
+  const _SnapshotMetric({
+    required this.focus,
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  final String focus;
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+}
+
 class _DetailBlock {
   const _DetailBlock({
     required this.title,
     required this.subtitle,
+    required this.ctaLabel,
+    required this.onOpenModule,
     required this.items,
   });
 
   final String title;
   final String subtitle;
+  final String ctaLabel;
+  final VoidCallback onOpenModule;
   final List<_ReportDetailItem> items;
 }
 
@@ -967,4 +1272,8 @@ class _ReportDetailItem {
   final Color tone;
   final String? meta;
   final VoidCallback? onTap;
+}
+
+class _SuratActionFilter {
+  static const String actionRequired = 'action_required';
 }
