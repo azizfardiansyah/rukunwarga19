@@ -45,12 +45,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
         ref.read(chatServiceProvider).getCachedBootstrap();
     final showBootstrap = bootstrapData != null;
     final archiveCount = switch (_section) {
-      _ChatSection.inbox => bootstrapData?.inbox
-          .where((item) => item.isArchived)
-          .length,
-      _ChatSection.groups => bootstrapData?.groups
-          .where((item) => item.isArchived)
-          .length,
+      _ChatSection.inbox =>
+        bootstrapData?.inbox.where((item) => item.isArchived).length,
+      _ChatSection.groups =>
+        bootstrapData?.groups.where((item) => item.isArchived).length,
     };
 
     return Scaffold(
@@ -264,9 +262,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: Row(
               children: [
@@ -382,6 +378,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
             hasPinned &&
             index > 0 &&
             filtered[index - 1].isPinned;
+        final metaLabel = _conversationMetaLabel(conversation);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -484,12 +481,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 13,
+                    horizontal: 12,
+                    vertical: 10,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(22),
                     border: Border.all(
                       color: conversation.unreadCount > 0
                           ? AppTheme.primaryColor.withValues(alpha: 0.18)
@@ -506,7 +503,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                   child: Row(
                     children: [
                       _ConversationLeadingAvatar(conversation: conversation),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -518,7 +515,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                     conversation.name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: AppTheme.bodyLarge.copyWith(
+                                    style: AppTheme.bodyMedium.copyWith(
+                                      fontSize: 13.5,
                                       fontWeight: conversation.unreadCount > 0
                                           ? FontWeight.w800
                                           : FontWeight.w700,
@@ -528,8 +526,8 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                 ),
                                 if (conversation.unreadCount > 0)
                                   Container(
-                                    width: 10,
-                                    height: 10,
+                                    width: 8,
+                                    height: 8,
                                     decoration: const BoxDecoration(
                                       color: AppTheme.primaryColor,
                                       shape: BoxShape.circle,
@@ -537,12 +535,13 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                   ),
                               ],
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 2),
                             Text(
                               _conversationPreview(conversation),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: AppTheme.bodySmall.copyWith(
+                              style: AppTheme.caption.copyWith(
+                                fontSize: 11,
                                 color: conversation.unreadCount > 0
                                     ? AppTheme.textPrimary
                                     : AppTheme.textSecondary,
@@ -551,13 +550,10 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                     : FontWeight.w500,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            final metaLabel = _conversationMetaLabel(
-                              conversation,
-                            );
+                            const SizedBox(height: 6),
                             Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
+                              spacing: 5,
+                              runSpacing: 5,
                               children: [
                                 if (metaLabel.isNotEmpty)
                                   _ConversationMetaChip(label: metaLabel),
@@ -578,7 +574,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -590,6 +586,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                   )
                                 : '',
                             style: AppTheme.caption.copyWith(
+                              fontSize: 11,
                               color: conversation.unreadCount > 0
                                   ? AppTheme.primaryColor
                                   : AppTheme.textSecondary,
@@ -598,12 +595,12 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                   : FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 8),
                           if (conversation.unreadCount > 0)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                                vertical: 4,
+                                horizontal: 8,
+                                vertical: 3,
                               ),
                               decoration: BoxDecoration(
                                 color: AppTheme.primaryColor,
@@ -614,6 +611,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                                     ? '99+'
                                     : '${conversation.unreadCount}',
                                 style: AppTheme.caption.copyWith(
+                                  fontSize: 10,
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -624,7 +622,7 @@ class _ChatListScreenState extends ConsumerState<ChatListScreen> {
                               conversation.isPinned
                                   ? Icons.push_pin_rounded
                                   : Icons.chevron_right_rounded,
-                              size: 18,
+                              size: 16,
                               color: conversation.isPinned
                                   ? AppTheme.accentColor
                                   : AppTheme.textTertiary,
@@ -822,7 +820,7 @@ class _SectionPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         decoration: BoxDecoration(
           color: selected ? AppTheme.primaryColor : Colors.transparent,
           borderRadius: BorderRadius.circular(16),
@@ -831,7 +829,7 @@ class _SectionPill extends StatelessWidget {
           label,
           textAlign: TextAlign.center,
           style: AppTheme.bodyMedium.copyWith(
-            fontSize: 13.5,
+            fontSize: 12.5,
             color: selected ? Colors.white : AppTheme.textSecondary,
             fontWeight: FontWeight.w800,
           ),
@@ -912,16 +910,14 @@ class _ArchiveToggleButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(18),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: active
               ? AppTheme.secondaryColor
               : Colors.white.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: active
-                ? AppTheme.secondaryColor
-                : AppTheme.dividerColor,
+            color: active ? AppTheme.secondaryColor : AppTheme.dividerColor,
           ),
           boxShadow: [
             BoxShadow(
@@ -943,6 +939,7 @@ class _ArchiveToggleButton extends StatelessWidget {
             Text(
               active ? 'Aktif' : label,
               style: AppTheme.bodySmall.copyWith(
+                fontSize: 12,
                 color: active ? Colors.white : AppTheme.textPrimary,
                 fontWeight: FontWeight.w700,
               ),
@@ -994,7 +991,7 @@ class _ConversationMetaChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
@@ -1009,6 +1006,7 @@ class _ConversationMetaChip extends StatelessWidget {
           Text(
             label,
             style: AppTheme.caption.copyWith(
+              fontSize: 10,
               color: foregroundColor,
               fontWeight: FontWeight.w700,
             ),
@@ -1026,17 +1024,18 @@ class _ConversationLeadingAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (conversation.isPrivate) {
+    final hasAvatar = (conversation.avatarUrl ?? '').trim().isNotEmpty;
+    if (conversation.isPrivate || hasAvatar) {
       return _AvatarCircle(
         imageUrl: conversation.avatarUrl,
         label: conversation.name,
-        size: 52,
+        size: 44,
       );
     }
 
     return Container(
-      width: 52,
-      height: 52,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
         gradient: conversation.isGroupRt
             ? const LinearGradient(
@@ -1057,7 +1056,7 @@ class _ConversationLeadingAvatar extends StatelessWidget {
       child: Icon(
         conversation.isGroupRt ? Icons.groups_rounded : Icons.hub_rounded,
         color: Colors.white,
-        size: 24,
+        size: 20,
       ),
     );
   }

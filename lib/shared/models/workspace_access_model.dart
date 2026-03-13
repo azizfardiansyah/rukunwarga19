@@ -65,6 +65,7 @@ class WorkspaceMemberModel {
     required this.workspaceId,
     required this.userId,
     required this.displayName,
+    required this.avatarPath,
     required this.systemRole,
     required this.planCode,
     required this.subscriptionStatus,
@@ -83,6 +84,7 @@ class WorkspaceMemberModel {
   final String workspaceId;
   final String userId;
   final String displayName;
+  final String avatarPath;
   final String systemRole;
   final String planCode;
   final String subscriptionStatus;
@@ -104,6 +106,7 @@ class WorkspaceMemberModel {
       workspaceId: record.getStringValue('workspace'),
       userId: record.getStringValue('user'),
       displayName: record.getStringValue('display_name').trim(),
+      avatarPath: record.getStringValue('avatar_path').trim(),
       systemRole: AppConstants.effectiveSystemRole(
         role: legacyRole,
         systemRole: record.getStringValue('system_role'),

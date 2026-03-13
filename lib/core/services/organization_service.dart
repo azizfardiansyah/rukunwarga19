@@ -6,6 +6,7 @@ import '../../shared/models/workspace_access_model.dart';
 import '../constants/app_constants.dart';
 import 'pocketbase_service.dart';
 import '../utils/area_access.dart';
+import 'chat_service.dart';
 import 'workspace_access_service.dart';
 
 final organizationServiceProvider = Provider<OrganizationService>((ref) {
@@ -338,6 +339,7 @@ class OrganizationService {
             'workspace': workspaceRecord.id,
             'user': authUser.id,
             'display_name': _bootstrapUserDisplayName(authUser),
+            'avatar_path': _snapshotAvatarPathForUserRecord(authUser),
             'system_role': AppConstants.effectiveSystemRole(
               role: authUser.getStringValue('role'),
               systemRole: authUser.getStringValue('system_role'),
@@ -514,7 +516,9 @@ class OrganizationService {
     final record = (unitId ?? '').trim().isEmpty
         ? await collection.create(body: body)
         : await collection.update(unitId!, body: body);
-    return OrgUnitModel.fromRecord(record);
+    final unit = OrgUnitModel.fromRecord(record);
+    await _ref.read(chatServiceProvider).syncOrgUnitConversation(unit);
+    return unit;
   }
 
   Future<OrgUnitModel> archiveOrgUnit(String unitId) async {
@@ -529,7 +533,9 @@ class OrganizationService {
     final record = await pb
         .collection(AppConstants.colOrgUnits)
         .update(unitId, body: {'status': 'inactive'});
-    return OrgUnitModel.fromRecord(record);
+    final unit = OrgUnitModel.fromRecord(record);
+    await _ref.read(chatServiceProvider).syncOrgUnitConversation(unit);
+    return unit;
   }
 
   Future<OrgMembershipModel> saveOrgMembership({
@@ -766,6 +772,7 @@ class OrganizationService {
     required RecordModel authUser,
   }) async {
     final displayName = _bootstrapUserDisplayName(authUser);
+    final avatarPath = _snapshotAvatarPathForUserRecord(authUser);
     final systemRole = AppConstants.effectiveSystemRole(
       role: authUser.getStringValue('role'),
       systemRole: authUser.getStringValue('system_role'),
@@ -802,6 +809,7 @@ class OrganizationService {
       if (_workspaceMemberNeedsSync(
         member: existingMember,
         displayName: displayName,
+        avatarPath: avatarPath,
         systemRole: systemRole,
         planCode: planCode,
         subscriptionStatus: subscriptionStatus,
@@ -813,6 +821,7 @@ class OrganizationService {
               existingRecord.id,
               body: {
                 'display_name': displayName,
+                'avatar_path': avatarPath,
                 'system_role': systemRole,
                 'plan_code': planCode,
                 'subscription_status': subscriptionStatus,
@@ -854,6 +863,7 @@ class OrganizationService {
             'workspace': workspace.id,
             'user': authUser.id,
             'display_name': displayName,
+            'avatar_path': avatarPath,
             'system_role': systemRole,
             'plan_code': planCode,
             'subscription_status': subscriptionStatus,
@@ -1012,7 +1022,15 @@ class OrganizationService {
       );
     } catch (_) {}
 
-    String? resolveAvatarUrl(RecordModel? user, RecordModel? warga) {
+    String? resolveAvatarUrl(
+      WorkspaceMemberModel member,
+      RecordModel? user,
+      RecordModel? warga,
+    ) {
+      final memberAvatarPath = _absoluteAvatarUrl(member.avatarPath);
+      if (memberAvatarPath != null) {
+        return memberAvatarPath;
+      }
       final avatarFile = user?.getStringValue('avatar').trim() ?? '';
       if (user != null && avatarFile.isNotEmpty) {
         return getFileUrl(user, avatarFile);
@@ -1037,7 +1055,7 @@ class OrganizationService {
             member: member,
             displayName: displayName,
             email: user?.getStringValue('email') ?? '',
-            avatarUrl: resolveAvatarUrl(user, warga),
+            avatarUrl: resolveAvatarUrl(member, user, warga),
           );
         })
         .toList(growable: false);
@@ -1097,6 +1115,10 @@ class OrganizationService {
       _emailLocalPart(userRecord?.getStringValue('email') ?? ''),
       normalizedUserId,
     ]);
+    final resolvedAvatarPath = _snapshotAvatarPath(
+      userRecord: userRecord,
+      wargaRecord: await _findWargaByUserId(normalizedUserId),
+    );
     final normalizedScopeRw = scopeRw != null && scopeRw > 0
         ? scopeRw
         : profile.workspace.rw;
@@ -1127,6 +1149,7 @@ class OrganizationService {
             'workspace': profile.workspace.id,
             'user': normalizedUserId,
             'display_name': resolvedDisplayName,
+            'avatar_path': resolvedAvatarPath,
             'system_role': systemRole,
             'plan_code': planCode,
             'subscription_status': subscriptionStatus,
@@ -1159,12 +1182,14 @@ class OrganizationService {
 bool _workspaceMemberNeedsSync({
   required WorkspaceMemberModel member,
   required String displayName,
+  required String avatarPath,
   required String systemRole,
   required String planCode,
   required String subscriptionStatus,
   required int scopeRw,
 }) {
   return member.displayName.trim() != displayName.trim() ||
+      member.avatarPath.trim() != avatarPath.trim() ||
       member.systemRole.trim() != systemRole.trim() ||
       member.planCode.trim() != planCode.trim() ||
       member.subscriptionStatus.trim() != subscriptionStatus.trim() ||
@@ -1265,6 +1290,55 @@ String _bootstrapUserDisplayName(RecordModel authUser) {
     return email.split('@').first;
   }
   return authUser.id;
+}
+
+Future<RecordModel?> _findWargaByUserId(String userId) async {
+  final normalizedUserId = userId.trim();
+  if (normalizedUserId.isEmpty) {
+    return null;
+  }
+  try {
+    return await pb
+        .collection(AppConstants.colWarga)
+        .getFirstListItem(
+          'user_id = "${_escapeFilterValue(normalizedUserId)}"',
+        );
+  } catch (_) {
+    return null;
+  }
+}
+
+String _snapshotAvatarPath({
+  RecordModel? userRecord,
+  RecordModel? wargaRecord,
+}) {
+  final userAvatar = userRecord?.getStringValue('avatar').trim() ?? '';
+  if (userRecord != null && userAvatar.isNotEmpty) {
+    return '/api/files/${AppConstants.colUsers}/${userRecord.id}/$userAvatar';
+  }
+  final wargaAvatar = wargaRecord?.getStringValue('foto_warga').trim() ?? '';
+  if (wargaRecord != null && wargaAvatar.isNotEmpty) {
+    return '/api/files/${AppConstants.colWarga}/${wargaRecord.id}/$wargaAvatar';
+  }
+  return '';
+}
+
+String _snapshotAvatarPathForUserRecord(RecordModel authUser) {
+  return _snapshotAvatarPath(userRecord: authUser);
+}
+
+String? _absoluteAvatarUrl(String rawPath) {
+  final normalized = rawPath.trim();
+  if (normalized.isEmpty) {
+    return null;
+  }
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return normalized;
+  }
+  if (normalized.startsWith('/')) {
+    return '$pocketBaseUrl$normalized';
+  }
+  return '$pocketBaseUrl/$normalized';
 }
 
 Future<void> _saveLocalOrganizationBinding({

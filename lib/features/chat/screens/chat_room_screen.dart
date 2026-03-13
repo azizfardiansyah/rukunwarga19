@@ -17,6 +17,8 @@ import '../../../shared/models/chat_model.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/chat_providers.dart';
 
+enum _RoomMenuAction { toggleSearch, media, pin, manageMembers, editAvatar }
+
 class ChatRoomScreen extends ConsumerStatefulWidget {
   const ChatRoomScreen({super.key, required this.conversationId});
 
@@ -1316,6 +1318,328 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
     }
   }
 
+  Future<void> _handleRoomMenuAction(_RoomMenuAction action) async {
+    switch (action) {
+      case _RoomMenuAction.toggleSearch:
+        _toggleSearchMode();
+        return;
+      case _RoomMenuAction.media:
+        await _showConversationMediaSheet();
+        return;
+      case _RoomMenuAction.pin:
+        await _toggleConversationPin();
+        return;
+      case _RoomMenuAction.manageMembers:
+        await _showOrgUnitMemberManager();
+        return;
+      case _RoomMenuAction.editAvatar:
+        await _showConversationAvatarEditor();
+        return;
+    }
+  }
+
+  Future<void> _refreshConversationShell() async {
+    await _loadMessages(silent: true);
+    ref.read(chatRefreshTickProvider.notifier).bump();
+    ref.invalidate(chatBootstrapProvider);
+    try {
+      await ref.read(chatBootstrapProvider.future);
+    } catch (_) {}
+  }
+
+  Future<void> _showOrgUnitMemberManager() async {
+    final conversation = _data?.conversation;
+    if (conversation == null) {
+      return;
+    }
+
+    try {
+      final service = ref.read(chatServiceProvider);
+      final options = await service.getOrgUnitConversationMemberOptions(
+        conversation.id,
+      );
+      if (!mounted) {
+        return;
+      }
+      final selectedUserIds = {
+        ...options.where((item) => item.isSelected).map((item) => item.userId),
+      };
+      final result = await showModalBottomSheet<List<String>>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setSheetState) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Kelola Anggota Grup', style: AppTheme.heading3),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tambahkan akun yang masuk area yuridiksi grup ini. Pengurus unit tetap diprioritaskan.',
+                    style: AppTheme.bodySmall.copyWith(
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: MediaQuery.of(sheetContext).size.height * 0.6,
+                    child: ListView.separated(
+                      itemCount: options.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final option = options[index];
+                        final isChecked = selectedUserIds.contains(
+                          option.userId,
+                        );
+                        final isEnabled =
+                            !option.isLocked &&
+                            (option.isEligible || option.isSelected);
+                        return CheckboxListTile(
+                          value: isChecked,
+                          onChanged: !isEnabled
+                              ? null
+                              : (value) {
+                                  setSheetState(() {
+                                    if (value == true) {
+                                      selectedUserIds.add(option.userId);
+                                    } else {
+                                      selectedUserIds.remove(option.userId);
+                                    }
+                                  });
+                                },
+                          contentPadding: EdgeInsets.zero,
+                          secondary: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: AppTheme.primaryColor.withValues(
+                              alpha: 0.12,
+                            ),
+                            backgroundImage:
+                                (option.avatarUrl ?? '').trim().isNotEmpty
+                                ? NetworkImage(option.avatarUrl!)
+                                : null,
+                            child: (option.avatarUrl ?? '').trim().isEmpty
+                                ? Text(
+                                    Formatters.inisial(option.displayName),
+                                    style: AppTheme.caption.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.primaryColor,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          title: Text(
+                            option.displayName,
+                            style: AppTheme.bodyMedium.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: Text(
+                            option.subtitle,
+                            style: AppTheme.caption.copyWith(
+                              color: option.isEligible
+                                  ? AppTheme.textSecondary
+                                  : AppTheme.warningColor,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(
+                        sheetContext,
+                      ).pop(selectedUserIds.toList(growable: false)),
+                      child: const Text('Simpan Anggota'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (!mounted || result == null) {
+        return;
+      }
+
+      await service.updateOrgUnitConversationMembers(
+        conversationId: conversation.id,
+        userIds: result,
+      );
+      await _refreshConversationShell();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Anggota grup berhasil diperbarui')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
+  Future<void> _showConversationAvatarEditor() async {
+    final conversation = _data?.conversation;
+    if (conversation == null || conversation.isPrivate) {
+      return;
+    }
+
+    try {
+      PlatformFile? selectedAvatar;
+      var removeAvatar = false;
+      final result = await showModalBottomSheet<_ConversationAvatarEditResult>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final hasExistingAvatar =
+                (conversation.avatarUrl ?? '').trim().isNotEmpty &&
+                !removeAvatar &&
+                selectedAvatar == null;
+            final hasPendingChange = selectedAvatar != null || removeAvatar;
+            Future<void> pickAvatar() async {
+              try {
+                final picked = await FilePicker.platform.pickFiles(
+                  allowMultiple: false,
+                  withData: true,
+                  type: FileType.custom,
+                  allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+                );
+                if (picked == null || picked.files.isEmpty) {
+                  return;
+                }
+                setSheetState(() {
+                  selectedAvatar = picked.files.single;
+                  removeAvatar = false;
+                });
+              } catch (error) {
+                if (mounted) {
+                  ErrorClassifier.showErrorSnackBar(context, error);
+                }
+              }
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Edit Avatar Grup', style: AppTheme.heading3),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Gunakan gambar persegi agar avatar tampil rapi di daftar chat.',
+                      style: AppTheme.bodySmall.copyWith(
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Center(
+                      child: _ConversationAvatarPreview(
+                        label: conversation.name,
+                        imageUrl: hasExistingAvatar
+                            ? conversation.avatarUrl
+                            : null,
+                        bytes: selectedAvatar?.bytes,
+                        size: 88,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: pickAvatar,
+                        icon: const Icon(Icons.photo_camera_back_outlined),
+                        label: Text(
+                          selectedAvatar == null
+                              ? 'Pilih Avatar'
+                              : 'Ganti Avatar',
+                        ),
+                      ),
+                    ),
+                    if (selectedAvatar != null ||
+                        (conversation.avatarUrl ?? '').trim().isNotEmpty)
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setSheetState(() {
+                              selectedAvatar = null;
+                              removeAvatar = (conversation.avatarUrl ?? '')
+                                  .trim()
+                                  .isNotEmpty;
+                            });
+                          },
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          label: Text(
+                            (conversation.avatarUrl ?? '').trim().isNotEmpty
+                                ? 'Hapus Avatar Saat Ini'
+                                : 'Kosongkan Pilihan',
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: !hasPendingChange
+                            ? null
+                            : () => Navigator.of(sheetContext).pop(
+                                _ConversationAvatarEditResult(
+                                  avatar: selectedAvatar,
+                                  removeAvatar: removeAvatar,
+                                ),
+                              ),
+                        child: Text(
+                          removeAvatar && selectedAvatar == null
+                              ? 'Hapus Avatar'
+                              : 'Simpan Avatar',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      if (!mounted || result == null) {
+        return;
+      }
+
+      await ref
+          .read(chatServiceProvider)
+          .updateConversationAvatar(
+            conversationId: conversation.id,
+            avatar: result.avatar,
+            removeAvatar: result.removeAvatar,
+          );
+      await _refreshConversationShell();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Avatar grup berhasil diperbarui')),
+      );
+    } catch (error) {
+      if (mounted) {
+        ErrorClassifier.showErrorSnackBar(context, error);
+      }
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_isDisposed || !_scrollController.hasClients) {
@@ -1449,30 +1773,66 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
               ),
             ),
           if (conversation != null)
-            IconButton(
-              tooltip: _isSearchMode ? 'Tutup pencarian' : 'Cari di chat',
-              onPressed: _toggleSearchMode,
-              icon: Icon(
-                _isSearchMode ? Icons.close_rounded : Icons.search_rounded,
-                color: Colors.white,
-              ),
-            ),
-          if (conversation != null)
-            IconButton(
-              tooltip: 'Media, dokumen, dan link',
-              onPressed: _showConversationMediaSheet,
-              icon: const Icon(Icons.perm_media_outlined, color: Colors.white),
-            ),
-          if (conversation != null)
-            IconButton(
-              tooltip: conversation.isPinned ? 'Lepas pin chat' : 'Pin chat',
-              onPressed: _toggleConversationPin,
-              icon: Icon(
-                conversation.isPinned
-                    ? Icons.push_pin_rounded
-                    : Icons.push_pin_outlined,
-                color: Colors.white,
-              ),
+            PopupMenuButton<_RoomMenuAction>(
+              tooltip: 'Opsi lainnya',
+              onSelected: _handleRoomMenuAction,
+              icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+              itemBuilder: (context) {
+                final items = <PopupMenuEntry<_RoomMenuAction>>[
+                  PopupMenuItem(
+                    value: _RoomMenuAction.toggleSearch,
+                    child: _RoomMenuItemLabel(
+                      icon: _isSearchMode
+                          ? Icons.close_rounded
+                          : Icons.search_rounded,
+                      label: _isSearchMode ? 'Tutup pencarian' : 'Cari di chat',
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: _RoomMenuAction.media,
+                    child: _RoomMenuItemLabel(
+                      icon: Icons.perm_media_outlined,
+                      label: 'Media, dokumen, dan link',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _RoomMenuAction.pin,
+                    child: _RoomMenuItemLabel(
+                      icon: conversation.isPinned
+                          ? Icons.push_pin_rounded
+                          : Icons.push_pin_outlined,
+                      label: conversation.isPinned
+                          ? 'Lepas pin chat'
+                          : 'Pin chat',
+                    ),
+                  ),
+                ];
+                if ((conversation.orgUnitId ?? '').trim().isNotEmpty) {
+                  items.add(const PopupMenuDivider());
+                  items.add(
+                    const PopupMenuItem(
+                      value: _RoomMenuAction.manageMembers,
+                      child: _RoomMenuItemLabel(
+                        icon: Icons.group_add_outlined,
+                        label: 'Kelola anggota grup',
+                      ),
+                    ),
+                  );
+                }
+                if (!conversation.isPrivate) {
+                  items.add(
+                    const PopupMenuItem(
+                      value: _RoomMenuAction.editAvatar,
+                      child: _RoomMenuItemLabel(
+                        icon: Icons.account_circle_outlined,
+                        label: 'Edit avatar grup',
+                      ),
+                    ),
+                  );
+                }
+                return items;
+              },
             ),
           const SizedBox(width: 4),
         ],
@@ -1482,7 +1842,11 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFF6F1EC), Color(0xFFFCFBF9), Color(0xFFF2ECE6)],
+                colors: [
+                  Color(0xFFF6F1EC),
+                  Color(0xFFFCFBF9),
+                  Color(0xFFF2ECE6),
+                ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               ),
@@ -1514,264 +1878,264 @@ class _ChatRoomScreenState extends ConsumerState<ChatRoomScreen> {
           ),
           Column(
             children: [
-            if (_isSearchMode)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-                child: _RoomSearchField(
-                  controller: _roomSearchCtrl,
-                  resultCount: visibleMessages.length,
-                ),
-              ),
-            if (activePinnedMessage != null &&
-                _roomSearchCtrl.text.trim().isEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-                child: _PinnedMessageBanner(
-                  message: activePinnedMessage,
-                  pinnedCount: pinnedMessages.length,
-                  preview: _pinnedMessagePreview(activePinnedMessage),
-                ),
-              ),
-            Expanded(
-              child: _isLoading && _data == null
-                  ? const Center(child: CircularProgressIndicator())
-                  : _data == null || _data!.messages.isEmpty
-                  ? Center(
-                      child: AppTheme.glassContainer(
-                        opacity: 0.72,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.chat_bubble_outline_rounded,
-                              size: 40,
-                              color: AppTheme.textSecondary,
-                            ),
-                            const SizedBox(height: 10),
-                            Text('Belum ada pesan', style: AppTheme.heading3),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Mulai percakapan untuk mengaktifkan ruang chat ini.',
-                              style: AppTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : visibleMessages.isEmpty
-                  ? Center(
-                      child: AppTheme.glassContainer(
-                        opacity: 0.72,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.search_off_rounded,
-                              size: 38,
-                              color: AppTheme.textSecondary,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Pesan tidak ditemukan',
-                              style: AppTheme.heading3,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Ubah kata kunci untuk melihat hasil lain di percakapan ini.',
-                              style: AppTheme.bodyMedium,
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _loadMessages,
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
-                        itemCount: visibleMessages.length,
-                        itemBuilder: (context, index) {
-                          final message = visibleMessages[index];
-                          return _MessageBubble(
-                            message: message,
-                            roomAvatarUrl: roomAvatarUrl,
-                            showPeerAvatar:
-                                showParticipantAvatars && !message.isMine,
-                            showSenderContext:
-                                showParticipantAvatars && !message.isMine,
-                            onOpenAttachment: message.hasAttachment
-                                ? () => _openAttachment(message)
-                                : null,
-                            onShowActions: () => _showMessageActions(message),
-                            onToggleReaction: (emoji) =>
-                                _toggleReaction(message, emoji),
-                            onAddReaction: () => _showReactionPicker(message),
-                            onVotePoll: message.isPoll
-                                ? (optionIds) => _votePoll(message, optionIds)
-                                : null,
-                          );
-                        },
-                      ),
-                    ),
-            ),
-            SafeArea(
-              top: false,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.96),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
+              if (_isSearchMode)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                  child: _RoomSearchField(
+                    controller: _roomSearchCtrl,
+                    resultCount: visibleMessages.length,
                   ),
-                  border: Border(
-                    top: BorderSide(
-                      color: AppTheme.dividerColor.withValues(alpha: 0.8),
-                    ),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.05),
-                      blurRadius: 18,
-                      offset: const Offset(0, -4),
-                    ),
-                  ],
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_replyingTo != null)
-                      _ComposerHint(
-                        icon: Icons.reply_rounded,
-                        color: AppTheme.primaryColor,
-                        title: 'Membalas ${_replyingTo!.senderName}',
-                        subtitle: _replyingTo!.text.isNotEmpty
-                            ? _replyingTo!.text
-                            : (_replyingTo!.attachmentName ?? 'Lampiran'),
-                        onClose: () => setState(() => _replyingTo = null),
-                      ),
-                    if (_editingMessage != null)
-                      _ComposerHint(
-                        icon: Icons.edit_outlined,
-                        color: AppTheme.accentColor,
-                        title: 'Mengedit pesan',
-                        subtitle: _editingMessage!.text.isNotEmpty
-                            ? _editingMessage!.text
-                            : (_editingMessage!.attachmentName ?? 'Pesan'),
-                        onClose: () {
-                          _messageCtrl.clear();
-                          setState(() => _editingMessage = null);
-                        },
-                      ),
-                    if (_selectedAttachment != null)
-                      _AttachmentDraftPreview(
-                        attachment: _selectedAttachment!,
-                        onClose: () =>
-                            setState(() => _selectedAttachment = null),
-                      ),
-                    if (_mentionSuggestions.isNotEmpty)
-                      _MentionSuggestionStrip(
-                        participants: _mentionSuggestions,
-                        onSelect: _insertMention,
-                      ),
-                    Row(
-                      children: [
-                        IconButton.filledTonal(
-                          onPressed: _isSending || _editingMessage != null
-                              ? null
-                              : _showComposerActions,
-                          style: IconButton.styleFrom(
-                            backgroundColor: const Color(0xFFF3E7E2),
-                            foregroundColor: AppTheme.primaryColor,
-                            padding: const EdgeInsets.all(14),
-                          ),
-                          icon: const Icon(Icons.add_rounded),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _messageCtrl,
-                            minLines: 1,
-                            maxLines: 3,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _sendMessage(),
-                            decoration: InputDecoration(
-                              hintText: _editingMessage != null
-                                  ? 'Perbarui pesan...'
-                                  : _replyingTo != null
-                                  ? 'Tulis balasan...'
-                                  : _selectedAttachment != null
-                                  ? 'Tambahkan caption...'
-                                  : _canShowMentionSuggestions
-                                  ? 'Tulis pesan... gunakan @ untuk mention'
-                                  : 'Tulis pesan...',
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor.withValues(
-                                    alpha: 0.8,
-                                  ),
-                                ),
+              if (activePinnedMessage != null &&
+                  _roomSearchCtrl.text.trim().isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                  child: _PinnedMessageBanner(
+                    message: activePinnedMessage,
+                    pinnedCount: pinnedMessages.length,
+                    preview: _pinnedMessagePreview(activePinnedMessage),
+                  ),
+                ),
+              Expanded(
+                child: _isLoading && _data == null
+                    ? const Center(child: CircularProgressIndicator())
+                    : _data == null || _data!.messages.isEmpty
+                    ? Center(
+                        child: AppTheme.glassContainer(
+                          opacity: 0.72,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                size: 40,
+                                color: AppTheme.textSecondary,
                               ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: BorderSide(
-                                  color: AppTheme.dividerColor.withValues(
-                                    alpha: 0.8,
-                                  ),
-                                ),
+                              const SizedBox(height: 10),
+                              Text('Belum ada pesan', style: AppTheme.heading3),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Mulai percakapan untuk mengaktifkan ruang chat ini.',
+                                style: AppTheme.bodyMedium,
+                                textAlign: TextAlign.center,
                               ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                                borderSide: const BorderSide(
-                                  color: AppTheme.primaryColor,
-                                  width: 1.2,
-                                ),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                            ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 52,
-                          height: 52,
-                          child: FilledButton(
-                            onPressed: _isSending ? null : _sendMessage,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.primaryColor,
-                              shape: const CircleBorder(),
-                              padding: EdgeInsets.zero,
+                      )
+                    : visibleMessages.isEmpty
+                    ? Center(
+                        child: AppTheme.glassContainer(
+                          opacity: 0.72,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.search_off_rounded,
+                                size: 38,
+                                color: AppTheme.textSecondary,
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                'Pesan tidak ditemukan',
+                                style: AppTheme.heading3,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Ubah kata kunci untuk melihat hasil lain di percakapan ini.',
+                                style: AppTheme.bodyMedium,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadMessages,
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                          itemCount: visibleMessages.length,
+                          itemBuilder: (context, index) {
+                            final message = visibleMessages[index];
+                            return _MessageBubble(
+                              message: message,
+                              roomAvatarUrl: roomAvatarUrl,
+                              showPeerAvatar:
+                                  showParticipantAvatars && !message.isMine,
+                              showSenderContext:
+                                  showParticipantAvatars && !message.isMine,
+                              onOpenAttachment: message.hasAttachment
+                                  ? () => _openAttachment(message)
+                                  : null,
+                              onShowActions: () => _showMessageActions(message),
+                              onToggleReaction: (emoji) =>
+                                  _toggleReaction(message, emoji),
+                              onAddReaction: () => _showReactionPicker(message),
+                              onVotePoll: message.isPoll
+                                  ? (optionIds) => _votePoll(message, optionIds)
+                                  : null,
+                            );
+                          },
+                        ),
+                      ),
+              ),
+              SafeArea(
+                top: false,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.96),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    border: Border(
+                      top: BorderSide(
+                        color: AppTheme.dividerColor.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                        blurRadius: 18,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_replyingTo != null)
+                        _ComposerHint(
+                          icon: Icons.reply_rounded,
+                          color: AppTheme.primaryColor,
+                          title: 'Membalas ${_replyingTo!.senderName}',
+                          subtitle: _replyingTo!.text.isNotEmpty
+                              ? _replyingTo!.text
+                              : (_replyingTo!.attachmentName ?? 'Lampiran'),
+                          onClose: () => setState(() => _replyingTo = null),
+                        ),
+                      if (_editingMessage != null)
+                        _ComposerHint(
+                          icon: Icons.edit_outlined,
+                          color: AppTheme.accentColor,
+                          title: 'Mengedit pesan',
+                          subtitle: _editingMessage!.text.isNotEmpty
+                              ? _editingMessage!.text
+                              : (_editingMessage!.attachmentName ?? 'Pesan'),
+                          onClose: () {
+                            _messageCtrl.clear();
+                            setState(() => _editingMessage = null);
+                          },
+                        ),
+                      if (_selectedAttachment != null)
+                        _AttachmentDraftPreview(
+                          attachment: _selectedAttachment!,
+                          onClose: () =>
+                              setState(() => _selectedAttachment = null),
+                        ),
+                      if (_mentionSuggestions.isNotEmpty)
+                        _MentionSuggestionStrip(
+                          participants: _mentionSuggestions,
+                          onSelect: _insertMention,
+                        ),
+                      Row(
+                        children: [
+                          IconButton.filledTonal(
+                            onPressed: _isSending || _editingMessage != null
+                                ? null
+                                : _showComposerActions,
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(0xFFF3E7E2),
+                              foregroundColor: AppTheme.primaryColor,
+                              padding: const EdgeInsets.all(14),
                             ),
-                            child: _isSending
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
+                            icon: const Icon(Icons.add_rounded),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _messageCtrl,
+                              minLines: 1,
+                              maxLines: 3,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => _sendMessage(),
+                              decoration: InputDecoration(
+                                hintText: _editingMessage != null
+                                    ? 'Perbarui pesan...'
+                                    : _replyingTo != null
+                                    ? 'Tulis balasan...'
+                                    : _selectedAttachment != null
+                                    ? 'Tambahkan caption...'
+                                    : _canShowMentionSuggestions
+                                    ? 'Tulis pesan... gunakan @ untuk mention'
+                                    : 'Tulis pesan...',
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor.withValues(
+                                      alpha: 0.8,
                                     ),
-                                  )
-                                : Icon(
-                                    _editingMessage != null
-                                        ? Icons.check_rounded
-                                        : Icons.send_rounded,
                                   ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: BorderSide(
+                                    color: AppTheme.dividerColor.withValues(
+                                      alpha: 0.8,
+                                    ),
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.primaryColor,
+                                    width: 1.2,
+                                  ),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 8),
+                          SizedBox(
+                            width: 52,
+                            height: 52,
+                            child: FilledButton(
+                              onPressed: _isSending ? null : _sendMessage,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.primaryColor,
+                                shape: const CircleBorder(),
+                                padding: EdgeInsets.zero,
+                              ),
+                              child: _isSending
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _editingMessage != null
+                                          ? Icons.check_rounded
+                                          : Icons.send_rounded,
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             ],
           ),
         ],
@@ -2070,7 +2434,9 @@ class _PinnedMessageBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.92)),
+        border: Border.all(
+          color: AppTheme.dividerColor.withValues(alpha: 0.92),
+        ),
         boxShadow: [
           BoxShadow(
             color: AppTheme.secondaryColor.withValues(alpha: 0.05),
@@ -2723,8 +3089,8 @@ class _PollMessageCard extends StatelessWidget {
           Text(
             poll.isOpen
                 ? poll.allowMultipleChoice
-                    ? 'Polling aktif - multi-pilihan'
-                    : 'Polling aktif - satu pilihan'
+                      ? 'Polling aktif - multi-pilihan'
+                      : 'Polling aktif - satu pilihan'
                 : 'Polling ditutup',
             style: AppTheme.caption.copyWith(
               color: textColor.withValues(alpha: 0.84),
@@ -3118,8 +3484,7 @@ class _MessageBubble extends StatelessWidget {
               if (!message.isDeleted &&
                   (message.isEdited ||
                       sentAtLabel.isNotEmpty ||
-                      (isMine &&
-                          (message.deliveryStatus ?? '').isNotEmpty) ||
+                      (isMine && (message.deliveryStatus ?? '').isNotEmpty) ||
                       message.isStarred ||
                       message.isPinned)) ...[
                 const SizedBox(height: 8),
@@ -3147,22 +3512,14 @@ class _MessageBubble extends StatelessWidget {
                                 (message.deliveryStatus ?? '').isNotEmpty)))
                       const SizedBox(width: 8),
                     if (message.isStarred)
-                      Icon(
-                        Icons.star_rounded,
-                        size: 14,
-                        color: metaColor,
-                      ),
+                      Icon(Icons.star_rounded, size: 14, color: metaColor),
                     if (message.isStarred &&
                         (message.isPinned ||
                             (isMine &&
                                 (message.deliveryStatus ?? '').isNotEmpty)))
                       const SizedBox(width: 6),
                     if (message.isPinned)
-                      Icon(
-                        Icons.push_pin_rounded,
-                        size: 14,
-                        color: metaColor,
-                      ),
+                      Icon(Icons.push_pin_rounded, size: 14, color: metaColor),
                     if (message.isPinned &&
                         isMine &&
                         (message.deliveryStatus ?? '').isNotEmpty)
@@ -3503,9 +3860,7 @@ class _ChatParticipantAvatar extends StatelessWidget {
       height: 32,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(
-          color: AppTheme.dividerColor.withValues(alpha: 0.9),
-        ),
+        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.9)),
       ),
       child: ClipOval(
         child: normalizedUrl.isNotEmpty
@@ -3548,7 +3903,7 @@ class _RoomConversationAvatar extends StatelessWidget {
     final resolvedImageUrl = (imageUrlOverride ?? conversation.avatarUrl ?? '')
         .trim();
 
-    if (conversation.isPrivate) {
+    if (conversation.isPrivate || resolvedImageUrl.isNotEmpty) {
       return Container(
         width: 42,
         height: 42,
@@ -3600,6 +3955,86 @@ class _RoomConversationAvatar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RoomMenuItemLabel extends StatelessWidget {
+  const _RoomMenuItemLabel({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: AppTheme.textPrimary),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label, style: AppTheme.bodyMedium)),
+      ],
+    );
+  }
+}
+
+class _ConversationAvatarPreview extends StatelessWidget {
+  const _ConversationAvatarPreview({
+    required this.label,
+    required this.imageUrl,
+    required this.bytes,
+    required this.size,
+  });
+
+  final String label;
+  final String? imageUrl;
+  final Uint8List? bytes;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedImageUrl = (imageUrl ?? '').trim();
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: AppTheme.dividerColor),
+      ),
+      child: ClipOval(
+        child: bytes != null
+            ? Image.memory(bytes!, width: size, height: size, fit: BoxFit.cover)
+            : resolvedImageUrl.isNotEmpty
+            ? Image.network(
+                resolvedImageUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _RoomAvatarFallback(
+                  label: label,
+                  size: size,
+                  textColor: AppTheme.primaryColor,
+                  backgroundColor: AppTheme.primaryColor.withValues(
+                    alpha: 0.12,
+                  ),
+                ),
+              )
+            : _RoomAvatarFallback(
+                label: label,
+                size: size,
+                textColor: AppTheme.primaryColor,
+                backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.12),
+              ),
+      ),
+    );
+  }
+}
+
+class _ConversationAvatarEditResult {
+  const _ConversationAvatarEditResult({
+    required this.avatar,
+    required this.removeAvatar,
+  });
+
+  final PlatformFile? avatar;
+  final bool removeAvatar;
 }
 
 class _RoomAvatarFallback extends StatelessWidget {

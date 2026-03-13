@@ -1563,6 +1563,7 @@ class AppConstants {
   static const String convScopeRt = 'rt';
   static const String convScopeRw = 'rw';
   static const String convScopeDkm = 'dkm';
+  static const String convScopeKarangTaruna = 'karang_taruna';
   static const String convScopePosyandu = 'posyandu';
   static const String convScopeCustom = 'custom';
   static const String convScopeDeveloperSupport = 'developer_support';

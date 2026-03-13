@@ -18,7 +18,7 @@ class ChatService {
   static const String _chatProfilesPath = '/api/rukunwarga/chat-users';
   static final Map<String, _CachedChatBootstrap> _bootstrapCache = {};
   static final Map<String, Future<ChatBootstrapData>>
-      _inflightBootstrapRequests = {};
+  _inflightBootstrapRequests = {};
   static final Map<String, _CachedChatMessages> _messagesCache = {};
   static final Map<String, Future<ChatMessagesData>> _inflightMessageRequests =
       {};
@@ -125,6 +125,7 @@ class ChatService {
   }) async {
     final area = await resolveAreaAccessContext(auth);
     final ensured = <RecordModel>[];
+    final memberConversationIds = <String>{};
 
     if (auth.isSysadmin) {
       ensured.addAll(
@@ -133,6 +134,7 @@ class ChatService {
             .getFullList(sort: '-updated'),
       );
     } else if (area.hasArea) {
+      await _syncActiveOrgUnitConversations();
       final selfScope = await _buildScopeForAuthUser(auth, area);
       if (_isWarga(auth)) {
         final privateRoom = await _ensurePrivateSupportConversation(
@@ -199,6 +201,14 @@ class ChatService {
       }
     }
 
+    final memberConversations = await _loadUserConversationRecords(
+      userId: authUser.id,
+    );
+    ensured.addAll(memberConversations);
+    memberConversationIds.addAll(
+      memberConversations.map((record) => record.id),
+    );
+
     final unique = <String, RecordModel>{};
     for (final record in ensured) {
       unique[record.id] = record;
@@ -210,6 +220,7 @@ class ChatService {
         auth: auth,
         context: area,
         conversation: record,
+        hasMembership: memberConversationIds.contains(record.id),
       )) {
         accessible.add(record);
       }
@@ -265,6 +276,410 @@ class ChatService {
     );
   }
 
+  Future<ConversationModel?> syncOrgUnitConversation(
+    OrgUnitModel unit, {
+    bool addCreatorAsModerator = true,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final profile = await _requireWorkspaceProfile();
+    final key = _orgUnitConversationKey(unit.id);
+    final isActive = unit.status.trim().toLowerCase() == 'active';
+    RecordModel? existing;
+    try {
+      existing = await pb
+          .collection(AppConstants.colConversations)
+          .getFirstListItem('key = "${_escapeFilterValue(key)}"');
+    } on ClientException catch (error) {
+      if (error.statusCode != 404) {
+        rethrow;
+      }
+    }
+
+    if (existing == null && !isActive) {
+      return null;
+    }
+
+    var conversation = existing;
+    var created = false;
+    if (conversation == null) {
+      conversation = await _ensureConversation(
+        key: key,
+        type: _orgUnitConversationType(unit.type),
+        name: unit.name,
+        owner: '',
+        createdBy: authUser.id,
+        scope: _scopeForOrgUnit(profile: profile, unit: unit, user: authUser),
+      );
+      created = true;
+    }
+
+    final scope = _scopeForOrgUnit(
+      profile: profile,
+      unit: unit,
+      user: authUser,
+    );
+    final updated = await pb
+        .collection(AppConstants.colConversations)
+        .update(
+          conversation.id,
+          body: {
+            'key': key,
+            'type': _orgUnitConversationType(unit.type),
+            'name': unit.name.trim(),
+            'workspace': unit.workspaceId,
+            'org_unit': unit.id,
+            'scope_type': _orgUnitConversationScopeType(unit.type),
+            'required_plan_code': AppConstants.planFree,
+            'is_readonly': !isActive,
+            'rt': scope.rt,
+            'rw': scope.rw,
+            'desa_code': scope.desaCode,
+            'kecamatan_code': scope.kecamatanCode,
+            'kabupaten_code': scope.kabupatenCode,
+            'provinsi_code': scope.provinsiCode,
+            'desa_kelurahan': scope.desaKelurahan,
+            'kecamatan': scope.kecamatan,
+            'kabupaten_kota': scope.kabupatenKota,
+            'provinsi': scope.provinsi,
+          },
+        );
+
+    RecordModel? membership;
+    if (created && isActive && addCreatorAsModerator) {
+      membership = await _ensureMembership(
+        conversationId: updated.id,
+        userId: authUser.id,
+        memberRole: 'moderator',
+      );
+    } else {
+      membership = await _loadConversationMembershipForUser(
+        conversationId: updated.id,
+        userId: authUser.id,
+      );
+    }
+
+    invalidateBootstrapCache();
+    return _conversationFromRecord(
+      updated,
+      currentUserId: authUser.id,
+      membership: membership,
+      unreadCount: 0,
+      userProfiles: const {},
+    );
+  }
+
+  Future<void> _syncActiveOrgUnitConversations() async {
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (profile == null) {
+      return;
+    }
+    final units = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getOrgUnits(profile.workspace.id);
+    for (final unit in units) {
+      if (unit.status.trim().toLowerCase() != 'active') {
+        continue;
+      }
+      try {
+        await syncOrgUnitConversation(unit);
+      } catch (_) {}
+    }
+  }
+
+  Future<List<ChatConversationMemberOption>>
+  getOrgUnitConversationMemberOptions(String conversationId) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+    final currentMembership = await _loadConversationMembershipForUser(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await _ensureConversationManagementAccess(
+      conversation: conversation,
+      currentMembership: currentMembership,
+    );
+
+    final orgUnitId = _recordText(conversation, 'org_unit');
+    if (orgUnitId.isEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Chat ini tidak terhubung ke unit organisasi.',
+        },
+      );
+    }
+
+    final profile = await _requireWorkspaceProfile();
+    final workspaceId = _recordText(conversation, 'workspace').isNotEmpty
+        ? _recordText(conversation, 'workspace')
+        : profile.workspace.id;
+    final orgMemberships = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getOrgMemberships(
+          workspaceId: workspaceId,
+          orgUnitId: orgUnitId,
+          activeOnly: true,
+        );
+    final conversationMemberships = await _loadConversationMemberships(
+      conversationId: conversationId,
+      fallbackUserId: authUser.id,
+    );
+    final jurisdictionCandidates =
+        await _loadConversationJurisdictionCandidates(
+          conversation: conversation,
+          profile: profile,
+        );
+    final userIds = <String>{
+      ...jurisdictionCandidates.keys,
+      ...orgMemberships.map((item) => item.userId),
+      ...conversationMemberships.map((item) => _recordText(item, 'user')),
+    }..removeWhere((item) => item.trim().isEmpty);
+    final userProfiles = await _loadChatUserProfiles(userIds);
+
+    return _buildOrgUnitConversationMemberOptions(
+      conversationMemberships: conversationMemberships,
+      orgMemberships: orgMemberships,
+      jurisdictionCandidates: jurisdictionCandidates,
+      userProfiles: userProfiles,
+      currentUserId: authUser.id,
+    );
+  }
+
+  Future<void> updateOrgUnitConversationMembers({
+    required String conversationId,
+    required List<String> userIds,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+    final currentMembership = await _loadConversationMembershipForUser(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await _ensureConversationManagementAccess(
+      conversation: conversation,
+      currentMembership: currentMembership,
+    );
+
+    final orgUnitId = _recordText(conversation, 'org_unit');
+    if (orgUnitId.isEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Chat ini tidak terhubung ke unit organisasi.',
+        },
+      );
+    }
+
+    final profile = await _requireWorkspaceProfile();
+    final workspaceId = _recordText(conversation, 'workspace').isNotEmpty
+        ? _recordText(conversation, 'workspace')
+        : profile.workspace.id;
+    final activeOrgMemberships = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getOrgMemberships(
+          workspaceId: workspaceId,
+          orgUnitId: orgUnitId,
+          activeOnly: true,
+        );
+    final jurisdictionCandidates =
+        await _loadConversationJurisdictionCandidates(
+          conversation: conversation,
+          profile: profile,
+        );
+    final allowedUserIds = {
+      ...jurisdictionCandidates.keys,
+      ...activeOrgMemberships
+          .map((item) => item.userId.trim())
+          .where((item) => item.isNotEmpty)
+          .toSet(),
+    };
+    final normalizedSelection = userIds
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final memberships = await _loadConversationMemberships(
+      conversationId: conversationId,
+      fallbackUserId: authUser.id,
+    );
+    final existingConversationUserIds = memberships
+        .map((item) => _recordText(item, 'user'))
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final invalidSelections = normalizedSelection.difference({
+      ...allowedUserIds,
+      ...existingConversationUserIds,
+    });
+    if (invalidSelections.isNotEmpty) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message':
+              'Anggota grup hanya bisa dipilih dari akun yang masuk area yuridiksi grup ini.',
+        },
+      );
+    }
+    final membershipsByUserId = <String, List<RecordModel>>{};
+    for (final membership in memberships) {
+      final memberUserId = _recordText(membership, 'user');
+      if (memberUserId.isEmpty) {
+        continue;
+      }
+      membershipsByUserId
+          .putIfAbsent(memberUserId, () => <RecordModel>[])
+          .add(membership);
+    }
+
+    final protectedUserIds = <String>{};
+    for (final entry in membershipsByUserId.entries) {
+      final moderator = entry.value.where(
+        (item) => _recordText(item, 'member_role') == 'moderator',
+      );
+      if (moderator.isEmpty) {
+        continue;
+      }
+      final isCurrentUser = entry.key == authUser.id;
+      final isEligible = allowedUserIds.contains(entry.key);
+      if (isCurrentUser || !isEligible) {
+        protectedUserIds.add(entry.key);
+      }
+    }
+
+    final finalSelection = {...normalizedSelection, ...protectedUserIds};
+    for (final entry in membershipsByUserId.entries) {
+      final keep = finalSelection.contains(entry.key);
+      final primary = entry.value.first;
+      final duplicates = entry.value.skip(1);
+      if (!keep) {
+        for (final membership in entry.value) {
+          await _deleteConversationMember(membership.id);
+        }
+        continue;
+      }
+      for (final membership in duplicates) {
+        await _deleteConversationMember(membership.id);
+      }
+      final desiredRole =
+          entry.key == authUser.id &&
+              _recordText(primary, 'member_role') == 'moderator'
+          ? 'moderator'
+          : _recordText(primary, 'member_role').isNotEmpty
+          ? _recordText(primary, 'member_role')
+          : 'participant';
+      if (_recordText(primary, 'member_role') != desiredRole) {
+        await _updateConversationMember(
+          primary.id,
+          body: {'member_role': desiredRole},
+        );
+      }
+    }
+
+    final existingUserIds = membershipsByUserId.keys.toSet();
+    for (final selectedUserId in finalSelection.difference(existingUserIds)) {
+      await _ensureMembership(
+        conversationId: conversationId,
+        userId: selectedUserId,
+        memberRole: 'participant',
+      );
+    }
+
+    invalidateBootstrapCache();
+  }
+
+  Future<ConversationModel> updateConversationAvatar({
+    required String conversationId,
+    PlatformFile? avatar,
+    bool removeAvatar = false,
+  }) async {
+    final authUser = _auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+
+    final conversation = await pb
+        .collection(AppConstants.colConversations)
+        .getOne(conversationId);
+    if (_recordText(conversation, 'type') == AppConstants.convPrivate) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Avatar hanya bisa diubah untuk chat grup.',
+        },
+      );
+    }
+
+    final currentMembership = await _loadConversationMembershipForUser(
+      conversationId: conversationId,
+      userId: authUser.id,
+    );
+    await _ensureConversationManagementAccess(
+      conversation: conversation,
+      currentMembership: currentMembership,
+    );
+
+    if (avatar != null) {
+      _validateConversationAvatar(avatar);
+    }
+    if (avatar == null && !removeAvatar) {
+      return _conversationFromRecord(
+        conversation,
+        currentUserId: authUser.id,
+        membership: currentMembership,
+        unreadCount: 0,
+        userProfiles: const {},
+      );
+    }
+
+    final body = <String, dynamic>{};
+    if (removeAvatar) {
+      body['avatar'] = [];
+    }
+    final files = <http.MultipartFile>[];
+    if (avatar != null) {
+      files.add(await _multipartFromPlatformFile('avatar', avatar));
+    }
+    final updated = await pb
+        .collection(AppConstants.colConversations)
+        .update(conversationId, body: body, files: files);
+    invalidateBootstrapCache();
+    return _conversationFromRecord(
+      updated,
+      currentUserId: authUser.id,
+      membership: currentMembership,
+      unreadCount: 0,
+      userProfiles: const {},
+    );
+  }
+
   Future<ChatMessagesData> getMessages(String conversationId) async {
     final inFlight = _inflightMessageRequests[conversationId];
     if (inFlight != null) {
@@ -309,6 +724,7 @@ class ChatService {
       auth: auth,
       context: area,
       conversation: conversation,
+      hasMembership: existingMemberships.isNotEmpty,
     );
     if (!canAccessConversation && existingMemberships.isEmpty) {
       throw ClientException(
@@ -474,6 +890,12 @@ class ChatService {
       auth: auth,
       context: area,
       conversation: conversation,
+      hasMembership:
+          await _loadConversationMembershipForUser(
+            conversationId: conversationId,
+            userId: authUser.id,
+          ) !=
+          null,
     )) {
       throw ClientException(
         statusCode: 403,
@@ -582,6 +1004,12 @@ class ChatService {
       auth: auth,
       context: area,
       conversation: conversation,
+      hasMembership:
+          await _loadConversationMembershipForUser(
+            conversationId: conversationId,
+            userId: authUser.id,
+          ) !=
+          null,
     )) {
       throw ClientException(
         statusCode: 403,
@@ -776,6 +1204,12 @@ class ChatService {
       auth: auth,
       context: area,
       conversation: conversation,
+      hasMembership:
+          await _loadConversationMembershipForUser(
+            conversationId: conversationId,
+            userId: authUser.id,
+          ) !=
+          null,
     )) {
       throw ClientException(
         statusCode: 403,
@@ -1025,9 +1459,7 @@ class ChatService {
     await _updateConversationMember(
       membership.id,
       body: {
-        'typing_at': isTyping
-            ? DateTime.now().toUtc().toIso8601String()
-            : null,
+        'typing_at': isTyping ? DateTime.now().toUtc().toIso8601String() : null,
         'last_seen_at': DateTime.now().toUtc().toIso8601String(),
       },
     );
@@ -1304,6 +1736,12 @@ class ChatService {
       auth: _auth,
       context: area,
       conversation: targetConversation,
+      hasMembership:
+          await _loadConversationMembershipForUser(
+            conversationId: targetConversationId,
+            userId: authUser.id,
+          ) !=
+          null,
     )) {
       throw ClientException(
         statusCode: 403,
@@ -1411,7 +1849,9 @@ class ChatService {
 
     items.sort((left, right) {
       final leftTime =
-          left.publishedAt ?? left.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          left.publishedAt ??
+          left.createdAt ??
+          DateTime.fromMillisecondsSinceEpoch(0);
       final rightTime =
           right.publishedAt ??
           right.createdAt ??
@@ -1578,7 +2018,8 @@ class ChatService {
       throw ClientException(
         statusCode: 403,
         response: const {
-          'message': 'Edit hanya untuk draft atau pengumuman yang baru diterbitkan.',
+          'message':
+              'Edit hanya untuk draft atau pengumuman yang baru diterbitkan.',
         },
       );
     }
@@ -1669,7 +2110,9 @@ class ChatService {
     if (!_canDeleteAnnouncement(auth: auth, context: area, record: record)) {
       throw ClientException(
         statusCode: 403,
-        response: const {'message': 'Anda tidak bisa menghapus pengumuman ini.'},
+        response: const {
+          'message': 'Anda tidak bisa menghapus pengumuman ini.',
+        },
       );
     }
 
@@ -1714,13 +2157,21 @@ class ChatService {
     final firstViewedAt = viewRecords.isEmpty
         ? null
         : viewRecords
-              .map((item) => _recordDateTime(item, 'viewed_at') ?? _recordDateTime(item, 'created'))
+              .map(
+                (item) =>
+                    _recordDateTime(item, 'viewed_at') ??
+                    _recordDateTime(item, 'created'),
+              )
               .whereType<DateTime>()
               .reduce((left, right) => left.isBefore(right) ? left : right);
     final lastViewedAt = viewRecords.isEmpty
         ? null
         : viewRecords
-              .map((item) => _recordDateTime(item, 'viewed_at') ?? _recordDateTime(item, 'created'))
+              .map(
+                (item) =>
+                    _recordDateTime(item, 'viewed_at') ??
+                    _recordDateTime(item, 'created'),
+              )
               .whereType<DateTime>()
               .reduce((left, right) => left.isAfter(right) ? left : right);
     await _syncAnnouncementViewCount(
@@ -1987,6 +2438,7 @@ class ChatService {
   Future<RecordModel?> _ensureMembership({
     required String conversationId,
     required String userId,
+    String memberRole = 'participant',
   }) async {
     if (_conversationMembersCollectionAvailable == false) {
       return null;
@@ -1996,7 +2448,15 @@ class ChatService {
       userId: userId,
     );
     if (existing.isNotEmpty) {
-      return existing.first;
+      final membership = existing.first;
+      if (memberRole == 'moderator' &&
+          _recordText(membership, 'member_role') != 'moderator') {
+        return _updateConversationMember(
+          membership.id,
+          body: {'member_role': 'moderator'},
+        );
+      }
+      return membership;
     }
 
     try {
@@ -2006,7 +2466,7 @@ class ChatService {
             body: {
               'conversation': conversationId,
               'user': userId,
-              'member_role': 'participant',
+              'member_role': memberRole,
               'last_read_at': null,
               'last_seen_at': DateTime.now().toUtc().toIso8601String(),
               'typing_at': null,
@@ -2026,6 +2486,25 @@ class ChatService {
     }
   }
 
+  Future<RecordModel?> _loadConversationMembershipForUser({
+    required String conversationId,
+    required String userId,
+  }) async {
+    final memberships = await _loadMembershipRecords(
+      conversationId: conversationId,
+      userId: userId,
+    );
+    if (memberships.isEmpty) {
+      return null;
+    }
+    for (final membership in memberships) {
+      if (_recordText(membership, 'member_role') == 'moderator') {
+        return membership;
+      }
+    }
+    return memberships.first;
+  }
+
   Future<Map<String, int>> _loadUnreadCounts({
     required Iterable<RecordModel> conversations,
     required String userId,
@@ -2034,7 +2513,8 @@ class ChatService {
     final result = <String, int>{};
     for (final conversation in conversations) {
       final membership = memberships[conversation.id];
-      if (membership == null && _conversationMembersCollectionAvailable == false) {
+      if (membership == null &&
+          _conversationMembersCollectionAvailable == false) {
         result[conversation.id] = 0;
         continue;
       }
@@ -2071,11 +2551,15 @@ class ChatService {
     required AuthState auth,
     required AreaAccessContext context,
     required RecordModel conversation,
+    bool hasMembership = false,
   }) async {
     if (auth.user == null) {
       return false;
     }
     if (auth.isSysadmin) {
+      return true;
+    }
+    if (hasMembership) {
       return true;
     }
     if (!context.hasArea) {
@@ -2198,7 +2682,8 @@ class ChatService {
     required Map<String, int> audienceCache,
   }) async {
     final audienceKey = _announcementAudienceCacheKey(record);
-    final targetAudienceCount = audienceCache[audienceKey] ??
+    final targetAudienceCount =
+        audienceCache[audienceKey] ??
         await _countAnnouncementTargetAudience(record);
     audienceCache[audienceKey] = targetAudienceCount;
     final fallbackPublishState = _announcementIsPublished(record)
@@ -2215,8 +2700,7 @@ class ChatService {
       rt: _recordInt(record, 'rt'),
       rw: _recordInt(record, 'rw'),
       authorId: _recordText(record, 'author'),
-      authorName:
-          authorNames[_recordText(record, 'author')] ?? 'Pengurus',
+      authorName: authorNames[_recordText(record, 'author')] ?? 'Pengurus',
       isPublished: _announcementIsPublished(record),
       createdAt: _recordDateTime(record, 'created'),
       updatedAt: _recordDateTime(record, 'updated'),
@@ -2244,7 +2728,11 @@ class ChatService {
       targetAudienceCount: targetAudienceCount,
       hasViewed: viewedIds.contains(record.id),
       isMine: _recordText(record, 'author') == (_auth.user?.id ?? ''),
-      canEdit: _canEditAnnouncement(auth: auth, context: context, record: record),
+      canEdit: _canEditAnnouncement(
+        auth: auth,
+        context: context,
+        record: record,
+      ),
       canDelete: _canDeleteAnnouncement(
         auth: auth,
         context: context,
@@ -2417,9 +2905,7 @@ class ChatService {
     if (!{'.jpg', '.jpeg', '.png', '.pdf'}.contains(extension)) {
       throw ClientException(
         statusCode: 400,
-        response: const {
-          'message': 'Format file harus JPG, PNG, atau PDF.',
-        },
+        response: const {'message': 'Format file harus JPG, PNG, atau PDF.'},
       );
     }
   }
@@ -2487,13 +2973,17 @@ class ChatService {
     required WorkspaceAccessProfile? profile,
     required String? orgUnitId,
   }) async {
-    if ((orgUnitId ?? '').isEmpty || profile == null || profile.member.isSysadmin) {
+    if ((orgUnitId ?? '').isEmpty ||
+        profile == null ||
+        profile.member.isSysadmin) {
       return;
     }
     if (!profile.canBroadcastUnit(orgUnitId!)) {
       throw ClientException(
         statusCode: 403,
-        response: const {'message': 'Anda tidak memiliki hak broadcast unit ini.'},
+        response: const {
+          'message': 'Anda tidak memiliki hak broadcast unit ini.',
+        },
       );
     }
   }
@@ -2537,7 +3027,9 @@ class ChatService {
   Future<Map<String, int>> _loadAnnouncementViewCounts(
     Set<String> announcementIds,
   ) async {
-    final records = await _loadAnnouncementViewRecords(announcementIds: announcementIds);
+    final records = await _loadAnnouncementViewRecords(
+      announcementIds: announcementIds,
+    );
     final counts = <String, int>{};
     for (final record in records) {
       final announcementId = _recordText(record, 'announcement');
@@ -2592,9 +3084,9 @@ class ChatService {
             .update(existing.first.id, body: {'viewed_at': nowIso});
         for (final duplicate in existing.skip(1)) {
           try {
-            await pb.collection(AppConstants.colAnnouncementViews).delete(
-              duplicate.id,
-            );
+            await pb
+                .collection(AppConstants.colAnnouncementViews)
+                .delete(duplicate.id);
           } catch (_) {}
         }
       }
@@ -2616,8 +3108,7 @@ class ChatService {
     String announcementId,
     int totalViews, {
     int? currentCount,
-  }
-  ) async {
+  }) async {
     if (currentCount != null && currentCount == totalViews) {
       return;
     }
@@ -2681,7 +3172,9 @@ class ChatService {
         scope.kabupatenCode.isNotEmpty &&
         scope.provinsiCode.isNotEmpty;
     if (hasCodes) {
-      conditions.add('no_kk.desa_code = "${_escapeFilterValue(scope.desaCode)}"');
+      conditions.add(
+        'no_kk.desa_code = "${_escapeFilterValue(scope.desaCode)}"',
+      );
       conditions.add(
         'no_kk.kecamatan_code = "${_escapeFilterValue(scope.kecamatanCode)}"',
       );
@@ -2698,11 +3191,15 @@ class ChatService {
       conditions.add(
         'no_kk.desa_kelurahan ~ "${_escapeFilterValue(scope.desaKelurahan)}"',
       );
-      conditions.add('no_kk.kecamatan ~ "${_escapeFilterValue(scope.kecamatan)}"');
+      conditions.add(
+        'no_kk.kecamatan ~ "${_escapeFilterValue(scope.kecamatan)}"',
+      );
       conditions.add(
         'no_kk.kabupaten_kota ~ "${_escapeFilterValue(scope.kabupatenKota)}"',
       );
-      conditions.add('no_kk.provinsi ~ "${_escapeFilterValue(scope.provinsi)}"');
+      conditions.add(
+        'no_kk.provinsi ~ "${_escapeFilterValue(scope.provinsi)}"',
+      );
     }
 
     return conditions.join(' && ');
@@ -2728,11 +3225,453 @@ class ChatService {
       case AppConstants.convScopeRw:
         return _matchesRwScope(context, target, auth);
       case AppConstants.convScopeDkm:
+      case AppConstants.convScopeKarangTaruna:
       case AppConstants.convScopePosyandu:
       case AppConstants.convScopeCustom:
-        return _hasActiveOrgMembership(orgUnitId);
+        return false;
       default:
         return false;
+    }
+  }
+
+  Future<void> _ensureConversationManagementAccess({
+    required RecordModel conversation,
+    RecordModel? currentMembership,
+  }) async {
+    final auth = _auth;
+    final authUser = auth.user;
+    if (authUser == null) {
+      throw ClientException(
+        statusCode: 401,
+        response: const {'message': 'Sesi telah berakhir'},
+      );
+    }
+    if (auth.isSysadmin) {
+      return;
+    }
+
+    if (_recordText(currentMembership ?? conversation, 'member_role') ==
+        'moderator') {
+      return;
+    }
+
+    final orgUnitId = _recordText(conversation, 'org_unit');
+    final profile = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getCurrentAccessProfile();
+    if (orgUnitId.isNotEmpty) {
+      if (profile != null &&
+          (profile.canManageMembership ||
+              profile.canBroadcastUnit(orgUnitId))) {
+        return;
+      }
+      throw ClientException(
+        statusCode: 403,
+        response: const {
+          'message':
+              'Hanya pengelola grup atau pengurus berwenang yang bisa mengubah chat ini.',
+        },
+      );
+    }
+
+    final type = _recordText(conversation, 'type');
+    if ((type == AppConstants.convGroupRt ||
+            type == AppConstants.convGroupRw) &&
+        auth.isOperator) {
+      return;
+    }
+
+    throw ClientException(
+      statusCode: 403,
+      response: const {
+        'message':
+            'Anda tidak memiliki akses untuk mengubah pengaturan chat ini.',
+      },
+    );
+  }
+
+  List<ChatConversationMemberOption> _buildOrgUnitConversationMemberOptions({
+    required List<RecordModel> conversationMemberships,
+    required List<OrgMembershipModel> orgMemberships,
+    required Map<String, _ConversationJurisdictionCandidate>
+    jurisdictionCandidates,
+    required Map<String, _ChatUserProfile> userProfiles,
+    required String currentUserId,
+  }) {
+    final orgLabelsByUserId = <String, Set<String>>{};
+    for (final membership in orgMemberships.where((item) => item.isActive)) {
+      final userId = membership.userId.trim();
+      if (userId.isEmpty) {
+        continue;
+      }
+      final label = (membership.jabatan?.label ?? 'Pengurus').trim();
+      final labels = orgLabelsByUserId.putIfAbsent(userId, () => <String>{});
+      if (label.isNotEmpty) {
+        labels.add(label);
+      }
+    }
+
+    final conversationMembershipByUserId = <String, RecordModel>{};
+    for (final membership in conversationMemberships) {
+      final userId = _recordText(membership, 'user');
+      if (userId.isEmpty) {
+        continue;
+      }
+      final existing = conversationMembershipByUserId[userId];
+      if (existing == null ||
+          (_recordText(membership, 'member_role') == 'moderator' &&
+              _recordText(existing, 'member_role') != 'moderator')) {
+        conversationMembershipByUserId[userId] = membership;
+      }
+    }
+
+    final userIds = <String>{
+      ...orgLabelsByUserId.keys,
+      ...jurisdictionCandidates.keys,
+      ...conversationMembershipByUserId.keys,
+    };
+    final options = <ChatConversationMemberOption>[];
+    for (final userId in userIds) {
+      final membership = conversationMembershipByUserId[userId];
+      final memberRole = membership == null
+          ? ''
+          : _recordText(membership, 'member_role');
+      final isSelected = membership != null;
+      final candidate = jurisdictionCandidates[userId];
+      final isUnitMember = orgLabelsByUserId.containsKey(userId);
+      final isEligible = isUnitMember || candidate != null;
+      final labels = (orgLabelsByUserId[userId] ?? const <String>{}).toList()
+        ..sort();
+      final subtitleParts = <String>[];
+      if (labels.isNotEmpty) {
+        subtitleParts.add(labels.join(', '));
+        subtitleParts.add('Pengurus unit');
+      } else if (candidate != null) {
+        subtitleParts.add(candidate.jurisdictionLabel);
+      }
+      if (!isEligible && isSelected) {
+        subtitleParts.add('Di luar yuridiksi saat ini');
+      }
+      if (memberRole == 'moderator') {
+        subtitleParts.add('Moderator');
+      }
+      if (subtitleParts.isEmpty) {
+        subtitleParts.add(
+          isEligible ? 'Sesuai area yuridiksi grup' : 'Anggota chat lama',
+        );
+      }
+      options.add(
+        ChatConversationMemberOption(
+          userId: userId,
+          displayName:
+              userProfiles[userId]?.displayName ??
+              candidate?.displayName ??
+              'Pengguna',
+          subtitle: subtitleParts.join(' | '),
+          avatarUrl: userProfiles[userId]?.avatarUrl,
+          memberRole: memberRole,
+          isSelected: isSelected,
+          isEligible: isEligible,
+          isLocked: userId == currentUserId && memberRole == 'moderator',
+        ),
+      );
+    }
+
+    options.sort((left, right) {
+      if (left.isSelected != right.isSelected) {
+        return left.isSelected ? -1 : 1;
+      }
+      if (left.isLocked != right.isLocked) {
+        return left.isLocked ? -1 : 1;
+      }
+      final leftIsUnitMember = orgLabelsByUserId.containsKey(left.userId);
+      final rightIsUnitMember = orgLabelsByUserId.containsKey(right.userId);
+      if (leftIsUnitMember != rightIsUnitMember) {
+        return leftIsUnitMember ? -1 : 1;
+      }
+      if (left.isEligible != right.isEligible) {
+        return left.isEligible ? -1 : 1;
+      }
+      return left.displayName.toLowerCase().compareTo(
+        right.displayName.toLowerCase(),
+      );
+    });
+    return options;
+  }
+
+  Future<Map<String, _ConversationJurisdictionCandidate>>
+  _loadConversationJurisdictionCandidates({
+    required RecordModel conversation,
+    required WorkspaceAccessProfile profile,
+  }) async {
+    final workspaceId = _recordText(conversation, 'workspace').isNotEmpty
+        ? _recordText(conversation, 'workspace')
+        : profile.workspace.id;
+    final targetRw = _recordInt(conversation, 'rw');
+    final targetRt = _recordInt(conversation, 'rt');
+    final candidates = <String, _ConversationJurisdictionCandidate>{};
+
+    final workspaceMembers = await _ref
+        .read(workspaceAccessServiceProvider)
+        .getWorkspaceMembers(workspaceId);
+    for (final member in workspaceMembers) {
+      if (!_workspaceMemberMatchesJurisdiction(
+        member: member,
+        targetRt: targetRt,
+        targetRw: targetRw,
+        workspaceRw: profile.workspace.rw,
+      )) {
+        continue;
+      }
+      final userId = member.userId.trim();
+      if (userId.isEmpty) {
+        continue;
+      }
+      final effectiveRw = (member.scopeRw ?? 0) > 0
+          ? member.scopeRw!
+          : profile.workspace.rw;
+      candidates[userId] = _ConversationJurisdictionCandidate(
+        userId: userId,
+        displayName: member.displayName.trim(),
+        scopeRt: member.scopeRt,
+        scopeRw: effectiveRw,
+        jurisdictionLabel: _jurisdictionLabel(
+          rw: effectiveRw,
+          rt: member.scopeRt ?? 0,
+        ),
+      );
+    }
+
+    final wargaFilter = _buildConversationJurisdictionWargaFilter(
+      conversation: conversation,
+      workspace: profile.workspace,
+    );
+    if (wargaFilter.isEmpty) {
+      return candidates;
+    }
+
+    try {
+      final wargaRecords = await pb
+          .collection(AppConstants.colWarga)
+          .getFullList(filter: wargaFilter, sort: 'nama_lengkap,created');
+      for (final warga in wargaRecords) {
+        final userId = _recordText(warga, 'user_id');
+        if (userId.isEmpty) {
+          continue;
+        }
+        final existing = candidates[userId];
+        final wargaRw = _recordIntOrNullValue(warga, 'rw') ?? targetRw;
+        final wargaRt = _recordIntOrNullValue(warga, 'rt');
+        final email = _recordText(warga, 'email');
+        candidates[userId] = _ConversationJurisdictionCandidate(
+          userId: userId,
+          displayName: _firstNonEmptyString([
+            existing?.displayName,
+            _recordText(warga, 'nama_lengkap'),
+            _emailLocalPart(email),
+            userId,
+          ]),
+          scopeRt: existing?.scopeRt ?? wargaRt,
+          scopeRw: existing?.scopeRw ?? wargaRw,
+          jurisdictionLabel:
+              existing?.jurisdictionLabel ??
+              _jurisdictionLabel(rw: wargaRw, rt: wargaRt ?? 0),
+        );
+      }
+    } catch (_) {}
+
+    return candidates;
+  }
+
+  bool _workspaceMemberMatchesJurisdiction({
+    required WorkspaceMemberModel member,
+    required int targetRt,
+    required int targetRw,
+    required int workspaceRw,
+  }) {
+    final effectiveRw = (member.scopeRw ?? 0) > 0
+        ? member.scopeRw!
+        : workspaceRw;
+    if (targetRw > 0 && effectiveRw > 0 && effectiveRw != targetRw) {
+      return false;
+    }
+    if (targetRt <= 0) {
+      return true;
+    }
+    final effectiveRt = member.scopeRt ?? 0;
+    if (effectiveRt <= 0) {
+      return true;
+    }
+    return effectiveRt == targetRt;
+  }
+
+  String _buildConversationJurisdictionWargaFilter({
+    required RecordModel conversation,
+    required WorkspaceModel workspace,
+  }) {
+    final filters = <String>[];
+    final targetRw = _recordInt(conversation, 'rw');
+    final targetRt = _recordInt(conversation, 'rt');
+    if (targetRw > 0) {
+      filters.add('rw = $targetRw');
+    }
+    if (targetRt > 0) {
+      filters.add('rt = $targetRt');
+    }
+
+    final regionScope = _ConversationScope.fromRecord(conversation);
+    final desaCode = regionScope.desaCode.isNotEmpty
+        ? regionScope.desaCode
+        : (workspace.desaCode ?? '').trim();
+    final kecamatanCode = regionScope.kecamatanCode.isNotEmpty
+        ? regionScope.kecamatanCode
+        : (workspace.kecamatanCode ?? '').trim();
+    final kabupatenCode = regionScope.kabupatenCode.isNotEmpty
+        ? regionScope.kabupatenCode
+        : (workspace.kabupatenCode ?? '').trim();
+    final provinsiCode = regionScope.provinsiCode.isNotEmpty
+        ? regionScope.provinsiCode
+        : (workspace.provinsiCode ?? '').trim();
+    final desaKelurahan = regionScope.desaKelurahan.isNotEmpty
+        ? regionScope.desaKelurahan
+        : (workspace.desaKelurahan ?? '').trim();
+    final kecamatan = regionScope.kecamatan.isNotEmpty
+        ? regionScope.kecamatan
+        : (workspace.kecamatan ?? '').trim();
+    final kabupatenKota = regionScope.kabupatenKota.isNotEmpty
+        ? regionScope.kabupatenKota
+        : (workspace.kabupatenKota ?? '').trim();
+    final provinsi = regionScope.provinsi.isNotEmpty
+        ? regionScope.provinsi
+        : (workspace.provinsi ?? '').trim();
+
+    if (desaCode.isNotEmpty &&
+        kecamatanCode.isNotEmpty &&
+        kabupatenCode.isNotEmpty &&
+        provinsiCode.isNotEmpty) {
+      filters.add(
+        [
+          'no_kk.desa_code = "${_escapeFilterValue(desaCode)}"',
+          'no_kk.kecamatan_code = "${_escapeFilterValue(kecamatanCode)}"',
+          'no_kk.kabupaten_code = "${_escapeFilterValue(kabupatenCode)}"',
+          'no_kk.provinsi_code = "${_escapeFilterValue(provinsiCode)}"',
+        ].join(' && '),
+      );
+    } else if (desaKelurahan.isNotEmpty &&
+        kecamatan.isNotEmpty &&
+        kabupatenKota.isNotEmpty &&
+        provinsi.isNotEmpty) {
+      filters.add(
+        [
+          'no_kk.desa_kelurahan ~ "${_escapeFilterValue(desaKelurahan)}"',
+          'no_kk.kecamatan ~ "${_escapeFilterValue(kecamatan)}"',
+          'no_kk.kabupaten_kota ~ "${_escapeFilterValue(kabupatenKota)}"',
+          'no_kk.provinsi ~ "${_escapeFilterValue(provinsi)}"',
+        ].join(' && '),
+      );
+    }
+
+    return filters.join(' && ');
+  }
+
+  String _jurisdictionLabel({required int rw, required int rt}) {
+    if (rt > 0 && rw > 0) {
+      return 'Yuridiksi RT ${rt.toString().padLeft(2, '0')} / RW ${rw.toString().padLeft(2, '0')}';
+    }
+    if (rw > 0) {
+      return 'Yuridiksi RW ${rw.toString().padLeft(2, '0')}';
+    }
+    return 'Yuridiksi workspace';
+  }
+
+  String _firstNonEmptyString(List<String?> values) {
+    for (final value in values) {
+      final normalized = (value ?? '').trim();
+      if (normalized.isNotEmpty) {
+        return normalized;
+      }
+    }
+    return '';
+  }
+
+  String _emailLocalPart(String email) {
+    final normalized = email.trim();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    return normalized.split('@').first.trim();
+  }
+
+  int? _recordIntOrNullValue(RecordModel record, String field) {
+    final raw = record.data[field];
+    if (raw is int) {
+      return raw;
+    }
+    return int.tryParse(_recordText(record, field));
+  }
+
+  _ChatScope _scopeForOrgUnit({
+    required WorkspaceAccessProfile profile,
+    required OrgUnitModel unit,
+    required RecordModel user,
+  }) {
+    final scopeRw = (unit.scopeRw ?? 0) > 0
+        ? unit.scopeRw!
+        : profile.workspace.rw;
+    return _ChatScope(
+      userId: user.id,
+      displayName: _userDisplayName(user),
+      rt: unit.scopeRt ?? 0,
+      rw: scopeRw,
+      desaCode: profile.workspace.desaCode ?? '',
+      kecamatanCode: profile.workspace.kecamatanCode ?? '',
+      kabupatenCode: profile.workspace.kabupatenCode ?? '',
+      provinsiCode: profile.workspace.provinsiCode ?? '',
+      desaKelurahan: profile.workspace.desaKelurahan ?? '',
+      kecamatan: profile.workspace.kecamatan ?? '',
+      kabupatenKota: profile.workspace.kabupatenKota ?? '',
+      provinsi: profile.workspace.provinsi ?? '',
+    );
+  }
+
+  String _orgUnitConversationKey(String unitId) => 'org_unit:${unitId.trim()}';
+
+  String _orgUnitConversationType(String unitType) {
+    final normalized = unitType.trim().toLowerCase();
+    return normalized == AppConstants.unitTypeRt
+        ? AppConstants.convGroupRt
+        : AppConstants.convGroupRw;
+  }
+
+  String _orgUnitConversationScopeType(String unitType) {
+    final normalized = unitType.trim().toLowerCase();
+    switch (normalized) {
+      case AppConstants.unitTypeDkm:
+        return AppConstants.convScopeDkm;
+      case AppConstants.unitTypeKarangTaruna:
+        return AppConstants.convScopeKarangTaruna;
+      case AppConstants.unitTypePosyandu:
+        return AppConstants.convScopePosyandu;
+      default:
+        return AppConstants.convScopeCustom;
+    }
+  }
+
+  void _validateConversationAvatar(PlatformFile file) {
+    if (file.size > 5 * 1024 * 1024) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {'message': 'Avatar grup maksimal 5 MB.'},
+      );
+    }
+    final extension = '.${(file.extension ?? '').trim().toLowerCase()}';
+    if (!{'.jpg', '.jpeg', '.png', '.webp'}.contains(extension)) {
+      throw ClientException(
+        statusCode: 400,
+        response: const {
+          'message': 'Format avatar grup harus JPG, PNG, atau WEBP.',
+        },
+      );
     }
   }
 
@@ -3020,6 +3959,78 @@ class ChatService {
           conversationId: conversationId,
           userId: userId,
         );
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<RecordModel>> _loadUserConversationRecords({
+    required String userId,
+  }) async {
+    final normalizedUserId = userId.trim();
+    if (normalizedUserId.isEmpty ||
+        _conversationMembersCollectionAvailable == false) {
+      return const <RecordModel>[];
+    }
+    try {
+      final membershipRecords = await pb
+          .collection(AppConstants.colConversationMembers)
+          .getFullList(
+            sort: '-updated,-created',
+            filter: 'user = "${_escapeFilterValue(normalizedUserId)}"',
+          );
+      _conversationMembersCollectionAvailable = true;
+      final conversationIds = membershipRecords
+          .map((item) => _recordText(item, 'conversation'))
+          .where((item) => item.isNotEmpty)
+          .toSet()
+          .toList(growable: false);
+      if (conversationIds.isEmpty) {
+        return const <RecordModel>[];
+      }
+
+      final records = <RecordModel>[];
+      for (var start = 0; start < conversationIds.length; start += 15) {
+        final chunk = conversationIds
+            .skip(start)
+            .take(15)
+            .toList(growable: false);
+        if (chunk.isEmpty) {
+          continue;
+        }
+        final filter = chunk
+            .map((id) => 'id = "${_escapeFilterValue(id)}"')
+            .join(' || ');
+        records.addAll(
+          await pb
+              .collection(AppConstants.colConversations)
+              .getFullList(filter: filter),
+        );
+      }
+      return records;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return const <RecordModel>[];
+      }
+      if (error.statusCode == 403) {
+        return const <RecordModel>[];
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteConversationMember(String memberId) async {
+    if (_conversationMembersCollectionAvailable == false) {
+      return;
+    }
+    try {
+      await pb.collection(AppConstants.colConversationMembers).delete(memberId);
+      _conversationMembersCollectionAvailable = true;
+    } on ClientException catch (error) {
+      if (_isMissingCollectionContext(error)) {
+        _conversationMembersCollectionAvailable = false;
+        return;
       }
       rethrow;
     }
@@ -3447,22 +4458,6 @@ class ChatService {
     return pollsById;
   }
 
-  Future<bool> _hasActiveOrgMembership(String orgUnitId) async {
-    if (orgUnitId.isEmpty) {
-      return false;
-    }
-    final profile = await _ref
-        .read(workspaceAccessServiceProvider)
-        .getCurrentAccessProfile();
-    if (profile == null) {
-      return false;
-    }
-    if (profile.member.isSysadmin) {
-      return true;
-    }
-    return profile.hasUnitMembership(orgUnitId);
-  }
-
   Future<String> _workspaceMemberId() async {
     final profile = await _ref
         .read(workspaceAccessServiceProvider)
@@ -3555,6 +4550,12 @@ class ChatService {
       auth: auth,
       context: area,
       conversation: conversation,
+      hasMembership:
+          await _loadConversationMembershipForUser(
+            conversationId: conversationId,
+            userId: authUser.id,
+          ) !=
+          null,
     )) {
       throw ClientException(
         statusCode: 403,
@@ -3665,6 +4666,7 @@ class ChatService {
         : rawName;
     final rt = _recordInt(record, 'rt');
     final rw = _recordInt(record, 'rw');
+    final orgUnitId = _recordText(record, 'org_unit');
     final participantRole = ownerProfile == null
         ? null
         : AppConstants.roleFromSystemRolePlan(
@@ -3679,6 +4681,8 @@ class ChatService {
       name: title,
       subtitle: type == AppConstants.convPrivate
           ? 'RT ${rt.toString().padLeft(2, '0')} / RW ${rw.toString().padLeft(2, '0')}'
+          : orgUnitId.isNotEmpty
+          ? 'Koordinasi internal pengurus unit organisasi.'
           : type == AppConstants.convGroupRt
           ? 'Forum operasional warga dan pengurus di RT ini.'
           : 'Koordinasi lintas RT untuk pengurus RW.',
@@ -3700,9 +4704,7 @@ class ChatService {
       workspaceId: _recordText(record, 'workspace').isEmpty
           ? null
           : _recordText(record, 'workspace'),
-      orgUnitId: _recordText(record, 'org_unit').isEmpty
-          ? null
-          : _recordText(record, 'org_unit'),
+      orgUnitId: orgUnitId.isEmpty ? null : orgUnitId,
       scopeType: _recordText(record, 'scope_type').isEmpty
           ? null
           : _recordText(record, 'scope_type'),
@@ -3711,8 +4713,12 @@ class ChatService {
           : _recordText(record, 'required_plan_code'),
       avatarUrl: type == AppConstants.convPrivate
           ? ownerProfile?.avatarUrl
-          : null,
-      badgeLabel: type == AppConstants.convPrivate && participantRole != null
+          : _fileUrl(record, 'avatar'),
+      badgeLabel:
+          type == AppConstants.convPrivate &&
+              participantRole != null &&
+              AppConstants.normalizeRole(participantRole) !=
+                  AppConstants.roleWarga
           ? AppConstants.roleLabel(participantRole)
           : null,
       participantPlanCode: type == AppConstants.convPrivate
@@ -3921,6 +4927,44 @@ class ChatService {
 }
 
 final chatServiceProvider = Provider<ChatService>((ref) => ChatService(ref));
+
+class ChatConversationMemberOption {
+  const ChatConversationMemberOption({
+    required this.userId,
+    required this.displayName,
+    required this.subtitle,
+    this.avatarUrl,
+    this.memberRole = '',
+    this.isSelected = false,
+    this.isEligible = false,
+    this.isLocked = false,
+  });
+
+  final String userId;
+  final String displayName;
+  final String subtitle;
+  final String? avatarUrl;
+  final String memberRole;
+  final bool isSelected;
+  final bool isEligible;
+  final bool isLocked;
+}
+
+class _ConversationJurisdictionCandidate {
+  const _ConversationJurisdictionCandidate({
+    required this.userId,
+    required this.displayName,
+    required this.jurisdictionLabel,
+    this.scopeRt,
+    this.scopeRw,
+  });
+
+  final String userId;
+  final String displayName;
+  final String jurisdictionLabel;
+  final int? scopeRt;
+  final int? scopeRw;
+}
 
 class _ChatUserProfile {
   const _ChatUserProfile({
