@@ -46,8 +46,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     final heroGradient = AppTheme.headerGradientFor(context);
     final subtitleColor = Colors.white.withValues(alpha: 0.76);
+    
+    // Warna untuk form container di dark mode
+    final formBgColor = isDark 
+        ? AppTheme.cardColorFor(context).withValues(alpha: 0.95)
+        : Colors.white.withValues(alpha: 0.92);
+    final formBorderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.white.withValues(alpha: 0.25);
+    
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(gradient: heroGradient),
@@ -58,7 +68,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               right: -18,
               child: _AuthGlow(
                 size: 156,
-                color: AppTheme.accentColor.withValues(alpha: 0.16),
+                color: AppTheme.accentColor.withValues(alpha: isDark ? 0.10 : 0.16),
               ),
             ),
             Positioned(
@@ -66,7 +76,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               left: -54,
               child: _AuthGlow(
                 size: 148,
-                color: Colors.white.withValues(alpha: 0.10),
+                color: Colors.white.withValues(alpha: isDark ? 0.05 : 0.10),
               ),
             ),
             Positioned(
@@ -74,7 +84,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               right: 42,
               child: _AuthGlow(
                 size: 154,
-                color: AppTheme.primaryLight.withValues(alpha: 0.16),
+                color: AppTheme.primaryLight.withValues(alpha: isDark ? 0.10 : 0.16),
               ),
             ),
             SafeArea(
@@ -119,11 +129,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 28),
-                        AppTheme.glassContainer(
-                          opacity: 0.85,
-                          blur: 16,
-                          borderRadius: AppTheme.radiusXLarge,
+                        // Form container dengan dark mode support
+                        Container(
                           padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: formBgColor,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+                            border: Border.all(color: formBorderColor),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+                                blurRadius: 24,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
                           child: Form(
                             key: _formKey,
                             child: Column(
@@ -146,18 +166,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                                 const SizedBox(height: 24),
 
+                                // Email field dengan styling yang lebih baik
                                 TextFormField(
                                   controller: _emailController,
                                   keyboardType: TextInputType.emailAddress,
                                   autofillHints: const [AutofillHints.email],
+                                  style: TextStyle(
+                                    color: AppTheme.primaryTextFor(context),
+                                  ),
                                   decoration: InputDecoration(
                                     labelText: 'Email',
-                                    prefixIcon: const Icon(
-                                      Icons.email_outlined,
+                                    labelStyle: TextStyle(
+                                      color: AppTheme.secondaryTextFor(context),
                                     ),
+                                    prefixIcon: Icon(
+                                      Icons.email_outlined,
+                                      color: AppTheme.secondaryTextFor(context),
+                                    ),
+                                    filled: true,
+                                    fillColor: isDark 
+                                        ? Colors.white.withValues(alpha: 0.05)
+                                        : Colors.grey.withValues(alpha: 0.05),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppTheme.radiusMedium,
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: BorderSide(
+                                        color: AppTheme.cardBorderColorFor(context),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: BorderSide(
+                                        color: AppTheme.cardBorderColorFor(context),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: const BorderSide(
+                                        color: AppTheme.primaryColor,
+                                        width: 2,
                                       ),
                                     ),
                                   ),
@@ -173,16 +219,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                                 const SizedBox(height: 16),
 
+                                // Password field dengan styling yang lebih baik
                                 TextFormField(
                                   controller: _passwordController,
                                   obscureText: _obscurePassword,
                                   autofillHints: const [AutofillHints.password],
+                                  style: TextStyle(
+                                    color: AppTheme.primaryTextFor(context),
+                                  ),
                                   decoration: InputDecoration(
                                     labelText: 'Password',
-                                    prefixIcon: const Icon(Icons.lock_outlined),
+                                    labelStyle: TextStyle(
+                                      color: AppTheme.secondaryTextFor(context),
+                                    ),
+                                    prefixIcon: Icon(
+                                      Icons.lock_outlined,
+                                      color: AppTheme.secondaryTextFor(context),
+                                    ),
+                                    filled: true,
+                                    fillColor: isDark 
+                                        ? Colors.white.withValues(alpha: 0.05)
+                                        : Colors.grey.withValues(alpha: 0.05),
                                     border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                        AppTheme.radiusMedium,
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: BorderSide(
+                                        color: AppTheme.cardBorderColorFor(context),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: BorderSide(
+                                        color: AppTheme.cardBorderColorFor(context),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      borderSide: const BorderSide(
+                                        color: AppTheme.primaryColor,
+                                        width: 2,
                                       ),
                                     ),
                                     suffixIcon: IconButton(
@@ -190,12 +264,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                         _obscurePassword
                                             ? Icons.visibility_outlined
                                             : Icons.visibility_off_outlined,
+                                        color: AppTheme.secondaryTextFor(context),
                                       ),
                                       onPressed: () {
-                                        setState(
-                                          () => _obscurePassword =
-                                              !_obscurePassword,
-                                        );
+                                        setState(() => _obscurePassword = !_obscurePassword);
                                       },
                                     ),
                                   ),
@@ -215,6 +287,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   height: 52,
                                   child: FilledButton(
                                     onPressed: _isLoading ? null : _login,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: AppTheme.primaryColor,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                      ),
+                                    ),
                                     child: _isLoading
                                         ? const SizedBox(
                                             height: 20,
@@ -228,6 +307,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                             'Masuk',
                                             style: AppTheme.buttonText.copyWith(
                                               fontSize: 15,
+                                              color: Colors.white,
                                             ),
                                           ),
                                   ),
@@ -240,18 +320,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     Text(
                                       'Belum punya akun? ',
                                       style: AppTheme.bodySmall.copyWith(
-                                        color: AppTheme.secondaryTextFor(
-                                          context,
-                                        ),
+                                        color: AppTheme.secondaryTextFor(context),
                                       ),
                                     ),
                                     TextButton(
-                                      onPressed: () =>
-                                          context.go(Routes.register),
+                                      onPressed: () => context.go(Routes.register),
                                       child: Text(
                                         'Daftar',
                                         style: AppTheme.bodySmall.copyWith(
                                           fontWeight: FontWeight.w600,
+                                          color: AppTheme.primaryColor,
                                         ),
                                       ),
                                     ),

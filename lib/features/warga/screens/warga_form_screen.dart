@@ -16,6 +16,8 @@ import '../../../core/services/pocketbase_service.dart';
 import '../../../core/utils/error_classifier.dart';
 import '../../../core/utils/formatters.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../../shared/widgets/app_feedback.dart';
+import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 
 class WargaFormScreen extends ConsumerStatefulWidget {
@@ -210,7 +212,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     if (file.bytes == null || file.bytes!.isEmpty) {
-      ErrorClassifier.showErrorSnackBar(context, 'Gagal membaca file gambar.');
+      AppToast.error(context, 'Gagal membaca file gambar.');
       return;
     }
     setState(() {
@@ -272,12 +274,12 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      AppToast.warning(context, 'Periksa kembali data yang diisi.');
+      return;
+    }
     if (_noKkCtrl.text.trim().isEmpty) {
-      ErrorClassifier.showErrorSnackBar(
-        context,
-        'Pilih KK dulu sebelum menyimpan data warga.',
-      );
+      AppToast.warning(context, 'Pilih KK dulu sebelum menyimpan.');
       return;
     }
 
@@ -369,7 +371,7 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
       );
 
       if (mounted) {
-        ErrorClassifier.showSuccessSnackBar(
+        AppToast.success(
           context,
           avatarSyncMessage ??
               (_isEdit
@@ -383,7 +385,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
         }
       }
     } catch (e) {
-      if (mounted) ErrorClassifier.showErrorSnackBar(context, e);
+      if (mounted) {
+        AppToast.error(context, ErrorClassifier.classify(e).message);
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -413,7 +417,9 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
       appBar: AppBar(title: Text(_isEdit ? 'Edit Warga' : 'Tambah Warga')),
       body: AppPageBackground(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        child: Theme(
+        child: _isEdit && _wargaRecord == null && _isLoading
+            ? const _WargaFormSkeleton()
+            : Theme(
           data: formTheme,
           child: SingleChildScrollView(
             child: Form(
@@ -693,7 +699,11 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
                                 : Icons.person_add_alt_1_rounded,
                           ),
                     label: Text(
-                      _isEdit ? 'Simpan Perubahan Warga' : 'Tambah Warga',
+                      _isLoading
+                          ? 'Menyimpan...'
+                          : _isEdit
+                              ? 'Simpan Perubahan'
+                              : 'Tambah Warga',
                     ),
                   ),
                 ],
@@ -1023,5 +1033,121 @@ class _WargaFormScreenState extends ConsumerState<WargaFormScreen> {
   String? _avatarUrl() {
     if (_userRecord == null || (_existingAvatar ?? '').isEmpty) return null;
     return getFileUrl(_userRecord!, _existingAvatar!);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SKELETON LOADER — untuk mode edit saat loading data
+// ═══════════════════════════════════════════════════════════════════
+
+class _WargaFormSkeleton extends StatelessWidget {
+  const _WargaFormSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Hero section skeleton
+          const AppSkeleton(height: 110, borderRadius: 16),
+          const SizedBox(height: 16),
+          // Identitas section skeleton
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    AppSkeleton(width: 34, height: 34, borderRadius: 12),
+                    SizedBox(width: 10),
+                    AppSkeleton(width: 100, height: 18),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Field rows
+                ...List.generate(
+                  4,
+                  (_) => Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: AppSkeleton(
+                      height: 50,
+                      borderRadius: AppTheme.radiusMedium,
+                    ),
+                  ),
+                ),
+                // Two-column fields
+                Row(
+                  children: const [
+                    Expanded(
+                      child: AppSkeleton(height: 50, borderRadius: 12),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: AppSkeleton(height: 50, borderRadius: 12),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Alamat section skeleton
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    AppSkeleton(width: 34, height: 34, borderRadius: 12),
+                    SizedBox(width: 10),
+                    AppSkeleton(width: 120, height: 18),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                ...List.generate(
+                  3,
+                  (_) => const Padding(
+                    padding: EdgeInsets.only(bottom: 14),
+                    child: AppSkeleton(height: 50, borderRadius: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Dokumen section skeleton
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    AppSkeleton(width: 34, height: 34, borderRadius: 12),
+                    SizedBox(width: 10),
+                    AppSkeleton(width: 110, height: 18),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: const [
+                    Expanded(
+                      child: AppSkeleton(height: 140, borderRadius: 16),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: AppSkeleton(height: 140, borderRadius: 16),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          // Save button skeleton
+          const AppSkeleton(height: 48, borderRadius: 12),
+        ],
+      ),
+    );
   }
 }

@@ -10,6 +10,7 @@ import '../features/dashboard/screens/dashboard_screen.dart';
 import '../features/warga/screens/warga_list_screen.dart';
 import '../features/warga/screens/warga_form_screen.dart';
 import '../features/warga/screens/warga_detail_screen.dart';
+import '../features/warga/screens/warga_laporan_screen.dart';
 import '../features/kartu_keluarga/screens/kk_list_screen.dart';
 import '../features/kartu_keluarga/screens/kk_form_screen.dart';
 import '../features/kartu_keluarga/screens/kk_detail_screen.dart';
@@ -53,6 +54,7 @@ class Routes {
   static const String warga = '/warga';
   static const String wargaForm = '/warga/form';
   static const String wargaDetail = '/warga/:id';
+  static const String wargaLaporan = '/warga/laporan';
   static const String kartuKeluarga = '/kartu-keluarga';
   static const String kkForm = '/kartu-keluarga/form';
   static const String kkDetail = '/kartu-keluarga/:id';
@@ -188,6 +190,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           final noKk = state.uri.queryParameters['noKk'];
           return WargaFormScreen(wargaId: wargaId, initialNoKk: noKk);
         },
+      ),
+      // Laporan harus sebelum wargaDetail karena :id bisa match "laporan"
+      GoRoute(
+        path: Routes.wargaLaporan,
+        builder: (context, state) => const WargaLaporanScreen(),
       ),
       GoRoute(
         path: Routes.wargaDetail,

@@ -410,6 +410,7 @@ class AppTheme {
   static const Color toneSlate = AppColors.textSecondary;
   static const Color tonePink = AppColors.iconPengumuman;
   static const Color toneGold = AppColors.iconIuran;
+  static const Color toneSky = Color(0xFF0EA5E9); // sky-500
 
   static const TextStyle heading1 = AppTypography.heading1;
   static const TextStyle heading2 = AppTypography.heading2;

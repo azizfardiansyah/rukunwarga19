@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,6 +14,7 @@ import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
 import '../../../shared/widgets/app_badge.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 import '../../../shared/widgets/floating_action_pill.dart';
@@ -340,6 +342,9 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
         : Formatters.formatNoKk(kk.noKk);
     // Find kepala keluarga name from members
     final kepalaName = _findKepalaName();
+    final isDark = AppTheme.isDark(context);
+    final primaryText = AppTheme.primaryTextFor(context);
+    final secondaryText = AppTheme.secondaryTextFor(context);
 
     return Container(
       decoration: AppTheme.cardDecorationFor(context),
@@ -369,22 +374,30 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
                     ),
                   ),
                   const SizedBox(width: 12),
-                  // KK number + kepala keluarga
+                  // Kepala keluarga (header) + KK number (sub)
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          kkLabel,
+                          kepalaName,
                           style: AppTheme.bodyMedium.copyWith(
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.2,
+                            color: primaryText,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          kepalaName,
-                          style: AppTheme.bodySmall,
+                          kkLabel,
+                          style: AppTheme.caption.copyWith(
+                            color: isDark
+                                ? AppTheme.darkTextSecondary
+                                : secondaryText,
+                            fontWeight: FontWeight.w500,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -399,13 +412,17 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryColor.withValues(alpha: 0.07),
+                      color: isDark
+                          ? AppTheme.primaryColor.withValues(alpha: 0.15)
+                          : AppTheme.primaryColor.withValues(alpha: 0.07),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       '${widget.group.members.length}',
                       style: AppTheme.caption.copyWith(
-                        color: AppTheme.primaryColor,
+                        color: isDark
+                            ? AppTheme.primaryLight
+                            : AppTheme.primaryColor,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -414,10 +431,12 @@ class _WargaGroupTileState extends State<_WargaGroupTile>
                   AnimatedRotation(
                     turns: _expanded ? 0.5 : 0,
                     duration: const Duration(milliseconds: 200),
-                    child: const Icon(
+                    child: Icon(
                       Icons.keyboard_arrow_down_rounded,
                       size: 20,
-                      color: AppTheme.textTertiary,
+                      color: isDark
+                          ? AppTheme.darkTextTertiary
+                          : AppTheme.textTertiary,
                     ),
                   ),
                 ],
@@ -547,12 +566,23 @@ class _CompactWargaRow extends StatelessWidget {
   final VoidCallback onTap;
   final bool isKepala;
 
+  void _onLongPress(BuildContext context) {
+    HapticFeedback.mediumImpact();
+    Clipboard.setData(ClipboardData(text: warga.nik));
+    AppToast.success(context, 'NIK ${warga.namaLengkap} disalin');
+  }
+
   @override
   Widget build(BuildContext context) {
     final tertiaryColor = AppTheme.tertiaryTextFor(context);
     final primaryText = AppTheme.primaryTextFor(context);
+    final isDark = AppTheme.isDark(context);
     return InkWell(
-      onTap: onTap,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      onLongPress: () => _onLongPress(context),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
@@ -564,8 +594,10 @@ class _CompactWargaRow extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: isKepala
                     ? AppTheme.primaryGradient
-                    : const LinearGradient(
-                        colors: [AppTheme.extraLightGray, AppTheme.lightGray],
+                    : LinearGradient(
+                        colors: isDark
+                            ? [AppTheme.darkSurfaceRaised, AppTheme.darkBorderColor]
+                            : [AppTheme.extraLightGray, AppTheme.lightGray],
                       ),
                 borderRadius: BorderRadius.circular(11),
               ),
@@ -592,6 +624,7 @@ class _CompactWargaRow extends StatelessWidget {
                           warga.namaLengkap,
                           style: AppTheme.bodyMedium.copyWith(
                             fontWeight: FontWeight.w600,
+                            color: primaryText,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

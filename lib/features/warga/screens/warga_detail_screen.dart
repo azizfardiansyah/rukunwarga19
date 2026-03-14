@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pocketbase/pocketbase.dart';
@@ -13,6 +14,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/models/kartu_keluarga_model.dart';
 import '../../../shared/models/warga_model.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_skeleton.dart';
 import '../../../shared/widgets/app_surface.dart';
 
@@ -151,6 +153,11 @@ class _WargaDetailScreenState extends ConsumerState<WargaDetailScreen> {
                         _InfoRow(
                           label: 'NIK',
                           value: Formatters.formatNik(warga.nik),
+                          onLongPress: () {
+                            HapticFeedback.mediumImpact();
+                            Clipboard.setData(ClipboardData(text: warga.nik));
+                            AppToast.success(context, 'NIK berhasil disalin');
+                          },
                         ),
                         _InfoRow(
                           label: 'Tempat/Tgl Lahir',
@@ -440,16 +447,18 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
   final bool isLast;
+  final VoidCallback? onLongPress;
 
   const _InfoRow({
     required this.label,
     required this.value,
     this.isLast = false,
+    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final content = Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -460,7 +469,7 @@ class _InfoRow extends StatelessWidget {
               label,
               style: AppTheme.caption.copyWith(
                 fontWeight: FontWeight.w600,
-                color: AppTheme.textTertiary,
+                color: AppTheme.tertiaryTextFor(context),
               ),
             ),
           ),
@@ -474,9 +483,23 @@ class _InfoRow extends StatelessWidget {
               ),
             ),
           ),
+          if (onLongPress != null)
+            Icon(
+              Icons.content_copy_rounded,
+              size: 12,
+              color: AppTheme.tertiaryTextFor(context),
+            ),
         ],
       ),
     );
+
+    if (onLongPress != null) {
+      return GestureDetector(
+        onLongPress: onLongPress,
+        child: content,
+      );
+    }
+    return content;
   }
 }
 
@@ -497,12 +520,25 @@ class _PhotoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final backgroundColor = isDark
+        ? AppTheme.darkSurfaceRaised
+        : AppTheme.extraLightGray;
+    final borderColor = isDark
+        ? AppTheme.darkBorderColor
+        : AppTheme.dividerColor.withValues(alpha: 0.5);
+    final placeholderBg = isDark
+        ? AppTheme.darkSurfaceColor
+        : AppTheme.backgroundColor;
+    final textColor = AppTheme.primaryTextFor(context);
+    final secondaryTextColor = AppTheme.secondaryTextFor(context);
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: AppTheme.extraLightGray,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.dividerColor.withValues(alpha: 0.5)),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -511,11 +547,17 @@ class _PhotoCard extends StatelessWidget {
             title,
             style: AppTheme.caption.copyWith(
               fontWeight: FontWeight.w700,
-              color: AppTheme.textPrimary,
+              color: textColor,
             ),
           ),
           const SizedBox(height: 1),
-          Text(subtitle, style: AppTheme.caption.copyWith(fontSize: 10)),
+          Text(
+            subtitle,
+            style: AppTheme.caption.copyWith(
+              fontSize: 10,
+              color: secondaryTextColor,
+            ),
+          ),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
@@ -523,22 +565,22 @@ class _PhotoCard extends StatelessWidget {
               aspectRatio: wide ? 16 / 9 : 1,
               child: imageUrl == null
                   ? Container(
-                      color: AppTheme.backgroundColor,
+                      color: placeholderBg,
                       child: Icon(
                         placeholderIcon,
                         size: 32,
-                        color: AppTheme.textSecondary.withValues(alpha: 0.4),
+                        color: secondaryTextColor.withValues(alpha: 0.4),
                       ),
                     )
                   : Image.network(
                       imageUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (_, _, _) => Container(
-                        color: AppTheme.backgroundColor,
+                        color: placeholderBg,
                         child: Icon(
                           placeholderIcon,
                           size: 32,
-                          color: AppTheme.textSecondary.withValues(alpha: 0.4),
+                          color: secondaryTextColor.withValues(alpha: 0.4),
                         ),
                       ),
                     ),

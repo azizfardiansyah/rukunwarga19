@@ -325,6 +325,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           tone: AppTheme.toneSlate,
           onTap: () => context.push(Routes.laporan),
         ),
+      if (!isWarga)
+        _MenuEntry(
+          icon: Icons.analytics_rounded,
+          label: 'Laporan Warga',
+          subtitle: 'Demografi, umur & profesi',
+          tone: AppTheme.toneSky,
+          onTap: () => context.push(Routes.wargaLaporan),
+        ),
     ];
 
     final groups = <_MenuGroup>[];
